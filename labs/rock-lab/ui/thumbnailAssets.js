@@ -1,0 +1,17 @@
+export const ROCK_PRESET_THUMBNAILS = Object.freeze({
+  'basalt-columns': new URL('./thumbs/basalt-columns.webp', import.meta.url).href,
+  boulder: new URL('./thumbs/boulder.webp', import.meta.url).href,
+  'canyon-ridge': new URL('./thumbs/canyon-ridge.webp', import.meta.url).href,
+  'cliff-face': new URL('./thumbs/cliff-face.webp', import.meta.url).href,
+  'cliff-wall': new URL('./thumbs/cliff-wall.webp', import.meta.url).href,
+  'column-arch': new URL('./thumbs/column-arch.webp', import.meta.url).href,
+  'eroded-mesa': new URL('./thumbs/eroded-mesa.webp', import.meta.url).href,
+  'granite-boulder': new URL('./thumbs/granite-boulder.webp', import.meta.url).href,
+  'karst-spire': new URL('./thumbs/karst-spire.webp', import.meta.url).href,
+  'lowpoly-boulder': new URL('./thumbs/lowpoly-boulder.webp', import.meta.url).href,
+  'mossy-boulder': new URL('./thumbs/mossy-boulder.webp', import.meta.url).href,
+  'river-boulder': new URL('./thumbs/river-boulder.webp', import.meta.url).href,
+  'scree-cluster': new URL('./thumbs/scree-cluster.webp', import.meta.url).href,
+  'sea-stack': new URL('./thumbs/sea-stack.webp', import.meta.url).href,
+  'shard-monolith': new URL('./thumbs/shard-monolith.webp', import.meta.url).href,
+});

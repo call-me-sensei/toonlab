@@ -1,0 +1,98 @@
+{
+  "name": "@call-me-sensei/toonlab",
+  "version": "0.2.0",
+  "description": "Stylized (anime/toon) game starter kit for Three.js: character toon shading, environment shading, water, vegetation, sky, and post-processing",
+  "license": "MIT",
+  "author": "Hyperbond Studio PTE. LTD. (Call Me Sensei)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/call-me-sensei/toonlab.git"
+  },
+  "homepage": "https://github.com/call-me-sensei/toonlab#readme",
+  "bugs": {
+    "url": "https://github.com/call-me-sensei/toonlab/issues"
+  },
+  "keywords": [
+    "three",
+    "threejs",
+    "toon",
+    "cel-shading",
+    "anime",
+    "shader",
+    "water",
+    "game-starter"
+  ],
+  "type": "module",
+  "main": "./src/index.js",
+  "module": "./src/index.js",
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE",
+    "ATTRIBUTION.md",
+    "AGENTS.md"
+  ],
+  "exports": {
+    ".": "./src/index.js",
+    "./toon": "./src/toon/index.js",
+    "./environment": "./src/environment/index.js",
+    "./water": "./src/water/index.js",
+    "./vegetation": "./src/vegetation/index.js",
+    "./sky": "./src/sky/index.js",
+    "./post": "./src/post/index.js",
+    "./rockgen": "./src/rockgen/index.js",
+    "./debrisgen": "./src/debrisgen/index.js",
+    "./character": "./src/character/index.js",
+    "./loaders": "./src/loaders/index.js",
+    "./debug": "./src/debug/index.js",
+    "./toon-settings": "./src/toon/toonSettings.js",
+    "./water-settings": "./src/water/waterSettings.js",
+    "./grass": "./src/vegetation/stylizedGrass.js",
+    "./post-processing": "./src/post/postProcessing.js"
+  },
+  "scripts": {
+    "assets:characters": "node scripts/generate-local-character-assets.mjs",
+    "assets:environments": "node scripts/generate-local-environment-assets.mjs",
+    "assets:local": "npm run assets:characters && npm run assets:environments",
+    "dev": "vite",
+    "build": "vite build",
+    "baseline:compare": "node scripts/compare-baselines.mjs",
+    "preview": "vite preview",
+    "baseline:capture": "node scripts/baseline-capture.mjs",
+    "verify:rockgen": "node scripts/verify-rockgen.mjs",
+    "visual:check": "node scripts/visual-check.mjs"
+  },
+  "peerDependencies": {
+    "@pixiv/three-vrm": "^3.5.4",
+    "three-mesh-bvh": "^0.8.3",
+    "three-stdlib": "^2.36.1",
+    "three": "^0.185.1"
+  },
+  "peerDependenciesMeta": {
+    "@pixiv/three-vrm": {
+      "optional": true
+    },
+    "three-mesh-bvh": {
+      "optional": true
+    },
+    "three-stdlib": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@pixiv/three-vrm": "^3.5.4",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
+    "@react-three/rapier": "^2.2.0",
+    "@vitejs/plugin-react": "^4.7.0",
+    "ecctrl": "^1.0.97",
+    "lucide-react": "^1.23.0",
+    "playwright": "^1.60.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "three": "^0.185.1",
+    "three-mesh-bvh": "^0.8.3",
+    "three-stdlib": "^2.36.1",
+    "vite": "^5.0.0"
+  }
+}

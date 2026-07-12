@@ -1,0 +1,150 @@
+// Small stateless kit primitives. Anything with real interaction logic
+// (Slider, overlays) lives in its own file.
+
+import { Icon } from './Icon.jsx';
+
+export function Button({
+  children, disabled = false, icon = null, kind = 'secondary', onClick, testId, title,
+}) {
+  return (
+    <button
+      type="button"
+      className="tk-button"
+      data-kind={kind}
+      data-testid={testId}
+      disabled={disabled}
+      onClick={onClick}
+      title={title}
+    >
+      {icon && <Icon name={icon} />}
+      {children}
+    </button>
+  );
+}
+
+export function IconButton({
+  active = false, disabled = false, icon, label, onClick, testId,
+}) {
+  return (
+    <button
+      type="button"
+      className="tk-icon-button"
+      data-active={active || undefined}
+      data-testid={testId}
+      aria-label={label}
+      title={label}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <Icon name={icon} />
+    </button>
+  );
+}
+
+export function Badge({ children, tone = 'neutral' }) {
+  return <span className="tk-badge" data-tone={tone}>{children}</span>;
+}
+
+export function Kbd({ keys }) {
+  return <kbd className="tk-kbd">{keys}</kbd>;
+}
+
+export function Toggle({ checked, disabled = false, onChange, testId }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      className="tk-toggle"
+      aria-checked={checked}
+      data-testid={testId}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+    />
+  );
+}
+
+export function Select({
+  disabled = false, onChange, options, testId, value,
+}) {
+  return (
+    <select
+      className="tk-select"
+      data-testid={testId}
+      disabled={disabled}
+      value={String(value)}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      {options.map((option) => (
+        <option key={String(option.value)} value={String(option.value)}>
+          {option.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+export function TextField({
+  onCommit, placeholder, testId, value,
+}) {
+  return (
+    <input
+      type="text"
+      className="tk-text-field"
+      data-testid={testId}
+      defaultValue={value}
+      placeholder={placeholder}
+      onBlur={(event) => onCommit(event.target.value)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') event.currentTarget.blur();
+      }}
+    />
+  );
+}
+
+export function SegmentedControl({
+  onChange, options, testId, value,
+}) {
+  return (
+    <div className="tk-segmented" data-testid={testId} role="group">
+      {options.map((option) => (
+        <button
+          key={String(option.value)}
+          type="button"
+          aria-pressed={option.value === value}
+          title={option.title}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function channelToHex(channel) {
+  return Math.round(Math.min(Math.max(channel, 0), 1) * 255).toString(16).padStart(2, '0');
+}
+
+/** value is an sRGB triplet [r, g, b] in 0..1 (the settings-schema shape). */
+export function ColorWell({
+  onChange, size = 'normal', testId, value,
+}) {
+  const hex = `#${channelToHex(value[0])}${channelToHex(value[1])}${channelToHex(value[2])}`;
+  return (
+    <span className="tk-color-well" data-size={size} style={{ background: hex }}>
+      <input
+        type="color"
+        data-testid={testId}
+        value={hex}
+        onChange={(event) => {
+          const raw = event.target.value.slice(1);
+          onChange([
+            parseInt(raw.slice(0, 2), 16) / 255,
+            parseInt(raw.slice(2, 4), 16) / 255,
+            parseInt(raw.slice(4, 6), 16) / 255,
+          ]);
+        }}
+      />
+    </span>
+  );
+}

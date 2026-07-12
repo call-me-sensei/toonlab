@@ -1,0 +1,451 @@
+/* toonlab UI kit — component styles. Class-prefixed `tk-`; every value
+ * comes from tokens.css. Components add behavior in JSX; this file owns
+ * every pixel. */
+
+.tk {
+  font: var(--type-body);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- Button / IconButton -------------------------------------------- */
+
+.tk-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font: var(--type-label);
+  cursor: pointer;
+  transition: background var(--motion-fast), border-color var(--motion-fast);
+  white-space: nowrap;
+}
+.tk-button:hover { background: var(--surface-3); }
+.tk-button:disabled { opacity: 0.4; cursor: default; }
+.tk-button[data-kind='primary'] {
+  border-color: transparent;
+  background: var(--accent-500);
+  color: var(--text-on-accent);
+}
+.tk-button[data-kind='primary']:hover { background: var(--accent-400); }
+.tk-button[data-kind='primary']:active { background: var(--accent-600); }
+.tk-button[data-kind='ghost'] {
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-secondary);
+}
+.tk-button[data-kind='ghost']:hover { background: var(--surface-3); color: var(--text-primary); }
+.tk-button[data-kind='danger']:hover {
+  border-color: var(--danger);
+  background: var(--danger-subtle);
+  color: var(--danger);
+}
+
+.tk-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-2);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.tk-icon-button:hover { background: var(--surface-3); color: var(--text-primary); }
+.tk-icon-button[data-active='true'] {
+  background: var(--accent-subtle);
+  color: var(--accent-400);
+}
+.tk-icon-button:disabled { opacity: 0.35; cursor: default; }
+
+.tk-icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---- Field row (label · control · value) ------------------------------ */
+
+.tk-field {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr) 48px;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 26px;
+  border-radius: var(--radius-1);
+  padding: 1px var(--space-1);
+}
+.tk-field:has(> :last-child:empty) {
+  grid-template-columns: 104px minmax(0, 1fr);
+}
+.tk-field > :last-child:empty {
+  display: none;
+}
+.tk-field[data-disabled='true'] { opacity: 0.4; }
+.tk-field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+  font: var(--type-label);
+  line-height: 14px;
+  color: var(--text-secondary);
+  cursor: default;
+  /* The reset dot floats in the row's left gutter (absolute) instead of
+     indenting every label — labels start flush with the section title. */
+  position: relative;
+}
+/* Labels NEVER truncate: long ones wrap to a second line instead. */
+.tk-field-label-text {
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+.tk-field:hover .tk-field-label { color: var(--text-primary); }
+.tk-field-reset {
+  position: absolute;
+  left: -13px;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: none;
+  border-radius: var(--radius-full);
+  padding: 0;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  visibility: hidden;
+}
+.tk-field:hover .tk-field-reset[data-dirty='true'] { visibility: visible; }
+.tk-field-reset:hover { color: var(--accent-400); }
+.tk-field-value {
+  font: var(--type-value);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  text-align: right;
+  cursor: ew-resize;
+  user-select: none;
+  border-radius: var(--radius-1);
+  padding: 2px 3px;
+}
+.tk-field-value:hover { background: var(--surface-3); color: var(--text-primary); }
+.tk-field-value-input {
+  width: 100%;
+  border: 1px solid var(--border-active);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font: var(--type-value);
+  text-align: right;
+  padding: 1px 2px;
+}
+
+/* ---- Slider ------------------------------------------------------------ */
+
+.tk-slider {
+  position: relative;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  cursor: pointer;
+  touch-action: none;
+}
+.tk-slider-track {
+  position: relative;
+  width: 100%;
+  height: 3px;
+  border-radius: var(--radius-full);
+  background: var(--surface-3);
+}
+.tk-slider-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: var(--radius-full);
+  background: var(--accent-400);
+}
+.tk-slider-default-tick {
+  position: absolute;
+  top: -3px;
+  width: 1px;
+  height: 9px;
+  background: var(--text-tertiary);
+}
+.tk-slider-thumb {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: var(--radius-full);
+  background: var(--text-primary);
+  box-shadow: var(--shadow-1);
+  transform: translate(-50%, -50%);
+  transition: transform var(--motion-fast);
+}
+.tk-slider:hover .tk-slider-thumb { transform: translate(-50%, -50%) scale(1.15); }
+.tk-slider[data-disabled='true'] { pointer-events: none; }
+
+/* ---- Select / TextField / NumberField ----------------------------------- */
+
+.tk-select,
+.tk-text-field {
+  width: 100%;
+  min-width: 0;
+  min-height: 26px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font: var(--type-body);
+  padding: 0 var(--space-2);
+}
+.tk-select:hover, .tk-text-field:hover { border-color: var(--border-active); }
+.tk-select { cursor: pointer; }
+
+/* ---- SegmentedControl ------------------------------------------------------ */
+
+.tk-segmented {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+}
+.tk-segmented button {
+  min-height: 22px;
+  border: none;
+  border-radius: var(--radius-1);
+  background: transparent;
+  color: var(--text-secondary);
+  font: var(--type-caption);
+  cursor: pointer;
+  padding: 0 var(--space-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tk-segmented button:hover { color: var(--text-primary); }
+.tk-segmented button[aria-pressed='true'] {
+  background: var(--accent-subtle);
+  color: var(--accent-300);
+}
+
+/* ---- Toggle ------------------------------------------------------------------ */
+
+.tk-toggle {
+  position: relative;
+  width: 30px;
+  height: 17px;
+  flex: none;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--surface-3);
+  cursor: pointer;
+  transition: background var(--motion-fast);
+}
+.tk-toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 13px;
+  height: 13px;
+  border-radius: var(--radius-full);
+  background: var(--text-secondary);
+  transition: transform var(--motion-fast), background var(--motion-fast);
+}
+.tk-toggle[aria-checked='true'] { background: var(--accent-500); }
+.tk-toggle[aria-checked='true']::after {
+  background: #fff;
+  transform: translateX(13px);
+}
+
+/* ---- ColorWell ------------------------------------------------------------------ */
+
+.tk-color-well {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-1);
+  cursor: pointer;
+  overflow: hidden;
+}
+.tk-color-well[data-size='large'] { width: 100%; height: 36px; }
+.tk-color-well input[type='color'] {
+  position: absolute;
+  inset: -8px;
+  width: calc(100% + 16px);
+  height: calc(100% + 16px);
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+/* ---- Badge / Kbd / Tooltip -------------------------------------------------------- */
+
+.tk-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-full);
+  font: var(--type-caption);
+  background: var(--surface-3);
+  color: var(--text-secondary);
+}
+.tk-badge[data-tone='accent'] { background: var(--accent-subtle); color: var(--accent-300); }
+.tk-badge[data-tone='success'] { background: var(--success-subtle); color: var(--success); }
+.tk-badge[data-tone='warning'] { background: var(--warning-subtle); color: var(--warning); }
+.tk-badge[data-tone='danger'] { background: var(--danger-subtle); color: var(--danger); }
+
+.tk-kbd {
+  display: inline-block;
+  min-width: 16px;
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  font: var(--type-caption);
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.tk-tooltip {
+  position: fixed;
+  z-index: var(--z-toast);
+  max-width: 260px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-2);
+  background: var(--surface-overlay);
+  backdrop-filter: var(--blur-overlay);
+  box-shadow: var(--shadow-2);
+  font: var(--type-body);
+  color: var(--text-primary);
+  pointer-events: none;
+}
+.tk-tooltip-meta { color: var(--text-tertiary); font: var(--type-caption); margin-top: 2px; }
+
+/* ---- Popover / Modal / Toast --------------------------------------------------------- */
+
+.tk-popover {
+  position: fixed;
+  z-index: var(--z-popover);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-3);
+  background: var(--surface-overlay);
+  backdrop-filter: var(--blur-overlay);
+  box-shadow: var(--shadow-2);
+  padding: var(--space-3);
+  pointer-events: auto;
+}
+.tk-popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+  font: var(--type-title);
+}
+
+.tk-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  place-items: center;
+  background: var(--surface-scrim);
+  pointer-events: auto;
+}
+.tk-modal {
+  width: min(560px, calc(100vw - 48px));
+  max-height: calc(100vh - 96px);
+  overflow: auto;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-4);
+  background: var(--surface-1);
+  box-shadow: var(--shadow-3);
+  padding: var(--space-5);
+}
+.tk-modal-title { font: var(--type-title); margin-bottom: var(--space-4); }
+
+.tk-toast-stack {
+  position: fixed;
+  top: calc(var(--topbar-h) + var(--space-3));
+  right: var(--space-4);
+  z-index: var(--z-toast);
+  display: grid;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+.tk-toast {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-2);
+  background: var(--surface-overlay);
+  backdrop-filter: var(--blur-overlay);
+  box-shadow: var(--shadow-2);
+  font: var(--type-body);
+  animation: tk-toast-in var(--motion-panel);
+}
+.tk-toast[data-tone='success'] { border-color: rgba(123, 214, 154, 0.4); }
+.tk-toast[data-tone='danger'] { border-color: rgba(240, 122, 106, 0.4); }
+@keyframes tk-toast-in {
+  from { opacity: 0; transform: translateY(-6px); }
+}
+
+/* ---- PanelSection ------------------------------------------------------------------------ */
+
+.tk-section { border-bottom: 1px solid var(--border-subtle); padding: var(--space-3) 0; }
+.tk-section:last-child { border-bottom: none; }
+.tk-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font: var(--type-section);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  margin: 0 var(--space-1) var(--space-2);
+  cursor: pointer;
+  user-select: none;
+}
+.tk-section-caption {
+  font: var(--type-caption);
+  color: var(--text-tertiary);
+  margin: calc(-1 * var(--space-1)) var(--space-1) var(--space-2);
+}
+.tk-section-fields { display: grid; gap: 2px; }
+.tk-advanced-toggle {
+  margin: var(--space-2) var(--space-1) 0;
+  border: none;
+  background: none;
+  color: var(--text-tertiary);
+  font: var(--type-caption);
+  cursor: pointer;
+  text-align: left;
+  padding: 0;
+}
+.tk-advanced-toggle:hover { color: var(--text-secondary); }

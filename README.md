@@ -1,0 +1,198 @@
+# ToonLab by Call Me Sensei
+
+ToonLab by Call Me Sensei is a stylized anime-style game starter kit and
+runtime library for [Three.js](https://threejs.org/). Its goal is to simplify
+Three.js game development: you get a better-looking anime/stylized game
+without having to develop shaders yourself, and procedurally generated assets
+(trees, rocks, grass, water, sky) reduce content complexity so you can focus
+on your core game logic instead. Clone it and a toon-shaded character is
+walking and swimming through a fully stylized world: cel-shaded characters,
+painterly environments, interactive water, procedural vegetation and sky,
+post-processing, and a schema-driven tuning panel. Use it as a starter kit,
+or import the pieces you need as a library (`@call-me-sensei/toonlab` on npm,
+subpath exports per cluster).
+
+## Quickstart
+
+**No install** — use the hosted labs at **[toonlab.io](https://toonlab.io)**:
+tune character and environment shaders, design trees and rocks, and export
+presets straight from the browser.
+
+**As a library** in your own Three.js app:
+
+```bash
+npm install @call-me-sensei/toonlab
+```
+
+**Run the labs locally** (this repo):
+
+```bash
+git clone https://github.com/call-me-sensei/toonlab.git && cd toonlab
+npm install
+npm run dev
+```
+
+Vite serves the labs at `http://localhost:5175`. See
+[Getting started](docs/getting-started.md) for a tour.
+
+## The labs
+
+Runnable demos in `labs/` (not published to npm). Switch between them with
+the HUD Scene select:
+
+- **Shader Lab** (`/`) — character + environment shader tuning: every toon
+  and environment setting as a live control, preset export/import, debug
+  views.
+- **Playground** (`/playground/`) — third-person character controller
+  in gameplay scenes: calm lake, river crossing, ocean beach with breaking
+  waves, and an indoor room. Walk, jump, swim, splash.
+- **Rock Lab** (`/rock-lab/`) — procedural stylized rocks, cliffs,
+  heightfields, sculpt edits, and GLB export.
+- **Tree Lab** (`/tree-lab/`) — procedural stylized trees,
+  flowers, sketches, recipes, and GLB export.
+- **Outdoor World** (`/examples/outdoor-world/`) — the flagship example: a
+  seeded 1×1 km open world built entirely from the public library API —
+  generated terrain, forests, lakes, cliffs, a swimmable character, and a
+  click-to-travel minimap. Re-roll it from the URL:
+  `?seed=42&archetype=lakeland&water=0.4&islands=3`.
+
+Every URL parameter has a HUD control, lab state persists per lab in
+`localStorage`, and **Reset Lab** clears it. Point any lab at your own model
+with the Model URL input or `?model=` — see
+[Characters](docs/characters.md).
+
+## What's inside
+
+| Cluster | Import | What you get |
+|---|---|---|
+| Toon character shading | `@call-me-sensei/toonlab/toon` | Modern anime character shader: cel bands with art-directed face lighting, skin-tone shadow management, shadow-color HSV control, scene/self/contact shadows, average-shadow smoothing, rim light (fresnel or screen-space depth), stylized + anisotropic hair highlights, eye catchlights, role-aware specular, source map routing (normal/AO/emissive/MatCap/ramp/detail), inverted-hull outlines, glitter, stickers, perspective removal, shell fur, dither fades — 23 settings groups, all preset-serializable. [Docs](docs/toon-shading.md) |
+| Environment shading | `@call-me-sensei/toonlab/environment` | Modern anime-style scene shader for texture packs, standard glTF, and untextured scenes: material-role classification, wrapped lighting, packed-map hints, window cutouts, sun/lamp rigs, time-of-day, six-direction ambient probe, planar floor reflections, BVH vertex-AO baking, height fog, cloud shadows. [Docs](docs/environment.md) |
+| Water | `@call-me-sensei/toonlab/water` | Fully procedural interactive water: Gerstner wave stack with a calm→storm dial, wave sets, plunging breakers you can surf, three-stop absorption color, refraction/caustics/foam, GPU ripple sim, splashes, wakes, rain, kelp, underwater view — with a CPU mirror of the whole spectrum for buoyancy. [Docs](docs/water.md) |
+| Vegetation | `@call-me-sensei/toonlab/vegetation` | Instanced grass and flower fields (wind, push-away, scene + cloud shadows, backlit translucency) and procedural stylized trees with a serializable recipe system. [Docs](docs/vegetation-sky.md) |
+| Sky | `@call-me-sensei/toonlab/sky` | Procedural gradient/sun/painterly-cloud/star dome that also shows up in water reflections. [Docs](docs/vegetation-sky.md) |
+| Post-processing | `@call-me-sensei/toonlab/post` | Optional single-pipeline compositor: character-aware bloom, color grade, LUT, vignette, screen outline, depth cue — schema-driven, preset-serializable. [Docs](docs/post-processing.md) |
+| Character pipeline | `@call-me-sensei/toonlab/character` | Bone-role adapters for VRM/MMD/Mixamo/Rigify rigs, native-clip conventions, Mixamo retarget helpers, and a procedural freestyle swim clip. [Docs](docs/characters.md) |
+| Model loaders | `@call-me-sensei/toonlab/loaders` | Optional GLB/glTF, VRM 0+1, PMX/PMD, FBX, OBJ, and text-USDZ loading helpers. Kept off the root import so apps that do not load models avoid loader dependencies. [Docs](docs/characters.md) |
+| Debug panel | `@call-me-sensei/toonlab/debug` | One-line schema-driven tuning GUI for any settings module — the same panel the labs use. [Docs](docs/debug-panel.md) |
+
+Zero texture assets in the library: water, sky, grass, flowers, trees, and
+splashes are all procedural. The one bundled model is a CC0 mannequin with 45
+embedded animation clips.
+
+## Library usage
+
+### A complete open world in one screen of code
+
+```js
+import { createStylizedTerrain, createStylizedWorld, createWorldMinimap } from '@call-me-sensei/toonlab';
+
+// Seeded terrain generator — ANY seed is a valid, playable world. One knob
+// per big idea: waterCoverage (how much water), height (mountain range),
+// depth (basins), size (number or { x, z }), floatingIslands, sinkholes.
+const terrain = createStylizedTerrain({ seed: 42, size: 1000, archetype: 'terracedKarst' });
+const terrainRoot = new THREE.Group();
+terrainRoot.add(terrain.root);
+scene.add(terrainRoot);
+
+// Environment shading, aligned sun + real shadows, sky, anime water, LOD
+// forests (billboard far trees), follow-window grass, cloud shadows,
+// unified three-layer fog, and collision — all on by default.
+const world = await createStylizedWorld({
+  renderer, scene, camera,
+  terrain: { heightAt: terrain.heightAt, root: terrainRoot, size: terrain.meshExtent },
+  water: { level: terrain.waterLevel },
+  followTarget: character, // your character root (optional): splashes, wakes, grass push
+});
+character.position.copy(terrain.spawn); // probed: walkable, near a shore
+
+const clock = new THREE.Clock();
+renderer.setAnimationLoop(() => {
+  world.update(clock.getDelta());
+  renderer.render(scene, camera);
+});
+```
+
+**Bring your own terrain instead** — the generator is optional. The whole
+contract is a pure `heightAt(x, z)` in meters plus your displaced mesh under
+`terrain.root`; masks, scatter, collision, and the minimap all derive from
+it:
+
+```js
+const heightAt = (x, z) => 12 * Math.sin(x / 90) * Math.cos(z / 90); // yours
+const world = await createStylizedWorld({
+  renderer, scene, camera,
+  terrain: { heightAt, root: myTerrainRoot, size: 1200 },
+  water: { level: 0 },
+});
+```
+
+Add a clickable minimap with `createWorldMinimap({ heightAt, size,
+waterLevel, onPick })`, and solid rocks/trees with the built-in
+`world.collision` (`addCircles` for your own props, `resolve(position,
+radius)` per frame). Archetypes: `terracedKarst`, `lakeland`, `alpine`,
+`rollingPlains`, `archipelago`.
+
+### Individual clusters
+
+```js
+import { applyToonShader, createToonSettings } from '@call-me-sensei/toonlab/toon';
+
+const settings = createToonSettings({
+  preset: 'default',
+  skinTone: {
+    skinShadowBrightness: 0.94,
+  },
+});
+
+applyToonShader(characterRoot, { settings });
+```
+
+```js
+import { WaterSurface } from '@call-me-sensei/toonlab/water';
+import { StylizedSky } from '@call-me-sensei/toonlab/sky';
+
+const water = new WaterSurface({ width: 200, depth: 200, preset: 'lake' });
+scene.add(water);
+const sky = new StylizedSky();
+scene.add(sky);
+
+// per frame, before renderer.render(scene, camera):
+water.update(renderer, scene, camera, delta);
+sky.update(delta, camera);
+```
+
+Inside this repo the labs import from `../../src/...`; the `@call-me-sensei/toonlab/...`
+specifiers are what you use once the package is installed from npm. The
+shader clusters are TSL/NodeMaterial modules for Three's WebGPU renderer
+stack, with WebGL2 fallback through the same TSL path.
+
+## Documentation
+
+- [Getting started](docs/getting-started.md) — clone, run, tour the labs,
+  load your own models.
+- [Toon character shading](docs/toon-shading.md)
+- [Environment shading](docs/environment.md)
+- [Water](docs/water.md)
+- [Vegetation and sky](docs/vegetation-sky.md)
+- [Post-processing](docs/post-processing.md)
+- [Characters and animation](docs/characters.md)
+- [Debug panel](docs/debug-panel.md)
+- [World scale and world presets](docs/world-scale.md) — the meters
+  convention, open-world scale presets, rock quality tiers, and vegetation
+  scatter helpers.
+- [Settings reference](docs/settings-reference.md) — every tunable field,
+  generated from the schemas (`node scripts/generate-settings-reference.mjs`).
+- [Shader constants](docs/shader-constants.md) — the deliberately unexposed
+  constants and where they live.
+
+## AI coding agents
+
+The GitHub repo includes downloadable runtime-usage guidance for Codex, Claude
+Code, Cursor, and other coding agents under `agents/`. These files help
+developers use ToonLab in their own apps and are not part of the npm package.
+
+## License
+
+Code is [MIT](LICENSE), copyright Hyperbond Studio PTE. LTD. Bundled assets are CC0 — see
+[ATTRIBUTION.md](ATTRIBUTION.md) for credits and for the bring-your-own
+conventions (Mixamo clips, your own models, licensed scan packs).

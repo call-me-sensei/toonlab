@@ -1,0 +1,52 @@
+// Inline-SVG icon set: 20×20 grid, 1.5px stroke, round caps, currentColor.
+// Semantic names per the design spec; add here, never inline path data in
+// components. <Icon name="tool-branch" />
+
+const PATHS = {
+  'logo-toonlab': <><circle cx="10" cy="8" r="4.5" /><path d="M10 12.5V17M7.5 17h5" /></>,
+  home: <path d="M4 9.5 10 4l6 5.5V16a1 1 0 0 1-1 1h-3.5v-4h-3v4H5a1 1 0 0 1-1-1Z" />,
+  'tool-move': <path d="M10 3v14M3 10h14M10 3 8 5m2-2 2 2M10 17l-2-2m2 2 2-2M3 10l2-2m-2 2 2 2M17 10l-2-2m2 2-2 2" />,
+  'tool-trunk': <path d="M8 17V9c0-2 .5-3.5 2-5 1.5 1.5 2 3 2 5v8M6.5 17h7M10 9c-1.5 0-2.5-.7-3.5-2M10 11c1.5 0 2.5-.7 3.5-2" />,
+  'tool-branch': <path d="M5 17C7 13 9 11 14 9M14 9l-3-.5M14 9l-1 3M14 9c1.5-1 2-2.5 2-4" />,
+  'tool-leaves': <path d="M10 16c-4 0-6-2.5-6-6 0-3 2-5.5 6-6.5C14 4.5 16 7 16 10c0 3.5-2 6-6 6ZM10 16c0-4.5 0-7.5 0-9.5" />,
+  'tool-crown': <path d="M4.5 12.5C3 11 3 8 5 6.5 6 4.5 9 4 10.5 5 13 4 15.5 5.5 16 8c1.5 1.5 1 4.5-1 5.5-.5 2-3 3-5 2-2 .5-4.5-.5-5.5-3Z" />,
+  'tool-rotate': <path d="M15.5 8.5A5.8 5.8 0 0 0 5.2 6.2L4 7.5M4 7.5V4M4 7.5h3.5M4.5 11.5a5.8 5.8 0 0 0 10.3 2.3L16 12.5M16 12.5V16M16 12.5h-3.5" />,
+  'tool-size': <path d="M10 3v14M10 3 7.5 5.5M10 3l2.5 2.5M10 17l-2.5-2.5M10 17l2.5-2.5M5 10h10" />,
+  'tool-erase': <path d="m12 4 4 4-7.5 7.5a1.5 1.5 0 0 1-2 0L4 13a1.5 1.5 0 0 1 0-2Zm-5.5 3.5 6 6M6 17h10" />,
+  'stage-shape': <><circle cx="10" cy="10" r="6.5" /><path d="M10 3.5v13M3.5 10h13" opacity="0.5" /></>,
+  'stage-wood': <path d="M9 17V8.5C9 6 9.5 4.5 10.5 3c1 1.5 1.5 3 1.5 5.5V17M7 17h7M9 10 5.5 7.5M12 12l3.5-2.5" />,
+  'stage-leaves': <path d="M4 12c0-4.5 3-7.5 8-8 2.5-.5 4 .5 4 2.5 0 5-3.5 9-8.5 9C5.5 15.5 4 14 4 12ZM6 14c2.5-3 5-5 8-6.5" />,
+  'stage-look': <><circle cx="10" cy="10" r="6.5" /><path d="M10 3.5a6.5 6.5 0 0 1 0 13c2-1.5 3-4 3-6.5s-1-5-3-6.5Z" /></>,
+  'stage-export': <path d="M10 12V3.5M10 3.5 6.5 7M10 3.5 13.5 7M4 12v3a1.5 1.5 0 0 0 1.5 1.5h9A1.5 1.5 0 0 0 16 15v-3" />,
+  dice: <><rect x="3.5" y="3.5" width="13" height="13" rx="2.5" /><circle cx="7.2" cy="7.2" r="0.9" fill="currentColor" stroke="none" /><circle cx="12.8" cy="12.8" r="0.9" fill="currentColor" stroke="none" /><circle cx="12.8" cy="7.2" r="0.9" fill="currentColor" stroke="none" /><circle cx="7.2" cy="12.8" r="0.9" fill="currentColor" stroke="none" /></>,
+  undo: <path d="M7.5 5 4 8.5 7.5 12M4 8.5h8a4 4 0 0 1 0 8H9" />,
+  redo: <path d="M12.5 5 16 8.5 12.5 12M16 8.5H8a4 4 0 0 0 0 8h3" />,
+  link: <path d="M8.5 11.5a3.5 3.5 0 0 0 5 0l2-2a3.54 3.54 0 0 0-5-5l-1 1M11.5 8.5a3.5 3.5 0 0 0-5 0l-2 2a3.54 3.54 0 0 0 5 5l1-1" />,
+  download: <path d="M10 3v9M10 12 6.5 8.5M10 12l3.5-3.5M4 14v1.5A1.5 1.5 0 0 0 5.5 17h9a1.5 1.5 0 0 0 1.5-1.5V14" />,
+  plus: <path d="M10 4.5v11M4.5 10h11" />,
+  close: <path d="m5 5 10 10M15 5 5 15" />,
+  'chevron-down': <path d="m5.5 8 4.5 4.5L14.5 8" />,
+  search: <><circle cx="9" cy="9" r="5.5" /><path d="m13 13 3.5 3.5" /></>,
+  reset: <path d="M4.5 8A6 6 0 1 1 4 11.5M4 7V4m0 3h3" />,
+  pin: <path d="M12.5 3.5 16.5 7.5 12 12l-.5 3.5-7-7L8 8ZM7 13l-3.5 3.5" />,
+  info: <><circle cx="10" cy="10" r="6.5" /><path d="M10 9v4M10 6.8v.2" /></>,
+  check: <path d="m4.5 10.5 3.5 3.5 7.5-8" />,
+  warning: <path d="M10 3.5 17 16H3ZM10 8.5v3.5M10 14v.2" />,
+  overflow: <><circle cx="10" cy="5" r="1" fill="currentColor" stroke="none" /><circle cx="10" cy="10" r="1" fill="currentColor" stroke="none" /><circle cx="10" cy="15" r="1" fill="currentColor" stroke="none" /></>,
+  drawer: <path d="M4 6h12M4 10h12M4 14h12" />,
+  sketch: <path d="m12.5 3.5 4 4L7 17l-4.5 1L4 13.5ZM11 5l4 4M3.5 8c1.5-1.5 3-1.5 4.5 0" />,
+  'stage-animation': <path d="M11 3c2.5.5 4 2 4 4.5S13 12 10.5 12 7 10.5 7 8.5C7 6 9 4 11 3ZM11 3c-.5 2-.5 4 0 6M4 13c2 .8 4 .8 6 0M3 16.5c2.5 1 5.5 1 8.5-.5" />,
+  'stage-flowers': <><circle cx="10" cy="7" r="2" /><path d="M10 5V3.5M12 7h1.5M8 7H6.5M10 9v1.5M11.5 5.5l1-1M8.5 5.5l-1-1M11.5 8.5l1 1M8.5 8.5l-1 1M10 10.5V17M10 14c-1.5 0-2.5-.8-3-2M10 15c1.5 0 2.5-.8 3-2" /></>,
+  'stage-detail': <path d="M10 3.5 16 8l-2.2 8H6.2L4 8ZM4 8h12M10 3.5 8 16M10 3.5 12.5 16" />,
+  'stage-pieces': <path d="M10 3.5 4 6.5l6 3 6-3ZM4 10l6 3 6-3M4 13.5l6 3 6-3" />,
+  'tool-sculpt-add': <><circle cx="10" cy="10" r="6" /><path d="M10 7v6M7 10h6" /></>,
+  'tool-sculpt-sub': <><circle cx="10" cy="10" r="6" /><path d="M7 10h6" /></>,
+};
+
+export function Icon({ name, className = '' }) {
+  return (
+    <svg className={`tk-icon ${className}`} viewBox="0 0 20 20" aria-hidden="true">
+      {PATHS[name] ?? PATHS.info}
+    </svg>
+  );
+}

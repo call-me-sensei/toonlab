@@ -18,6 +18,7 @@ import {
 } from '../../../src/toon/toonMaterialAdapter.js';
 import {
   createWaterSettings,
+  sanitizeWaterPresetSettings,
   WATER_COLOR_TONE_NAMES,
   WATER_DEBUG_MODES,
   WATER_PRESET_NAMES,
@@ -32,6 +33,7 @@ import {
   normalizeModelPath,
   SCENE_HUB_OPTIONS,
 } from '../../shared/sceneHub.js';
+import { setLabHandoff } from '../../shared/labHandoff.js';
 import { modelLabelFromUrl } from '../hud.js';
 import {
   BODY_CENTER_AT_REST,
@@ -74,8 +76,18 @@ function formatWaterValue(value, digits = 2) {
 }
 
 function WaterHud({ cameraMode = 'follow', debugMode, envPreset, onCameraModeChange, onDebugModeChange, onDropBall, onDropSinker, onEnvPresetChange, onSettingsChange, settings }) {
-  const sceneHubId = 'waterLab';
-  const sceneHubLabel = SCENE_HUB_OPTIONS.find((option) => option.id === sceneHubId)?.label || 'Water Lab';
+  const sceneHubId = 'waterPlayground';
+  const sceneHubLabel = SCENE_HUB_OPTIONS.find((option) => option.id === sceneHubId)?.label || 'Water Playground';
+
+  // Round trip with the standalone Water Lab: carry the live settings over so
+  // in-scene tweaks keep editing from where they left off.
+  const editInWaterLab = useCallback(() => {
+    setLabHandoff('water-lab-import', {
+      preset: settings.mode ?? null,
+      settings: sanitizeWaterPresetSettings(settings),
+    });
+    window.location.href = '/water-lab/';
+  }, [settings]);
   const updateSetting = useCallback((key, value) => {
     if (key === 'mode') {
       // Fresh preset load, re-tinted by the active environment preset. The
@@ -154,6 +166,9 @@ function WaterHud({ cameraMode = 'follow', debugMode, envPreset, onCameraModeCha
           {WATER_PRESET_NAMES.map((mode) => (
             <option key={mode} value={mode}>{mode}</option>
           ))}
+          {!WATER_PRESET_NAMES.includes(settings.mode) && (
+            <option value={settings.mode}>{settings.mode}</option>
+          )}
         </select>
         <output htmlFor="waterMode">{settings.mode}</output>
 
@@ -372,6 +387,7 @@ function WaterHud({ cameraMode = 'follow', debugMode, envPreset, onCameraModeCha
       <div className="water-drop-buttons">
         <button className="water-drop-button" type="button" onClick={onDropBall}>Drop Ball</button>
         <button className="water-sinker-button" type="button" onClick={onDropSinker}>Drop Sinker</button>
+        <button className="water-drop-button" type="button" onClick={editInWaterLab}>Edit in Water Lab</button>
       </div>
     </div>
   );

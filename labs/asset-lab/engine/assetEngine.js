@@ -13,7 +13,8 @@
 //   fill — soft camera-side directional, no shadows; silhouette/front fill
 //
 // Automation contract (lab-probe / MCP preview assert these):
-//   document.body.dataset.modelReady   — 'true' after a successful show,
+//   document.body.dataset.modelReady   — 'loading' while a show is in flight,
+//                                        'true' after a successful show,
 //                                        'error' if boot or load fails
 //   document.body.dataset.assetShown   — "<source>/<id>@<style>" of the last show
 
@@ -368,6 +369,9 @@ export function createAssetEngine({ mount }) {
    */
   async function show(ref, { resolution = '1k', stylePreset = 'default', repeat = 3 } = {}) {
     const myToken = ++token;
+    // Downloads can take a while — flag the flight so hosts (e.g. the pro
+    // asset page) can show a loader for every show, not just the first boot.
+    document.body.dataset.modelReady = 'loading';
     try {
       if (ref.kind === 'model') {
         lastKind = 'model';

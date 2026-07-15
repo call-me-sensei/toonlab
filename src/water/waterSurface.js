@@ -6,7 +6,7 @@ import {
   setWaterDebugMode,
   updateWaterMaterialCamera,
 } from './waterMaterial.js';
-import { WaterBreakerSystem } from './waterBreakerSystem.js';
+import { shouldUseDedicatedBreakerShell, WaterBreakerSystem } from './waterBreakerSystem.js';
 import { WaterInteractionManager } from './waterInteraction.js';
 import { WaterRippleSimulation } from './waterRippleSimulation.js';
 import { WaterScenePasses } from './waterScenePasses.js';
@@ -14,12 +14,28 @@ import { WaterSplashSystem } from './waterSplashSystem.js';
 import {
   createWaterSettings,
   sampleGerstnerHeight,
+  samplePrimarySwellSequence,
+  sampleSwashCycleVariation,
+  sampleSwashDistance,
+  sampleSwashEdgeOffset,
+  shapeSwashProgress,
 } from './waterSettings.js';
 
 const worldPositionScratch = new THREE.Vector3();
 const localScratch = new THREE.Vector3();
 const breakerSampleScratch = { weight: 0, crestY: 0, flowX: 0, flowZ: 0 };
 const followScratch = new THREE.Vector3();
+
+function disposeAfterRenderBoundary(disposable) {
+  const dispose = () => disposable.dispose();
+  if (typeof globalThis.requestAnimationFrame !== 'function') {
+    globalThis.setTimeout(dispose, 34);
+    return;
+  }
+  globalThis.requestAnimationFrame(() => {
+    globalThis.requestAnimationFrame(dispose);
+  });
+}
 
 // All-in-one stylized water body: surface mesh + material, GPU ripple
 // simulation, splash particles, interaction tracking, and the scene passes
@@ -77,7 +93,8 @@ export class WaterSurface extends THREE.Mesh {
     // whenever the surface's world XZ moves (>5cm) from where it was baked —
     // immune to first-frame ordering races where the mesh isn't positioned
     // yet. The terrain itself is assumed static.
-    this.bedHeightSampler = typeof bedHeight === 'function' ? bedHeight : null;
+    this.shoalingEnabled = typeof bedHeight === 'function';
+    this.bedHeightSampler = this.shoalingEnabled ? bedHeight : null;
     this.shoalingBakedX = NaN;
     this.shoalingBakedZ = NaN;
     // Dedicated plunging-breaker shells along the break line; created lazily
@@ -189,6 +206,37 @@ export class WaterSurface extends THREE.Mesh {
     return this;
   }
 
+  // Replace static terrain under an existing shoaling surface without
+  // rebuilding its material, render passes, ripple simulation, or animation
+  // clock. Whether shoaling exists is a graph-build choice, so callers cannot
+  // toggle it after construction; they may freely swap one sampler for
+  // another. This is useful for labs/worlds with selectable ground profiles.
+  setBedHeightSampler(bedHeight, { bake = true } = {}) {
+    const sampler = typeof bedHeight === 'function' ? bedHeight : null;
+    if (Boolean(sampler) !== this.shoalingEnabled) {
+      throw new Error(
+        'WaterSurface cannot toggle shoaling after construction; create a new surface instead.',
+      );
+    }
+    if (sampler === this.bedHeightSampler) return this;
+
+    this.bedHeightSampler = sampler;
+    this.shoalingBakedX = NaN;
+    this.shoalingBakedZ = NaN;
+    this.breakerBuilt.x = NaN;
+    this.breakerBuilt.y = NaN;
+    this.breakerBuilt.z = NaN;
+    this.breakerBuilt.energy = NaN;
+    if (this.breakers) {
+      const staleBreakers = this.breakers;
+      this.remove(staleBreakers);
+      disposeAfterRenderBoundary(staleBreakers);
+      this.breakers = null;
+    }
+    if (sampler && bake) this.bakeShoalingDepths();
+    return this;
+  }
+
   get waveEnergy() {
     return this.material.userData.waterWaveEnergy ?? 0.3;
   }
@@ -229,11 +277,50 @@ export class WaterSurface extends THREE.Mesh {
     const brokenY = Math.max(
       Math.min(targetY, capY) + Math.max(targetY - capY, 0) * 0.1,
       -Math.max(restDepth, 0) + 0.04);
-    const wavePhase = THREE.MathUtils.clamp(raw / energy, -1, 1);
-    const runup = (settings.shorelineRunup ?? 0.6) * energy * Math.max(wavePhase, 0);
-    const film = THREE.MathUtils.clamp(restDepth + runup, -0.2, 0.05);
-    const filmY = (bed - surfaceY) + film;
-    const beach = 1 - THREE.MathUtils.smoothstep(restDepth, -0.02, 0.06);
+    // Connected irregular swash mirror (keep in sync with water.js): event N
+    // begins at event N-1's rundown endpoint, reaches its own bounded peak,
+    // then drains to a new endpoint without resetting at the still-water line.
+    const explicit = (settings.runupDistance ?? 0) > 0.01;
+    const waves = this.gerstnerWaves;
+    const d = 0.5;
+    const gradX = (this.bedHeightSampler(x + d, z) - this.bedHeightSampler(x - d, z)) / (2 * d);
+    const gradZ = (this.bedHeightSampler(x, z + d) - this.bedHeightSampler(x, z - d)) / (2 * d);
+    const slope = Math.min(Math.hypot(gradX, gradZ), 1);
+    const safeSlope = Math.max(slope, 0.005);
+    const gradientLength = Math.hypot(gradX, gradZ) || 1;
+    const alongCoordinate = x * (gradZ / gradientLength) - z * (gradX / gradientLength);
+    const sequence = samplePrimarySwellSequence(waves, this.time);
+    const swashProgress = shapeSwashProgress(sequence.cycle);
+    const automaticDistance = (settings.shorelineRunup ?? 0.6) * energy / safeSlope;
+    const maximumDistance = explicit ? settings.runupDistance : automaticDistance;
+    const variation = sampleSwashCycleVariation(sequence.index);
+    const previousVariation = sampleSwashCycleVariation(sequence.index - 1);
+    const peakDistance = maximumDistance * (explicit ? variation.runupScale : 1);
+    const edgeDistance = explicit
+      ? sampleSwashDistance(waves, this.time, maximumDistance)
+      : peakDistance * swashProgress;
+    const minimumDistance = explicit
+      ? Math.min(previousVariation.rundownOffset, variation.rundownOffset) - 0.25
+      : 0;
+    const swashReach = peakDistance * safeSlope;
+    const edgeOffset = sampleSwashEdgeOffset(
+      alongCoordinate,
+      this.time,
+      swashProgress,
+      waves[0]?.dirX ?? settings.flowDirection?.[0] ?? 0,
+    );
+    const edgeHead = THREE.MathUtils.clamp(
+      edgeDistance * safeSlope + edgeOffset * safeSlope,
+      minimumDistance * safeSlope,
+      swashReach * 1.12,
+    );
+    const filmHead = restDepth + edgeHead;
+    const film = THREE.MathUtils.clamp(filmHead * 0.45 + 0.008, -0.08, 0.045);
+    const filmY = Math.min(
+      (bed - surfaceY) + film,
+      Math.max(0.5, swashReach * 1.1),
+    );
+    const beach = 1 - THREE.MathUtils.smoothstep(restDepth, 0.06, 0.22);
     const base = THREE.MathUtils.lerp(brokenY, filmY, beach);
 
     // Breakers are physical: blend the traveling shell face over the base
@@ -249,15 +336,61 @@ export class WaterSurface extends THREE.Mesh {
     return base;
   }
 
-  // Horizontal water push velocity (m/s, world space) at (x, z) — currently
-  // the shoreward surge of a passing breaker: strongest in the whitewater
-  // just after the wave breaks, modest on the unbroken face. Zero elsewhere.
-  // Feed it to floating bodies and swimmers so surf actually carries them.
+  // Horizontal water push velocity (m/s, world space). Breaker shells provide
+  // their traveling face flow; explicit swash adds uphill uprush and downhill
+  // backwash so gameplay objects move with the rendered shoreline.
   getFlowAt(x, z, out = new THREE.Vector2()) {
     out.set(0, 0);
     if (this.breakers) {
       const shell = this.breakers.sampleAt(x, z, breakerSampleScratch);
       out.set(shell.flowX, shell.flowZ);
+    }
+    if (this.bedHeightSampler && (this.settings.runupDistance ?? 0) > 0.01) {
+      this.getWorldPosition(worldPositionScratch);
+      const surfaceY = worldPositionScratch.y;
+      const bed = this.bedHeightSampler(x, z);
+      const restDepth = surfaceY - bed;
+      const d = 0.5;
+      const gradX = (this.bedHeightSampler(x + d, z) - this.bedHeightSampler(x - d, z)) / (2 * d);
+      const gradZ = (this.bedHeightSampler(x, z + d) - this.bedHeightSampler(x, z - d)) / (2 * d);
+      const slope = Math.max(Math.min(Math.hypot(gradX, gradZ), 1), 0.005);
+      const gradientLength = Math.hypot(gradX, gradZ) || 1;
+      const alongCoordinate = x * (gradZ / gradientLength) - z * (gradX / gradientLength);
+      const sequence = samplePrimarySwellSequence(this.gerstnerWaves, this.time);
+      const progress = shapeSwashProgress(sequence.cycle);
+      const variation = sampleSwashCycleVariation(sequence.index);
+      const previousVariation = sampleSwashCycleVariation(sequence.index - 1);
+      const offset = sampleSwashEdgeOffset(
+        alongCoordinate, this.time, progress, this.gerstnerWaves[0]?.dirX ?? 0);
+      const maximumDistance = this.settings.runupDistance;
+      const peakDistance = maximumDistance * variation.runupScale;
+      const edgeDistance = sampleSwashDistance(this.gerstnerWaves, this.time, maximumDistance);
+      const minimumDistance = Math.min(
+        previousVariation.rundownOffset,
+        variation.rundownOffset,
+      ) - 0.25;
+      const head = THREE.MathUtils.clamp(
+        edgeDistance * slope + offset * slope,
+        minimumDistance * slope,
+        peakDistance * slope * 1.12,
+      );
+      const filmHead = restDepth + head;
+      const swashZone = 1 - THREE.MathUtils.smoothstep(restDepth, 0.06, 0.22);
+      const wet = THREE.MathUtils.smoothstep(filmHead, -0.006, 0.025);
+      if (swashZone > 0.001 && wet > 0.001) {
+        const dt = 0.03;
+        const before = sampleSwashDistance(
+          this.gerstnerWaves, this.time - dt, maximumDistance,
+        );
+        const after = sampleSwashDistance(
+          this.gerstnerWaves, this.time + dt, maximumDistance,
+        );
+        const edgeSpeed = THREE.MathUtils.clamp(
+          (after - before) / (2 * dt), -3.5, 3.5,
+        );
+        out.x += (gradX / gradientLength) * edgeSpeed * swashZone * wet;
+        out.y += (gradZ / gradientLength) * edgeSpeed * swashZone * wet;
+      }
     }
     return out;
   }
@@ -271,7 +404,7 @@ export class WaterSurface extends THREE.Mesh {
     const range = Math.max(
       this.settings.shoalingDepth ?? 1.4, Math.max(this.waveEnergy, 1e-3) * 2.2, 1e-3);
     const deepFactor = THREE.MathUtils.smoothstep(restDepth, 0, range);
-    const beach = 1 - THREE.MathUtils.smoothstep(restDepth, -0.02, 0.06);
+    const beach = 1 - THREE.MathUtils.smoothstep(restDepth, 0.06, 0.22);
     return THREE.MathUtils.lerp(this.settings.shorelineWaves ?? 0.35, 1, deepFactor) *
       (1 - beach);
   }
@@ -284,17 +417,45 @@ export class WaterSurface extends THREE.Mesh {
     this.updateWorldMatrix(true, false);
     const positionAttr = this.geometry.attributes.position;
     const existing = this.geometry.attributes.aBedHeight;
+    const existingSlope = this.geometry.attributes.aBedSlope;
+    const existingGradient = this.geometry.attributes.aBedGradient;
     const bedHeights = existing?.count === positionAttr.count
       ? existing.array
       : new Float32Array(positionAttr.count);
+    const bedSlopes = existingSlope?.count === positionAttr.count
+      ? existingSlope.array
+      : new Float32Array(positionAttr.count);
+    const bedGradients = existingGradient?.count === positionAttr.count
+      ? existingGradient.array
+      : new Float32Array(positionAttr.count * 2);
+    const d = 0.5;
     for (let i = 0; i < positionAttr.count; i += 1) {
       localScratch.fromBufferAttribute(positionAttr, i).applyMatrix4(this.matrixWorld);
-      bedHeights[i] = this.bedHeightSampler(localScratch.x, localScratch.z);
+      const x = localScratch.x;
+      const z = localScratch.z;
+      bedHeights[i] = this.bedHeightSampler(x, z);
+      // Local bed gradient magnitude — converts horizontal run-up meters
+      // (runupDistance) into the vertical swash reach at this vertex.
+      const gradX = (this.bedHeightSampler(x + d, z) - this.bedHeightSampler(x - d, z)) / (2 * d);
+      const gradZ = (this.bedHeightSampler(x, z + d) - this.bedHeightSampler(x, z - d)) / (2 * d);
+      bedSlopes[i] = Math.min(Math.hypot(gradX, gradZ), 1);
+      bedGradients[i * 2] = gradX;
+      bedGradients[i * 2 + 1] = gradZ;
     }
     if (existing?.array === bedHeights) {
       existing.needsUpdate = true;
     } else {
       this.geometry.setAttribute('aBedHeight', new THREE.BufferAttribute(bedHeights, 1));
+    }
+    if (existingSlope?.array === bedSlopes) {
+      existingSlope.needsUpdate = true;
+    } else {
+      this.geometry.setAttribute('aBedSlope', new THREE.BufferAttribute(bedSlopes, 1));
+    }
+    if (existingGradient?.array === bedGradients) {
+      existingGradient.needsUpdate = true;
+    } else {
+      this.geometry.setAttribute('aBedGradient', new THREE.BufferAttribute(bedGradients, 2));
     }
     this.getWorldPosition(worldPositionScratch);
     this.shoalingBakedX = worldPositionScratch.x;
@@ -306,8 +467,7 @@ export class WaterSurface extends THREE.Mesh {
   // breakerAmount setting and rebuilds the break line whenever the surface
   // moves or the swell energy shifts enough to relocate the collapse depth.
   updateBreakers() {
-    const enabled = this.settings.breakerEnabled !== false &&
-      this.bedHeightSampler && (this.settings.breakerAmount ?? 0) > 0.001;
+    const enabled = shouldUseDedicatedBreakerShell(this.settings, Boolean(this.bedHeightSampler));
     if (!enabled) {
       if (this.breakers) {
         this.remove(this.breakers);
@@ -460,6 +620,18 @@ export class WaterSurface extends THREE.Mesh {
     }
 
     const uniforms = this.material.uniforms;
+    if ((this.settings.runupDistance ?? 0) > 0.01) {
+      const sequence = samplePrimarySwellSequence(this.gerstnerWaves, this.time);
+      const currentVariation = sampleSwashCycleVariation(sequence.index);
+      const previousVariation = sampleSwashCycleVariation(sequence.index - 1);
+      uniforms.uSwashRunupScale.value = currentVariation.runupScale;
+      uniforms.uSwashStartOffset.value = previousVariation.rundownOffset;
+      uniforms.uSwashEndOffset.value = currentVariation.rundownOffset;
+    } else {
+      uniforms.uSwashRunupScale.value = 1;
+      uniforms.uSwashStartOffset.value = 0;
+      uniforms.uSwashEndOffset.value = 0;
+    }
     uniforms.uTime.value = this.time;
     // Mirror scene.fog so distant water hazes with the rest of the world
     // (the material handles fog manually — see uSceneFog* in the shader;

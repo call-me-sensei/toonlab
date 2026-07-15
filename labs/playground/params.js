@@ -6,6 +6,7 @@ import {
   normalizeModelPath,
 } from '../shared/sceneHub.js';
 import { rootedAssetUrl } from '../shared/assetUrls.js';
+import { takeLabHandoff } from '../shared/labHandoff.js';
 import { createWaterSettings } from '../../src/water/waterSettings.js';
 
 // Default character: CC0 mannequin (Quaternius Universal Animation Library)
@@ -151,6 +152,15 @@ function optionalNumberParam(name) {
 }
 
 function createInitialWaterSettings() {
+  // "Preview in scene" from the standalone Water Lab: the handoff carries a
+  // full sanitized settings snapshot and wins over URL params for this boot.
+  const handoff = takeLabHandoff('water-lab-preview');
+  if (handoff?.settings) {
+    return createWaterSettings({
+      preset: handoff.preset ?? undefined,
+      ...handoff.settings,
+    });
+  }
   return createWaterSettings({
     mode: URL_PARAMS.get('waterMode') || URL_PARAMS.get('waterPreset') || 'lake',
     colorTone: URL_PARAMS.get('waterTone') || undefined,

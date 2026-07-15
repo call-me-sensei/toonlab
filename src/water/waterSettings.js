@@ -150,6 +150,10 @@ export const DEFAULT_WATER_SETTINGS = Object.freeze({
   // face above the rest waterline. Scales with total wave energy, so storms
   // reach visibly further up the sand. 0 pins the waterline in place.
   shorelineRunup: 0.6,
+  // Maximum horizontal run-up in meters. Individual wave-group events reach
+  // 80–100% of this bound, begin at the preceding rundown endpoint, and end
+  // at their own varied endpoint. 0 = automatic (energy-scaled run-up).
+  runupDistance: 0,
 
   // Master switch for the breaker system: false removes the mesh and skips
   // all rebuild work entirely (handy for A/B perf comparisons).
@@ -198,6 +202,10 @@ export const DEFAULT_WATER_SETTINGS = Object.freeze({
   // Foam.
   foamColor: [0.94, 1.0, 0.99],
   foamAmount: 1.0,
+  // Independent gain for the foam carried by the beach swash. Keeping this
+  // separate prevents stronger run-up foam from turning offshore contact
+  // bands and whitecaps into solid paint.
+  swashFoamAmount: 1.15,
   foamContactDistance: 0.4,
   foamLineSpacing: 0.55,
   foamNoiseScale: 0.6,
@@ -304,6 +312,7 @@ const WATER_PRESETS = Object.freeze({
     whitecapAmount: 0.22,
     foamContactDistance: 0.6,
     foamAmount: 1.3,
+    swashFoamAmount: 1.35,
     rippleFoamStrength: 0.9,
     breakerAmount: 0.55,
     waveSetPeriod: 50,
@@ -328,6 +337,7 @@ const WATER_PRESETS = Object.freeze({
     reflectionSoftness: 0.35,
     whitecapAmount: 0.4,
     foamAmount: 1.2,
+    swashFoamAmount: 1.25,
     specularStretch: 0.5,
     sparkleStrength: 0.65,
     reflectionStrength: 0.6,
@@ -358,6 +368,7 @@ const WATER_PRESETS = Object.freeze({
     reflectionSoftness: 0.3,
     causticsStrength: 0.08,
     foamAmount: 1.25,
+    swashFoamAmount: 1.45,
     whitecapAmount: 0.55,
     rippleFoamStrength: 1.0,
     sunColor: [0.9, 0.88, 0.85],
@@ -544,6 +555,7 @@ export function createWaterSettings(options = {}) {
     shoalingDepth: clampedNumber(source.shoalingDepth, base.shoalingDepth, 0.05, 12),
     shorelineWaves: clampedNumber(source.shorelineWaves, base.shorelineWaves, 0, 1),
     shorelineRunup: clampedNumber(source.shorelineRunup, base.shorelineRunup, 0, 3),
+    runupDistance: clampedNumber(source.runupDistance, base.runupDistance, 0, 15),
     breakerEnabled: typeof source.breakerEnabled === 'boolean'
       ? source.breakerEnabled
       : base.breakerEnabled !== false,
@@ -572,6 +584,7 @@ export function createWaterSettings(options = {}) {
 
     foamColor: colorArray(source.foamColor, base.foamColor),
     foamAmount: clampedNumber(source.foamAmount, base.foamAmount, 0, 2),
+    swashFoamAmount: clampedNumber(source.swashFoamAmount, base.swashFoamAmount, 0, 2),
     foamContactDistance: clampedNumber(source.foamContactDistance, base.foamContactDistance, 0.01, 8),
     foamLineSpacing: clampedNumber(source.foamLineSpacing, base.foamLineSpacing, 0.05, 8),
     foamNoiseScale: clampedNumber(source.foamNoiseScale, base.foamNoiseScale, 0.02, 12),
@@ -714,6 +727,124 @@ export function sampleGerstnerHeight(waves, x, z, time, chopWeight = 1) {
   return height;
 }
 
+// CPU mirror of createWaterWavesChunk().gerstnerSwellHeight: only the two
+// long components that survive into the surf zone. Swash samples this at a
+// projected shoreline point to keep its edge connected across the beach.
+export function sampleGerstnerSwellHeight(waves, x, z, time) {
+  let height = 0;
+  for (let i = 0; i < Math.min(2, waves.length); i += 1) {
+    const wave = waves[i];
+    const theta = wave.waveNumber * (wave.dirX * x + wave.dirZ * z) -
+      wave.omega * time + wave.phase;
+    height += wave.amplitude * Math.sin(theta);
+  }
+  return height;
+}
+
+// 0..1 cycle of the primary crest at the rest shoreline. Zero is crest
+// arrival; the shader uses the same cycle for the connected swash event.
+export function samplePrimarySwellSequence(waves, time) {
+  const primary = waves?.[0];
+  if (!primary) return { cycle: 0, index: 0 };
+  const raw = (primary.omega * time - primary.phase + Math.PI * 0.5) / (Math.PI * 2);
+  const index = Math.floor(raw);
+  return { cycle: raw - index, index };
+}
+
+export function samplePrimarySwellCycle(waves, time) {
+  return samplePrimarySwellSequence(waves, time).cycle;
+}
+
+// One physical swash event: fast uprush, slower gravity-driven backwash.
+// Unlike a signed sine, this never drains the sea below the rest shoreline.
+export function shapeSwashProgress(cycle, uprushFraction = 0.34) {
+  const phase = ((Number(cycle) || 0) % 1 + 1) % 1;
+  const riseEnd = THREE.MathUtils.clamp(uprushFraction, 0.1, 0.8);
+  if (phase <= riseEnd) {
+    return Math.sin((phase / riseEnd) * Math.PI * 0.5);
+  }
+  const drain = (phase - riseEnd) / (1 - riseEnd);
+  return Math.sin((1 - drain) * Math.PI * 0.5);
+}
+
+function swashHash(value) {
+  let x = ((value * 0.1031) % 1 + 1) % 1;
+  x *= x + 33.33;
+  x *= x + x;
+  return ((x % 1) + 1) % 1;
+}
+
+// Per-event forcing for an irregular swash train. A four-wave interpolated
+// group term supplies the observed low-frequency envelope; the individual
+// term keeps neighbouring bores from sharing one reach. Backwash strength is
+// correlated with the event energy but retains its own variability.
+function sampleSwashForcing(cycleIndex) {
+  const groupPosition = cycleIndex / 4;
+  const groupIndex = Math.floor(groupPosition);
+  const groupT = groupPosition - groupIndex;
+  const groupEase = groupT * groupT * (3 - 2 * groupT);
+  const group = THREE.MathUtils.lerp(
+    swashHash(groupIndex + 19.19),
+    swashHash(groupIndex + 20.19),
+    groupEase,
+  );
+  const individual = swashHash(cycleIndex + 7.73);
+  const baseRunupScale = 0.82 + group * 0.1 + individual * 0.08;
+  const normalizedRunup = THREE.MathUtils.clamp((baseRunupScale - 0.8) / 0.2, 0, 1);
+  const backwashStrength = THREE.MathUtils.clamp(
+    normalizedRunup * 0.62 + swashHash(cycleIndex + 71.37) * 0.38,
+    0,
+    1,
+  );
+  return { backwashStrength, baseRunupScale };
+}
+
+// Bounded stylized event statistics, informed by random-wave run-up and
+// swash-interaction measurements: ordinary peaks cover 80–100% of the user
+// reach, wave groups correlate several events, and a strong preceding
+// backwash slightly suppresses the next inland maximum. `rundownOffset` is
+// metres relative to the still-water shoreline (negative = farther seaward).
+export function sampleSwashCycleVariation(cycleIndex) {
+  const index = Math.floor(Number(cycleIndex) || 0);
+  const current = sampleSwashForcing(index);
+  const previous = sampleSwashForcing(index - 1);
+  const interactionPenalty = Math.max(previous.backwashStrength - 0.55, 0) * 0.045;
+  return {
+    backwashStrength: current.backwashStrength,
+    rundownOffset: THREE.MathUtils.lerp(0.35, -0.9, current.backwashStrength),
+    runupScale: THREE.MathUtils.clamp(current.baseRunupScale - interactionPenalty, 0.8, 1),
+  };
+}
+
+// Continuous centerline position of the swash edge in metres along the beach.
+// Event N begins exactly at event N-1's rundown endpoint, rises to its own
+// varying inland maximum, then drains to a new endpoint without a reset jump.
+export function sampleSwashDistance(waves, time, runupDistance, uprushFraction = 0.34) {
+  const sequence = samplePrimarySwellSequence(waves, time);
+  const current = sampleSwashCycleVariation(sequence.index);
+  const previous = sampleSwashCycleVariation(sequence.index - 1);
+  const progress = shapeSwashProgress(sequence.cycle, uprushFraction);
+  const peak = Math.max(Number(runupDistance) || 0, 0) * current.runupScale;
+  return sequence.cycle <= uprushFraction
+    ? THREE.MathUtils.lerp(previous.rundownOffset, peak, progress)
+    : THREE.MathUtils.lerp(current.rundownOffset, peak, progress);
+}
+
+// Connected oblique lip: the large term follows the incoming crest angle and
+// small traveling scallops prevent a ruler-straight shoreline. A residual
+// envelope at nominal rest/full reach represents the alongshore arrival lag;
+// the centerline remains the 0..runupDistance calibration reference.
+export function sampleSwashEdgeOffset(x, time, progress, waveDirectionX = 0) {
+  const p = THREE.MathUtils.clamp(Number(progress) || 0, 0, 1);
+  const envelope = THREE.MathUtils.lerp(0.18, 1, Math.sin(Math.PI * p));
+  const tilt = -x * THREE.MathUtils.clamp(Number(waveDirectionX) * 0.72, -0.28, 0.28);
+  const scallop = (
+    Math.sin(x * 0.32 - time * 0.35) - Math.sin(-time * 0.35) +
+    (Math.sin(x * 0.91 + time * 0.18) - Math.sin(time * 0.18)) * 0.35
+  ) * 0.4;
+  return (tilt + scallop) * envelope;
+}
+
 // --- Field schema -----------------------------------------------------------
 
 export const WATER_SETTING_GROUPS = Object.freeze([
@@ -733,6 +864,7 @@ const FIELD_METADATA = {
   shoalingDepth: { group: 'waves', label: 'Shoaling Depth', min: 0.05, max: 12, step: 0.05, description: 'Column depth in meters at which waves reach full height; shallower water shrinks them (needs a bed height sampler).' },
   shorelineWaves: { group: 'waves', label: 'Shoreline Waves', min: 0, max: 1, step: 0.01, description: 'Fraction of wave height that keeps rolling through the shallows as surf before dying at the waterline.' },
   shorelineRunup: { group: 'waves', label: 'Shoreline Run-up', min: 0, max: 3, step: 0.05, description: 'How far incoming waves wash a thin foam film up the beach; reach scales with wave energy.' },
+  runupDistance: { group: 'waves', label: 'Max Run-up Distance', min: 0, max: 15, step: 0.5, description: 'Maximum horizontal reach in meters. Wave groups vary each event from 80–100%, and each backwash hands its endpoint into the next uprush. 0 lets wave energy decide.' },
   breakerEnabled: { group: 'waves', label: 'Breakers On', type: 'boolean', description: 'Master switch for the breaker system; off removes the mesh and skips all breaker work (for perf A/B).' },
   breakerAmount: { group: 'waves', label: 'Surf Breakers', min: 0, max: 1, step: 0.01, description: 'Dedicated curling breaker shells along the break line; 0 disables the system (needs a bed height sampler).' },
   breakerCurl: { group: 'waves', label: 'Breaker Curl', min: 0, max: 1, step: 0.01, description: 'Lip pitch: 0 spills down the face, 1 curls a full surfable tunnel.' },
@@ -777,7 +909,8 @@ const FIELD_METADATA = {
   causticsSpeed: { group: 'surface', label: 'Caustics Speed', min: 0, max: 4, step: 0.01, description: 'Animation speed of the caustic web.' },
 
   foamColor: { group: 'foam', label: 'Foam Color', type: 'color', description: 'Color of all foam: shoreline, whitecaps, wakes, and splashes.' },
-  foamAmount: { group: 'foam', label: 'Foam Amount', min: 0, max: 2, step: 0.01, description: 'Global foam gain.' },
+  foamAmount: { group: 'foam', label: 'Foam Amount', min: 0, max: 2, step: 0.01, description: 'Offshore contact foam, whitecap, and wake gain.' },
+  swashFoamAmount: { group: 'foam', label: 'Swash Foam', min: 0, max: 2, step: 0.01, description: 'Independent gain for torn foam carried up and back down the beach.' },
   foamContactDistance: { group: 'foam', label: 'Contact Distance', min: 0.02, max: 4, step: 0.01, description: 'Depth difference covered by the solid contact foam band.' },
   foamLineSpacing: { group: 'foam', label: 'Line Spacing', min: 0.05, max: 4, step: 0.01, description: 'Spacing of the animated lapping foam lines off the shore.' },
   foamNoiseScale: { group: 'foam', label: 'Foam Noise Scale', min: 0.05, max: 8, step: 0.05, description: 'Breakup noise frequency for foam edges.' },

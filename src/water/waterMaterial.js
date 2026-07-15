@@ -152,6 +152,7 @@ export function applyWaterSettingsToMaterial(material, options = {}) {
 
   setSrgbColorUniform(uniforms.uFoamColor, settings.foamColor);
   uniforms.uFoamAmount.value = settings.foamAmount;
+  uniforms.uSwashFoamAmount.value = settings.swashFoamAmount;
   uniforms.uFoamContactDistance.value = settings.foamContactDistance;
   uniforms.uFoamLineSpacing.value = settings.foamLineSpacing;
   uniforms.uFoamNoiseScale.value = settings.foamNoiseScale;
@@ -182,6 +183,11 @@ export function applyWaterSettingsToMaterial(material, options = {}) {
   uniforms.uShoalingDepth.value = settings.shoalingDepth;
   uniforms.uShorelineWaves.value = settings.shorelineWaves;
   uniforms.uShorelineRunup.value = settings.shorelineRunup;
+  uniforms.uRunupDistance.value = settings.runupDistance;
+  if (uniforms.uBreakerEnabled) {
+    uniforms.uBreakerEnabled.value = settings.breakerEnabled === false ? 0 : 1;
+  }
+  if (uniforms.uBreakerAmount) uniforms.uBreakerAmount.value = settings.breakerAmount;
   // Total swell energy — normalizes breaker foam and scales swash run-up.
   const waveEnergy = waves.reduce((sum, wave) => sum + Math.abs(wave.amplitude), 0);
   uniforms.uWaveEnergy.value = waveEnergy;

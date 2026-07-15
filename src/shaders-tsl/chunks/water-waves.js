@@ -20,6 +20,7 @@ import {
   cos,
   dot,
   float,
+  fract,
   normalize,
   sin,
   vec3,
@@ -51,6 +52,29 @@ export function createWaterWavesChunk({ wavesA, wavesB, waveCount }) {
   };
 
   const gerstnerDisplacement = (restXZ, time) => gerstnerDisplacementFiltered(restXZ, time, float(1.0));
+
+  // Vertical signal of the two long swell slots that survive into the surf
+  // zone. Swash evaluates this at the projected rest shoreline rather than at
+  // every beach vertex, so one arriving swell produces one connected edge.
+  const gerstnerSwellHeight = (restXZ, time) => {
+    const height = float(0.0).toVar();
+    for (let i = 0; i < Math.min(2, count); i += 1) {
+      const a = wavesA.element(i).toVar();
+      const b = wavesB.element(i).toVar();
+      const theta = a.w.mul(dot(a.xy, restXZ)).sub(a.z.mul(time)).add(b.y).toVar();
+      height.addAssign(b.x.mul(sin(theta)));
+    }
+    return height;
+  };
+
+  // 0..1 cycle of the dominant crest at the rest shoreline. Cycle zero is
+  // the instant that crest reaches the shoreline, so the breaker can hand
+  // directly into uprush instead of looking like an unrelated animation.
+  const primarySwellCycle = (time) => {
+    const a = wavesA.element(0).toVar();
+    const b = wavesB.element(0).toVar();
+    return fract(a.z.mul(time).sub(b.y).add(Math.PI * 0.5).div(Math.PI * 2));
+  };
 
   // Analytic surface frame at the rest position plus the 0..1 crest factor
   // used for whitecap foam (GLSL `out float crest` → returned alongside).
@@ -96,5 +120,7 @@ export function createWaterWavesChunk({ wavesA, wavesB, waveCount }) {
     gerstnerDisplacementFiltered,
     gerstnerNormal,
     gerstnerNormalFiltered,
+    gerstnerSwellHeight,
+    primarySwellCycle,
   };
 }

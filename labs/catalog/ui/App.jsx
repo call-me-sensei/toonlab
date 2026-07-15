@@ -28,6 +28,7 @@ const LAB_LINKS = {
   buildinggen: (entry) => `/building-lab/?recipe=${encodeURIComponent(JSON.stringify(entry.recipe))}`,
   debrisgen: (entry) => `/debris-lab/?debrisRecipe=${encodeURIComponent(JSON.stringify({ kind: 'toonlab.debrisRecipe', name: entry.label, settings: entry.recipe.settings, version: 1 }))}`,
   propgen: (entry) => `/prop-lab/?recipe=${encodeURIComponent(JSON.stringify(entry.recipe))}`,
+  water: (entry) => `/water-lab/?waterPreset=${encodeURIComponent(entry.recipe.preset)}`,
 };
 
 function snippetFor(entry, seed) {

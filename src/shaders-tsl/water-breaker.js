@@ -257,7 +257,10 @@ export function createWaterBreakerNodeMaterial({
     // --- Shell shaping ----------------------------------------------------
     const amount = clamp(u.uBreakerAmount, 0.0, 1.0).toVar();
     const capDepth = min(lineDepth, localDepth);
-    const breakHeight = capDepth.mul(0.9).mul(u.uBreakerScale).mul(amount).mul(endFade).mul(setEnvelope).toVar();
+    // Crest elevation is roughly half the depth-limited wave height. Using
+    // 0.9*d here treated the entire breaker height as elevation above rest
+    // water and made Ocean-on-Beach shells hover like layered ice shelves.
+    const breakHeight = capDepth.mul(0.48).mul(u.uBreakerScale).mul(amount).mul(endFade).mul(setEnvelope).toVar();
     const H = breakHeight.mul(mix(0.12, 1.0, pulse)).mul(post.mul(0.55).oneMinus()).toVar();
     const R = H.mul(0.52).toVar();
 
@@ -386,10 +389,10 @@ export function createWaterBreakerNodeMaterial({
     const faceNoise = waterFbm(
       vec2(vAlong.mul(1.7), vProfile.mul(4.0).sub(u.uTime.mul(1.6))).mul(noiseScale), 3,
     ).toVar();
-    const lipFoam = smoothstep(faceNoise.mul(-0.12).add(0.68), 0.9, vProfile.add(faceNoise.mul(0.08)))
-      .mul(vPulse).mul(1.4).toVar();
+    const lipFoam = smoothstep(faceNoise.mul(-0.08).add(0.82), 0.96, vProfile.add(faceNoise.mul(0.04)))
+      .mul(vPulse).mul(1.1).toVar();
     const streaks = smoothstep(0.62, 0.85, faceNoise)
-      .mul(smoothstep(0.3, 0.7, vProfile)).mul(vPulse).mul(0.7);
+      .mul(smoothstep(0.38, 0.76, vProfile)).mul(vPulse).mul(0.45);
     const whitewater = vPost.mul(
       waterFbm(vec2(vAlong.mul(2.3), vProfile.mul(3.0).add(u.uTime.mul(2.2))), 3).mul(0.6).add(0.7),
     );

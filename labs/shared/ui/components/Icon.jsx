@@ -41,6 +41,8 @@ const PATHS = {
   'stage-pieces': <path d="M10 3.5 4 6.5l6 3 6-3ZM4 10l6 3 6-3M4 13.5l6 3 6-3" />,
   'tool-sculpt-add': <><circle cx="10" cy="10" r="6" /><path d="M10 7v6M7 10h6" /></>,
   'tool-sculpt-sub': <><circle cx="10" cy="10" r="6" /><path d="M7 10h6" /></>,
+  trash: <path d="M4.5 6h11M8.5 6V4.5h3V6M6 6l.7 10a1 1 0 0 0 1 .9h4.6a1 1 0 0 0 1-.9L14 6M8.5 9v5M11.5 9v5" />,
+  play: <path d="M6.5 4.5v11l9-5.5Z" />,
 };
 
 export function Icon({ name, className = '' }) {

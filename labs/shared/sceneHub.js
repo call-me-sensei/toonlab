@@ -23,11 +23,18 @@ export const SCENE_HUB_OPTIONS = Object.freeze([
     path: '/playground/',
     search: '',
   }),
-  // One hub entry for every water scene — the Water Lab HUD's Mode select
-  // switches calm/river/ocean (and the rest) in place.
+  // The standalone schema-driven water editor; the walkable beach diorama
+  // stays reachable as the Water Playground below (and doubles as the Water
+  // Lab's "Preview in scene" target).
   Object.freeze({
     id: 'waterLab',
     label: 'Water Lab',
+    path: '/water-lab/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'waterPlayground',
+    label: 'Water Playground (walkable)',
     path: '/playground/',
     search: '?scene=water',
   }),
@@ -119,10 +126,10 @@ export const SCENE_HUB_OPTIONS = Object.freeze([
 const SCENE_HUB_OPTION_BY_ID = new Map(SCENE_HUB_OPTIONS.map((option) => [option.id, option]));
 const SCENE_HUB_ALIASES = new Map([
   ['treeDesigner', 'treeLab'],
-  // Former per-preset water entries, collapsed into the single Water Lab.
-  ['calmLake', 'waterLab'],
-  ['riverCrossing', 'waterLab'],
-  ['oceanBeach', 'waterLab'],
+  // Former per-preset water entries, collapsed into the walkable water scene.
+  ['calmLake', 'waterPlayground'],
+  ['riverCrossing', 'waterPlayground'],
+  ['oceanBeach', 'waterPlayground'],
   // Former indoor entry ids.
   ['liyue', 'environmentLab'],
   ['liyueWalk', 'environmentLab'],
@@ -156,6 +163,7 @@ export function resolveSceneHubId(params = new URLSearchParams(window.location.s
   if (pathname.startsWith('/tree-lab') || pathname.startsWith('/tree-designer')) return 'treeLab';
   if (pathname.startsWith('/debris-lab')) return 'debrisLab';
   if (pathname.startsWith('/texture-lab')) return 'textureLab';
+  if (pathname.startsWith('/water-lab')) return 'waterLab';
   if (pathname.startsWith('/prop-lab')) return 'propLab';
   if (pathname.startsWith('/building-lab')) return 'buildingLab';
   if (pathname.startsWith('/catalog')) return 'catalog';
@@ -167,7 +175,7 @@ export function resolveSceneHubId(params = new URLSearchParams(window.location.s
   const scene = (params.get('scene') || '').toLowerCase();
 
   if (onRockLabPath || scene === 'rock') return 'rockLab';
-  if ((onPlaygroundPath || controller === 'ecctrl') && scene === 'water') return 'waterLab';
+  if ((onPlaygroundPath || controller === 'ecctrl') && scene === 'water') return 'waterPlayground';
   if ((onPlaygroundPath || controller === 'ecctrl') && (scene === 'liyue' || scene === 'indoor')) return 'environmentLab';
   if (onPlaygroundPath || controller === 'ecctrl') return 'controller';
   if (params.has('env') || params.has('environment')) return 'environmentLab';

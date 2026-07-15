@@ -82,6 +82,36 @@ export function SchemaField({
     } else {
       control = <ColorWell onChange={onChange} testId={testId} value={value} />;
     }
+  } else if (field.type === 'vector2' || field.type === 'vector3') {
+    // Direction/vector fields: one scrubbable value per component, emitting a
+    // plain array (the settings-schema convention for vectors). Water uses
+    // these for waveDirection/flowDirection (XZ) and sunDirection (XYZ).
+    const size = field.type === 'vector2' ? 2 : 3;
+    const min = field.min ?? -1;
+    const max = field.max ?? 1;
+    const step = field.step ?? 0.01;
+    const parts = Array.from({ length: size }, (_, index) => {
+      const component = Array.isArray(value) ? Number(value[index]) : NaN;
+      return Number.isFinite(component) ? component : 0;
+    });
+    control = (
+      <span className="tk-vector" data-testid={testId} style={{ display: 'flex', gap: 4 }}>
+        {parts.map((component, index) => (
+          <ScrubValue
+            key={index}
+            max={max}
+            min={min}
+            onChange={(next) => {
+              const updated = parts.slice();
+              updated[index] = next;
+              onChange(updated);
+            }}
+            step={step}
+            value={component}
+          />
+        ))}
+      </span>
+    );
   } else if (field.type === 'number') {
     const range = field.range ?? { max: 1, min: 0, step: 0.01 };
     const scale = field.display?.scale ?? 1;

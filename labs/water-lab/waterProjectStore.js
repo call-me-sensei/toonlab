@@ -1,0 +1,79 @@
+// localStorage persistence for Water Lab: the autosaved working document and
+// the user's saved preset library. Presets are stored as validated
+// toonlab/water-preset documents (the serializable interchange shape), so
+// cloud sync and export/import move them verbatim.
+
+import {
+  createWaterSettings,
+  validateWaterPresetDocument,
+} from '../../src/water/index.js';
+
+const DOCUMENT_KEY = 'toonlab.water-lab.document.v1';
+const PRESETS_KEY = 'toonlab.water-lab.presets.v1';
+const LOCAL_PRESET_LIMIT = 60;
+
+function storage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null; // private mode / blocked storage never breaks editing
+  }
+}
+
+function read(key) {
+  try {
+    const raw = storage()?.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function write(key, value) {
+  try {
+    storage()?.setItem(key, JSON.stringify(value));
+  } catch { /* quota/private mode: editing continues unsaved */ }
+}
+
+export function loadWaterDocument() {
+  const saved = read(DOCUMENT_KEY);
+  if (!saved || typeof saved !== 'object' || !saved.settings) return null;
+  return {
+    name: typeof saved.name === 'string' ? saved.name : 'Untitled water',
+    presetId: saved.presetId ?? null,
+    settings: createWaterSettings(saved.settings),
+  };
+}
+
+export function saveWaterDocument({ name, presetId, settings }) {
+  write(DOCUMENT_KEY, { name, presetId, settings });
+}
+
+export function clearWaterDocument() {
+  try {
+    storage()?.removeItem(DOCUMENT_KEY);
+  } catch { /* ignore */ }
+}
+
+/** User preset library: an array of water-preset documents, newest first. */
+export function loadLocalWaterPresets() {
+  const list = read(PRESETS_KEY);
+  if (!Array.isArray(list)) return [];
+  return list
+    .map((entry) => validateWaterPresetDocument(entry))
+    .filter((result) => result.ok)
+    .map((result) => result.value);
+}
+
+export function upsertLocalWaterPreset(document) {
+  const result = validateWaterPresetDocument(document);
+  if (!result.ok) return null;
+  const list = loadLocalWaterPresets().filter((entry) => entry.id !== result.value.id);
+  list.unshift(result.value);
+  write(PRESETS_KEY, list.slice(0, LOCAL_PRESET_LIMIT));
+  return result.value;
+}
+
+export function deleteLocalWaterPreset(id) {
+  write(PRESETS_KEY, loadLocalWaterPresets().filter((entry) => entry.id !== id));
+}

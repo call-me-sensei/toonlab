@@ -73,6 +73,9 @@ export default defineConfig(({ mode }) => {
   build: {
     outDir: 'dist',
     sourcemap: true,
+    // WebGPU-first pages: every supported browser is evergreen, and the
+    // examples use top-level await (vite's default es2020 target rejects it).
+    target: 'esnext',
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
@@ -84,6 +87,7 @@ export default defineConfig(({ mode }) => {
         buildingLab: resolve(__dirname, 'building-lab/index.html'),
         catalog: resolve(__dirname, 'catalog/index.html'),
         textureLab: resolve(__dirname, 'texture-lab/index.html'),
+        waterLab: resolve(__dirname, 'water-lab/index.html'),
         assetLab: resolve(__dirname, 'asset-lab/index.html'),
         vfxLab: resolve(__dirname, 'vfx-lab/index.html'),
         treeDesignerLegacy: resolve(__dirname, 'tree-designer/index.html'),

@@ -54,6 +54,20 @@ export function computeBreakingDepth(settings, waveEnergy) {
   return depth;
 }
 
+// The overhanging shell is a second water surface. It works in a substantial
+// shore/open-water column, but cannot be welded convincingly to the few-cm
+// film used by an explicit calibration swash; there it produced detached
+// foam ribbons. The main heightfield still performs depth capping and breaker
+// foam, controlled by breakerEnabled/breakerAmount.
+export function shouldUseDedicatedBreakerShell(settings, hasBedSampler = true) {
+  return Boolean(
+    hasBedSampler
+      && settings?.breakerEnabled !== false
+      && (settings?.breakerAmount ?? 0) > 0.001
+      && (settings?.runupDistance ?? 0) <= 0.01,
+  );
+}
+
 function pointKey(x, z) {
   return `${Math.round(x * 512)},${Math.round(z * 512)}`;
 }
@@ -556,7 +570,7 @@ export class WaterBreakerSystem extends THREE.Group {
         (1 - smoothstep(delta, 0.38, 0.47));
 
       const capDepth = Math.min(col.depth, localDepth);
-      const breakHeight = 0.9 * capDepth * p.scale * p.amount * col.endFade * setEnvelope;
+      const breakHeight = 0.48 * capDepth * p.scale * p.amount * col.endFade * setEnvelope;
       const H = breakHeight * THREE.MathUtils.lerp(0.12, 1, pulse) * (1 - 0.55 * post);
       const fade = p.amount * col.endFade * travelFade * setGate *
         smoothstep(pulse + post, 0.12, 0.35) * smoothstep(H, 0.05, 0.15);

@@ -116,6 +116,7 @@ export const WATER_DEBUG_MODES = Object.freeze({
   specular: 7,
   fresnel: 8,
   crest: 9,
+  shoreState: 10,
 });
 
 // The number of Gerstner components evaluated by the shader and the CPU
@@ -206,6 +207,16 @@ export const DEFAULT_WATER_SETTINGS = Object.freeze({
   // separate prevents stronger run-up foam from turning offshore contact
   // bands and whitecaps into solid paint.
   swashFoamAmount: 1.15,
+  // Stateful beach foam remains aerated for a few seconds, then converts to
+  // thinner residue instead of disappearing when the procedural cycle resets.
+  swashFoamLifetime: 4.0,
+  swashFoamResidueLifetime: 10.0,
+  // Wet sand remembers inundation much longer than the visible surface film.
+  // The short sheen is intentionally derived separately by the shore-state
+  // simulation, so a beach can stay dark without looking permanently glazed.
+  wetSandDryTime: 120.0,
+  wetSandDarkening: 0.58,
+  wetSandSheen: 0.78,
   foamContactDistance: 0.4,
   foamLineSpacing: 0.55,
   foamNoiseScale: 0.6,
@@ -585,6 +596,17 @@ export function createWaterSettings(options = {}) {
     foamColor: colorArray(source.foamColor, base.foamColor),
     foamAmount: clampedNumber(source.foamAmount, base.foamAmount, 0, 2),
     swashFoamAmount: clampedNumber(source.swashFoamAmount, base.swashFoamAmount, 0, 2),
+    swashFoamLifetime: clampedNumber(
+      source.swashFoamLifetime, base.swashFoamLifetime, 0.25, 30,
+    ),
+    swashFoamResidueLifetime: clampedNumber(
+      source.swashFoamResidueLifetime, base.swashFoamResidueLifetime, 0.5, 60,
+    ),
+    wetSandDryTime: clampedNumber(source.wetSandDryTime, base.wetSandDryTime, 2, 600),
+    wetSandDarkening: clampedNumber(
+      source.wetSandDarkening, base.wetSandDarkening, 0, 1,
+    ),
+    wetSandSheen: clampedNumber(source.wetSandSheen, base.wetSandSheen, 0, 1),
     foamContactDistance: clampedNumber(source.foamContactDistance, base.foamContactDistance, 0.01, 8),
     foamLineSpacing: clampedNumber(source.foamLineSpacing, base.foamLineSpacing, 0.05, 8),
     foamNoiseScale: clampedNumber(source.foamNoiseScale, base.foamNoiseScale, 0.02, 12),
@@ -715,12 +737,35 @@ export function buildGerstnerWaves(settings) {
 // accurate enough for buoyancy and interaction tests. chopWeight mirrors the
 // shader's shallow-water spectrum filter: slots 0/1 (the dominant swell and
 // its set beat partner) always pass at full strength, shorter cross chop
-// fades toward the surf zone.
-export function sampleGerstnerHeight(waves, x, z, time, chopWeight = 1) {
+// fades toward the surf zone. The optional nearshore sample mirrors the
+// vertex shader's depth-blended q(x,z) phase coordinate for slot 0 and, when
+// the slot mask permits it, its authored same-direction beat partner in slot 1.
+export function sampleGerstnerHeight(
+  waves,
+  x,
+  z,
+  time,
+  chopWeight = 1,
+  nearshore = null,
+) {
+  const nearshoreBlend = THREE.MathUtils.clamp(Number(nearshore?.blend) || 0, 0, 1);
+  const nearshoreSlotMask = Number.isFinite(Number(nearshore?.slotMask))
+    ? THREE.MathUtils.clamp(Number(nearshore.slotMask), 0, 2)
+    : 2;
   let height = 0;
   for (let i = 0; i < waves.length; i += 1) {
     const wave = waves[i];
-    const theta = wave.waveNumber * (wave.dirX * x + wave.dirZ * z) -
+    const baseCoordinate = wave.dirX * x + wave.dirZ * z;
+    const slotWeight = i === 0
+      ? Math.min(nearshoreSlotMask, 1)
+      : i === 1
+        ? Math.max(nearshoreSlotMask - 1, 0)
+        : 0;
+    const slotBlend = nearshoreBlend * slotWeight;
+    const phaseCoordinate = slotBlend > 0
+      ? THREE.MathUtils.lerp(baseCoordinate, nearshore.phaseCoordinate, slotBlend)
+      : baseCoordinate;
+    const theta = wave.waveNumber * phaseCoordinate -
       wave.omega * time + wave.phase;
     height += wave.amplitude * (i < 2 ? 1 : chopWeight) * Math.sin(theta);
   }
@@ -730,11 +775,23 @@ export function sampleGerstnerHeight(waves, x, z, time, chopWeight = 1) {
 // CPU mirror of createWaterWavesChunk().gerstnerSwellHeight: only the two
 // long components that survive into the surf zone. Swash samples this at a
 // projected shoreline point to keep its edge connected across the beach.
-export function sampleGerstnerSwellHeight(waves, x, z, time) {
+export function sampleGerstnerSwellHeight(waves, x, z, time, nearshore = null) {
+  const nearshoreBlend = THREE.MathUtils.clamp(Number(nearshore?.blend) || 0, 0, 1);
+  const nearshoreSlotMask = Number.isFinite(Number(nearshore?.slotMask))
+    ? THREE.MathUtils.clamp(Number(nearshore.slotMask), 0, 2)
+    : 2;
   let height = 0;
   for (let i = 0; i < Math.min(2, waves.length); i += 1) {
     const wave = waves[i];
-    const theta = wave.waveNumber * (wave.dirX * x + wave.dirZ * z) -
+    const baseCoordinate = wave.dirX * x + wave.dirZ * z;
+    const slotWeight = i === 0
+      ? Math.min(nearshoreSlotMask, 1)
+      : Math.max(nearshoreSlotMask - 1, 0);
+    const slotBlend = nearshoreBlend * slotWeight;
+    const phaseCoordinate = slotBlend > 0
+      ? THREE.MathUtils.lerp(baseCoordinate, nearshore.phaseCoordinate, slotBlend)
+      : baseCoordinate;
+    const theta = wave.waveNumber * phaseCoordinate -
       wave.omega * time + wave.phase;
     height += wave.amplitude * Math.sin(theta);
   }
@@ -774,6 +831,19 @@ function swashHash(value) {
   return ((x % 1) + 1) % 1;
 }
 
+// Low-frequency shoreline shape for one swash event. This is CPU-authored so
+// the visible water, persistent foam pass, and gameplay queries all receive
+// the same bounded tongue pattern without adding procedural noise to the
+// private-memory-heavy visible fragment shader.
+export function sampleSwashEventShape(cycleIndex) {
+  const index = Math.floor(Number(cycleIndex) || 0);
+  return {
+    phase: swashHash(index + 113.17) * Math.PI * 2,
+    frequency: THREE.MathUtils.lerp(0.085, 0.16, swashHash(index + 197.31)),
+    amplitude: THREE.MathUtils.lerp(0.55, 1.05, swashHash(index + 251.73)),
+  };
+}
+
 // Per-event forcing for an irregular swash train. A four-wave interpolated
 // group term supplies the observed low-frequency envelope; the individual
 // term keeps neighbouring bores from sharing one reach. Backwash strength is
@@ -801,18 +871,22 @@ function sampleSwashForcing(cycleIndex) {
 
 // Bounded stylized event statistics, informed by random-wave run-up and
 // swash-interaction measurements: ordinary peaks cover 80–100% of the user
-// reach, wave groups correlate several events, and a strong preceding
-// backwash slightly suppresses the next inland maximum. `rundownOffset` is
-// metres relative to the still-water shoreline (negative = farther seaward).
+// reach, wave groups correlate several events, and a deep preceding rundown
+// can lend a small amount of momentum to the next bore. The carry is capped
+// at 2% of the authored reach (20 cm for the 10 m calibration beach), so it
+// never overwhelms the event's own forcing. `rundownOffset` is metres relative
+// to the still-water shoreline (negative = farther seaward).
 export function sampleSwashCycleVariation(cycleIndex) {
   const index = Math.floor(Number(cycleIndex) || 0);
   const current = sampleSwashForcing(index);
   const previous = sampleSwashForcing(index - 1);
-  const interactionPenalty = Math.max(previous.backwashStrength - 0.55, 0) * 0.045;
+  const backwashCarry = Math.max(previous.backwashStrength - 0.5, 0) * 0.04;
   return {
     backwashStrength: current.backwashStrength,
+    backwashCarry,
+    baseRunupScale: current.baseRunupScale,
     rundownOffset: THREE.MathUtils.lerp(0.35, -0.9, current.backwashStrength),
-    runupScale: THREE.MathUtils.clamp(current.baseRunupScale - interactionPenalty, 0.8, 1),
+    runupScale: THREE.MathUtils.clamp(current.baseRunupScale + backwashCarry, 0.8, 1),
   };
 }
 
@@ -830,19 +904,100 @@ export function sampleSwashDistance(waves, time, runupDistance, uprushFraction =
     : THREE.MathUtils.lerp(current.rundownOffset, peak, progress);
 }
 
+// One CPU-authored frame shared by the visible swash and the persistent
+// shore-state pass. Keeping event identity, incidence, and derivatives here
+// prevents a foam/wetness texture from becoming a second animation with a
+// slightly different phase or direction.
+export function sampleSwashFrameState(
+  waves,
+  time,
+  runupDistance = 0,
+  uprushFraction = 0.34,
+) {
+  const sequence = samplePrimarySwellSequence(waves, time);
+  const current = sampleSwashCycleVariation(sequence.index);
+  const previous = sampleSwashCycleVariation(sequence.index - 1);
+  const edgeShape = sampleSwashEventShape(sequence.index);
+  const progress = shapeSwashProgress(sequence.cycle, uprushFraction);
+  const derivativeStep = 0.02;
+  const beforeSequence = samplePrimarySwellSequence(waves, time - derivativeStep);
+  const afterSequence = samplePrimarySwellSequence(waves, time + derivativeStep);
+  const progressSpeed = (
+    shapeSwashProgress(afterSequence.cycle, uprushFraction) -
+    shapeSwashProgress(beforeSequence.cycle, uprushFraction)
+  ) / (derivativeStep * 2);
+  const maximumDistance = Math.max(Number(runupDistance) || 0, 0);
+  const edgeDistance = maximumDistance > 0
+    ? sampleSwashDistance(waves, time, maximumDistance, uprushFraction)
+    : 0;
+  const edgeDistanceSpeed = maximumDistance > 0
+    ? (
+      sampleSwashDistance(waves, time + derivativeStep, maximumDistance, uprushFraction) -
+      sampleSwashDistance(waves, time - derivativeStep, maximumDistance, uprushFraction)
+    ) / (derivativeStep * 2)
+    : 0;
+  return {
+    cycle: sequence.cycle,
+    cycleSpeed: Math.max(Number(waves?.[0]?.omega) || 0, 0) / (Math.PI * 2),
+    edgeDistance,
+    edgeDistanceSpeed,
+    eventIndex: sequence.index,
+    isUprush: sequence.cycle < uprushFraction,
+    primaryDirectionX: waves?.[0]?.dirX ?? 0,
+    primaryDirectionZ: waves?.[0]?.dirZ ?? -1,
+    progress,
+    progressSpeed,
+    runupScale: current.runupScale,
+    startOffset: previous.rundownOffset,
+    endOffset: current.rundownOffset,
+    edgeShape,
+  };
+}
+
 // Connected oblique lip: the large term follows the incoming crest angle and
 // small traveling scallops prevent a ruler-straight shoreline. A residual
 // envelope at nominal rest/full reach represents the alongshore arrival lag;
 // the centerline remains the 0..runupDistance calibration reference.
-export function sampleSwashEdgeOffset(x, time, progress, waveDirectionX = 0) {
+export function sampleSwashEdgeOffset(
+  x,
+  time,
+  progress,
+  waveDirectionX = 0,
+  cycle = 0,
+  edgeShape = null,
+) {
   const p = THREE.MathUtils.clamp(Number(progress) || 0, 0, 1);
   const envelope = THREE.MathUtils.lerp(0.18, 1, Math.sin(Math.PI * p));
-  const tilt = -x * THREE.MathUtils.clamp(Number(waveDirectionX) * 0.72, -0.28, 0.28);
+  // A literal infinite oblique line grows without bound across a wide water
+  // tile. The old implementation then hard-clamped that line to the event's
+  // run-up maximum, pinning tens of metres of shore to one ruler-straight
+  // endpoint before releasing it a mesh column at a time. Soft-sign retains
+  // the incidence angle around the camera while approaching a finite offset
+  // smoothly, so it never creates a saturated plateau.
+  const incidenceSlope = THREE.MathUtils.clamp(
+    Number(waveDirectionX) * 0.52,
+    -0.2,
+    0.2,
+  );
+  const rawTilt = -x * incidenceSlope;
+  const maximumTilt = 2.0;
+  const tilt = rawTilt / (1 + Math.abs(rawTilt) / maximumTilt);
   const scallop = (
     Math.sin(x * 0.32 - time * 0.35) - Math.sin(-time * 0.35) +
     (Math.sin(x * 0.91 + time * 0.18) - Math.sin(time * 0.18)) * 0.35
   ) * 0.4;
-  return (tilt + scallop) * envelope;
+  const shape = edgeShape ?? { phase: 0, frequency: 0.1, amplitude: 0 };
+  const phase = Number(shape.phase) || 0;
+  const frequency = THREE.MathUtils.clamp(Number(shape.frequency) || 0.1, 0.02, 0.5);
+  const amplitude = THREE.MathUtils.clamp(Number(shape.amplitude) || 0, 0, 2.5);
+  const secondaryPhase = phase * -0.71;
+  const macroBase = (
+    Math.sin(x * frequency + phase) - Math.sin(phase) +
+    (Math.sin(x * frequency * 2.35 + secondaryPhase) - Math.sin(secondaryPhase)) * 0.42
+  ) * amplitude;
+  const macroWave = Math.sin(THREE.MathUtils.clamp(Number(cycle) || 0, 0, 1) * Math.PI);
+  const macroEnvelope = macroWave * macroWave;
+  return (tilt + scallop) * envelope + macroBase * macroEnvelope;
 }
 
 // --- Field schema -----------------------------------------------------------
@@ -911,6 +1066,11 @@ const FIELD_METADATA = {
   foamColor: { group: 'foam', label: 'Foam Color', type: 'color', description: 'Color of all foam: shoreline, whitecaps, wakes, and splashes.' },
   foamAmount: { group: 'foam', label: 'Foam Amount', min: 0, max: 2, step: 0.01, description: 'Offshore contact foam, whitecap, and wake gain.' },
   swashFoamAmount: { group: 'foam', label: 'Swash Foam', min: 0, max: 2, step: 0.01, description: 'Independent gain for torn foam carried up and back down the beach.' },
+  swashFoamLifetime: { group: 'foam', label: 'Swash Foam Life (s)', min: 0.25, max: 30, step: 0.25, description: 'Seconds fresh aerated swash foam remains before thinning into residue.' },
+  swashFoamResidueLifetime: { group: 'foam', label: 'Foam Residue Life (s)', min: 0.5, max: 60, step: 0.5, description: 'Seconds fragmented beach foam persists and drifts after the active front passes.' },
+  wetSandDryTime: { group: 'foam', label: 'Wet Sand Drying (s)', min: 2, max: 600, step: 1, description: 'Seconds saturated sand takes to return to its dry color after the water retreats.' },
+  wetSandDarkening: { group: 'foam', label: 'Wet Sand Darkening', min: 0, max: 1, step: 0.01, description: 'How strongly remembered moisture darkens exposed sand.' },
+  wetSandSheen: { group: 'foam', label: 'Wet Sand Sheen', min: 0, max: 1, step: 0.01, description: 'Strength of the short-lived glossy water film left on freshly exposed sand.' },
   foamContactDistance: { group: 'foam', label: 'Contact Distance', min: 0.02, max: 4, step: 0.01, description: 'Depth difference covered by the solid contact foam band.' },
   foamLineSpacing: { group: 'foam', label: 'Line Spacing', min: 0.05, max: 4, step: 0.01, description: 'Spacing of the animated lapping foam lines off the shore.' },
   foamNoiseScale: { group: 'foam', label: 'Foam Noise Scale', min: 0.05, max: 8, step: 0.05, description: 'Breakup noise frequency for foam edges.' },

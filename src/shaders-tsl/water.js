@@ -66,12 +66,12 @@ import {
   waterCombineNormal,
   waterFbm,
   waterRotate2d,
-  waterValueNoise,
 } from './chunks/water-common.js';
 import { createWaterColorChunk } from './chunks/water-color.js';
 import { createWaterFoamChunk } from './chunks/water-foam.js';
 import { createWaterLightingChunk } from './chunks/water-lighting.js';
 import { createWaterRippleChunk } from './chunks/water-ripple.js';
+import { createWaterShoreStateChunk } from './chunks/water-shore-state.js';
 import { createWaterWavesChunk } from './chunks/water-waves.js';
 
 // Node-backend placeholders: same roles as waterMaterial.js's placeholders,
@@ -92,6 +92,7 @@ function getPlaceholders() {
       reflection: createLinearPlaceholder([126, 190, 218, 255]),
       ripple: createLinearPlaceholder([128, 128, 128, 255]),
       sceneColor: createLinearPlaceholder([80, 150, 190, 255]),
+      shoreState: createLinearPlaceholder([0, 0, 0, 0]),
     };
   }
   return placeholders;
@@ -185,6 +186,10 @@ export function createWaterNodeMaterial({
     uRippleTexel: uniform(new THREE.Vector2(1 / 256, 1 / 256)),
     uRippleHeightScale: uniform(1),
 
+    uShoreStateMap: texture(holders.shoreState),
+    uUseShoreState: uniform(0),
+    uShoreStateRegion: uniform(new THREE.Vector4(0, 0, 1, 1)),
+
     uShoalingDepth: uniform(1.4),
     uShorelineWaves: uniform(0.35),
     uShorelineRunup: uniform(0.6),
@@ -194,6 +199,11 @@ export function createWaterNodeMaterial({
     uSwashRunupScale: uniform(1),
     uSwashStartOffset: uniform(0),
     uSwashEndOffset: uniform(0),
+    uSwashCycle: uniform(0),
+    uSwashProgress: uniform(0),
+    uSwashIncidenceX: uniform(0),
+    // (phase radians, alongshore frequency rad/m, amplitude metres).
+    uSwashEdgeShape: uniform(new THREE.Vector3(0, 0.1, 0)),
     uBreakerEnabled: uniform(1),
     uBreakerAmount: uniform(0.5),
     uWaveEnergy: uniform(0.3),
@@ -255,6 +265,7 @@ export function createWaterNodeMaterial({
 
   const waves = createWaterWavesChunk({ wavesA: wavesANode, wavesB: wavesBNode, waveCount });
   const ripple = createWaterRippleChunk({ u });
+  const shoreState = createWaterShoreStateChunk({ u });
   const color = createWaterColorChunk({ u, flags });
   const foam = createWaterFoamChunk({ u, foamOctaves });
   const lighting = createWaterLightingChunk({ u });
@@ -272,6 +283,7 @@ export function createWaterNodeMaterial({
   const vWorldPosition = varying(vec3(), 'vWaterWorldPosition');
   const vRestWorldXZ = varying(vec2(), 'vWaterRestWorldXZ');
   const vCrest = varying(float(), 'vWaterCrest');
+  const vGerstnerNormal = varying(vec3(), 'vWaterGerstnerNormal');
   const vShoal = varying(float(), 'vWaterShoal');
   const vBreaker = varying(float(), 'vWaterBreaker');
   // The connected wet/dry geometry is evaluated per vertex, but foam noise
@@ -282,10 +294,6 @@ export function createWaterNodeMaterial({
   // Gerstner's horizontal orbit folded the near-shore grid into white wedges.
   const vSwashSurge = varying(vec2(), 'vWaterSwashSurge');
   const vSwashZone = varying(float(), 'vWaterSwashZone');
-  // Deep water is always wet; the swash zone is wet only behind its one
-  // connected leading edge. The fragment threshold clips that edge cleanly.
-  const vSurfaceWet = varying(float(), 'vWaterSurfaceWet');
-  const vChop = varying(float(), 'vWaterChop');
   // Rest-pose column depth (waterline − bed). Deeply negative = the surface
   // is under dry land; the fragment shader discards those fragments so
   // triangles spanning a cliff face can't poke through the terrain.
@@ -304,6 +312,7 @@ export function createWaterNodeMaterial({
     const breakFoam = float(0.0).toVar();
 
     let rawWave;
+    let nearshore = null;
     const waveDisplacement = vec3(0.0).toVar();
     if (flags.shoaling) {
       const aBedHeight = attribute('aBedHeight', 'float');
@@ -313,7 +322,30 @@ export function createWaterNodeMaterial({
       const shoalRange = max(max(u.uShoalingDepth, u.uWaveEnergy.mul(2.2)), 1e-3).toVar();
       chopWeight.assign(mix(0.15, 1.0, smoothstep(shoalRange.mul(0.3), shoalRange.mul(1.4), restDepth)));
 
-      rawWave = waves.gerstnerDisplacementFiltered(restXZ, u.uTime, chopWeight).toVar();
+      // Packed CPU-baked mild-slope field: q, dq/dx, dq/dz, slot mask. It is fully
+      // active through the breaker/swash handoff, fades back to the original
+      // plane phase over a broad deep-water band, and only affects the two
+      // dominant swell slots. The attribute is a plane-wave fallback on
+      // stages where the nearshore solve is disabled or invalid.
+      const aNearshorePhase = attribute('aNearshorePhase', 'vec4').toVar();
+      const nearshoreBlend = smoothstep(
+        shoalRange.mul(0.8),
+        shoalRange.mul(1.8),
+        restDepth,
+      ).oneMinus().toVar();
+      nearshore = {
+        phaseCoordinate: aNearshorePhase.x,
+        waveVector: aNearshorePhase.yz,
+        blend: nearshoreBlend,
+        slotMask: aNearshorePhase.w,
+      };
+
+      rawWave = waves.gerstnerDisplacementFiltered(
+        restXZ,
+        u.uTime,
+        chopWeight,
+        nearshore,
+      ).toVar();
 
       // Stylized breaking-wave shoaling (see water.vert.glsl for the model).
       const deepFactor = smoothstep(0.0, shoalRange, restDepth);
@@ -345,15 +377,12 @@ export function createWaterNodeMaterial({
       const shoreDirection = aBedGradient.div(max(length(aBedGradient), 0.005)).toVar();
       const alongDirection = vec2(shoreDirection.y, shoreDirection.x.negate()).toVar();
       const alongCoordinate = dot(restXZ, alongDirection).toVar();
-      const swashCycle = waves.primarySwellCycle(u.uTime).toVar();
-      const uprushT = clamp(swashCycle.div(0.34), 0.0, 1.0).toVar();
-      const backwashT = clamp(swashCycle.sub(0.34).div(0.66), 0.0, 1.0).toVar();
-      // Sine easing leaves the rest line promptly, decelerates at maximum
-      // reach, then releases into the longer drain. Smoothstep lingered at
-      // both extrema and made the lip look square for most of the cycle.
-      const uprush = sin(uprushT.mul(Math.PI * 0.5));
-      const backwash = sin(backwashT.oneMinus().mul(Math.PI * 0.5));
-      const swashProgress = select(swashCycle.lessThan(0.34), uprush, backwash).toVar();
+      // WaterSurface computes this frame once on the CPU and shares it with
+      // the persistent foam/wetness pass. That keeps the visible lip, foam
+      // injection, and wet-sand history on the exact same event and removes a
+      // duplicate phase/easing stack from this already-large shader.
+      const swashCycle = u.uSwashCycle.toVar();
+      const swashProgress = u.uSwashProgress.toVar();
 
       // The user setting is the maximum horizontal reach. Runtime event
       // uniforms vary ordinary peaks over 80–100%, carry the previous rundown
@@ -371,10 +400,10 @@ export function createWaterNodeMaterial({
       const endOffset = select(explicitRunup, u.uSwashEndOffset, 0.0).toVar();
       const edgeDistance = select(
         swashCycle.lessThan(0.34),
-        mix(startOffset, runupDistance, uprush),
-        mix(endOffset, runupDistance, backwash),
+        mix(startOffset, runupDistance, swashProgress),
+        mix(endOffset, runupDistance, swashProgress),
       ).toVar();
-      const swashReach = runupDistance.mul(bedSlope).toVar();
+      const maximumSwashReach = maximumHorizontalReach.mul(bedSlope).toVar();
       // Match the incoming oblique crest instead of marching the whole beach
       // forward like a ruler. A broad tilt supplies the incidence angle; two
       // small traveling scallops break up the lip without splitting it.
@@ -382,8 +411,12 @@ export function createWaterNodeMaterial({
       // crest reaches one end of a real beach first. Forcing every X column
       // onto the same endpoint created the conspicuous horizontal ruler line.
       const edgeEnvelope = mix(0.18, 1.0, sin(swashProgress.mul(Math.PI))).toVar();
-      const edgeTilt = alongCoordinate
-        .mul(clamp(u.uFlowDirection.x.mul(-0.72), -0.28, 0.28));
+      const incidenceSlope = clamp(u.uSwashIncidenceX.mul(0.52), -0.2, 0.2).toVar();
+      const rawEdgeTilt = alongCoordinate.mul(incidenceSlope).negate().toVar();
+      // Bounded soft-sign: preserves the local crest angle without ever
+      // reaching a flat clamp. The former unbounded x*slope term reached
+      // ±22 m across this lab and pinned whole shoreline blocks to one cap.
+      const edgeTilt = rawEdgeTilt.div(abs(rawEdgeTilt).div(2.0).add(1.0)).toVar();
       const edgeScallop = sin(alongCoordinate.mul(0.32).sub(u.uTime.mul(0.35)))
         .sub(sin(u.uTime.mul(-0.35)))
         .add(
@@ -392,16 +425,35 @@ export function createWaterNodeMaterial({
             .mul(0.35),
         )
         .mul(0.4);
-      const edgeHead = clamp(
-        edgeDistance.mul(bedSlope)
-          .add(edgeTilt.add(edgeScallop).mul(edgeEnvelope).mul(bedSlope)),
-        select(explicitRunup, min(startOffset, endOffset).sub(0.25).mul(bedSlope), 0.0),
-        swashReach.mul(1.12),
-      ).toVar();
+      // Broad per-event tongues make the actual water silhouette irregular,
+      // not merely the foam painted behind it. The squared cycle envelope is
+      // zero with zero velocity at event boundaries, so shape seeds may vary
+      // each wave without a shoreline pop. Subtracting the x=0 samples keeps
+      // the calibrated 8-10 m centerline reach unchanged.
+      const macroWave = sin(swashCycle.mul(Math.PI)).toVar();
+      const secondaryPhase = u.uSwashEdgeShape.x.mul(-0.71).toVar();
+      const edgeMacro = sin(
+        alongCoordinate.mul(u.uSwashEdgeShape.y).add(u.uSwashEdgeShape.x),
+      ).sub(sin(u.uSwashEdgeShape.x))
+        .add(
+          sin(
+            alongCoordinate.mul(u.uSwashEdgeShape.y).mul(2.35).add(secondaryPhase),
+          ).sub(sin(secondaryPhase)).mul(0.42),
+        )
+        .mul(u.uSwashEdgeShape.z)
+        .mul(macroWave.mul(macroWave))
+        .toVar();
+      const edgeHead = edgeDistance.mul(bedSlope)
+        .add(
+          edgeTilt.add(edgeScallop).mul(edgeEnvelope)
+            .add(edgeMacro)
+            .mul(bedSlope),
+        ).toVar();
       const filmHead = restDepth.add(edgeHead).toVar();
       // Behind the edge the sheet is centimetres deep, not a second full-body
-      // water plane. Negative head tucks unreached vertices below the sand.
-      const film = clamp(filmHead.mul(0.45).add(0.008), -0.08, 0.045).toVar();
+      // water plane. Dry vertices remain conformal just above the bed; the
+      // fragment-space signed head owns visibility, avoiding lifting rows.
+      const film = clamp(filmHead.mul(0.45).add(0.008), 0.003, 0.045).toVar();
       // Cap the drape: the film follows the bed up the beach, but a steep
       // bank (terraced shore, cliff base) puts a whole cliff step inside one
       // mesh cell — the dry vertex would ride 10m+ up the slope and drag
@@ -409,13 +461,14 @@ export function createWaterNodeMaterial({
       // wedges at distant shorelines). Real swash never climbs above ~½m
       // over the rest waterline, so clamp the geometry there and let the
       // vRestDepth fragment discard own the rest.
-      const filmY = min(aBedHeight.sub(worldPosition.y).add(film), max(0.5, swashReach.mul(1.1)));
+      const filmY = min(
+        aBedHeight.sub(worldPosition.y).add(film),
+        max(0.5, maximumSwashReach.mul(1.1)),
+      );
       // Hand off over the last ~4 m of the 1:20 profile. Deeper water stays
       // the Gerstner surface, preventing the visible "three stacked systems"
       // boundary that a reach-sized blend band created.
       const beach = smoothstep(0.06, 0.22, restDepth).oneMinus().toVar();
-      const wet = smoothstep(-0.004, 0.012, filmHead).toVar();
-      vSurfaceWet.assign(mix(1.0, wet, beach));
       vSwashZone.assign(beach);
 
       rippleShoal.assign(smoothstep(0.0, 0.18, restDepth));
@@ -439,7 +492,6 @@ export function createWaterNodeMaterial({
       vSwashSurge.assign(vec2(0.0));
       vSwashZone.assign(float(0.0));
       vSwashFoamData.assign(vec2(-1.0, 0.018));
-      vSurfaceWet.assign(float(1.0));
       vRestDepth.assign(float(1000.0));
       rawWave = waves.gerstnerDisplacementFiltered(restXZ, u.uTime, chopWeight).toVar();
       waveDisplacement.assign(rawWave);
@@ -451,9 +503,19 @@ export function createWaterNodeMaterial({
     worldPosition.xyz.addAssign(waveDisplacement);
     worldPosition.y.addAssign(rippleHeight);
 
-    const { crest } = waves.gerstnerNormalFiltered(restXZ, u.uTime, chopWeight);
-    vCrest.assign(crest.mul(clamp(shoal, 0.0, 1.0)));
-    vChop.assign(chopWeight);
+    // Evaluate the analytic long-wave frame once per vertex. The former
+    // per-fragment eight-wave loop was the largest source of WebGPU private
+    // address-space pressure; interpolating this macro normal leaves the
+    // fragment stage's high-frequency detail and ripple normals intact.
+    const gerstner = waves.gerstnerNormalFiltered(
+      restXZ,
+      u.uTime,
+      chopWeight,
+      nearshore,
+    );
+    const shoalBlend = clamp(shoal, 0.0, 1.0).toVar();
+    vGerstnerNormal.assign(normalize(mix(vec3(0.0, 1.0, 0.0), gerstner.normal, shoalBlend)));
+    vCrest.assign(gerstner.crest);
     vShoal.assign(shoal);
     vBreaker.assign(breakFoam);
     vWorldPosition.assign(worldPosition.xyz);
@@ -463,22 +525,26 @@ export function createWaterNodeMaterial({
 
   // ---- Fragment stage (water.frag.glsl) ----
   material.fragmentNode = Fn(() => {
-    // The wet mask is one continuous cross-shore inequality. It clips drained
-    // shallows and unreached dry land without allowing detached phase islands.
+    // Apply the nonlinear wet threshold after the signed film head has been
+    // interpolated. Evaluating smoothstep at sparse vertices first exposed
+    // individual triangle rows as the water advanced at a grazing angle.
     if (flags.shoaling) {
-      Discard(vSurfaceWet.lessThan(0.015));
+      const fragmentWet = mix(
+        1.0,
+        smoothstep(-0.004, 0.012, vSwashFoamData.x),
+        clamp(vSwashZone, 0.0, 1.0),
+      );
+      Discard(fragmentWet.lessThan(0.015));
     }
     const screenUv = screenUV.toVar();
     const toCamera = cameraPosition.sub(vWorldPosition).toVar();
     const viewDir = normalize(toCamera).toVar();
     const viewDistance = length(toCamera).toVar();
 
-    // --- surface normal: Gerstner (analytic, per-pixel) + fbm detail + ripples ---
-    const gerstner = waves.gerstnerNormalFiltered(vRestWorldXZ, u.uTime, vChop);
-    const gerstnerNormal = vec3(gerstner.normal).toVar();
-    const crest = float(gerstner.crest).toVar();
+    // --- surface normal: interpolated Gerstner frame + fbm detail + ripples ---
+    const gerstnerNormal = normalize(vGerstnerNormal).toVar();
+    const crest = float(vCrest).toVar();
     const shoalBlend = clamp(vShoal, 0.0, 1.0).toVar();
-    gerstnerNormal.assign(normalize(mix(vec3(0.0, 1.0, 0.0), gerstnerNormal, shoalBlend)));
     crest.assign(clamp(crest.mul(shoalBlend).add(vBreaker.mul(crest.mul(0.55).add(0.45))), 0.0, 1.0));
     const gerstnerNormalY = gerstnerNormal.y.toVar();
 
@@ -591,55 +657,39 @@ export function createWaterNodeMaterial({
         1.0,
       );
       const swashFoamRaw = float(0.0).toVar();
+      const persistentShoreState = flags.shoaling
+        ? shoreState.shoreStateSample(vRestWorldXZ)
+        : vec4(0.0);
       if (flags.shoaling) {
-        // Fragment-space noise restores the old foam's small organic edges.
-        // The vertex shader supplies the moving physical band;
-        // no independent strip advances along the beach on its own clock.
+        // The temporal shore field owns transport, decay, breakup, and
+        // event-to-event variation. Keep this main material deliberately
+        // small: duplicating procedural noise here can exceed WebGPU's hard
+        // 8 KiB private-variable budget for StylizedWater.
         If(vSwashZone.greaterThan(0.001), () => {
           const filmHead = vSwashFoamData.x.toVar();
           const foamWidth = max(vSwashFoamData.y, 0.018).toVar();
-          // One lightweight moving value-noise field is enough to create
-          // broad gaps and disturb both sides of the strip. The prior three
-          // extra FBM stacks exceeded WebGPU's 8 KB private-space limit and
-          // prevented the entire water pipeline from being created.
-          const patchNoise = waterValueNoise(
-            // Higher alongshore frequency prevents a single bright strip from
-            // spanning most of the beach; the cross-shore scale stays broad
-            // enough for foam to read as a torn sheet instead of confetti.
-            foamXZ.mul(
-              vec2(1.45, 0.78).mul(
-                clamp(u.uFoamNoiseScale.div(0.6), 0.35, 3.0),
-              ),
-            )
-              .add(vec2(filmHead.div(foamWidth).mul(0.17), u.uTime.mul(0.09))),
-          ).toVar();
-          // Keep a faint aerated fringe across most of the advancing lip,
-          // then let the same noise gather it into brighter torn rafts. A
-          // hard binary gate made the swash look inexplicably foam-free for
-          // long stretches; a solid floor would recreate the ruler line.
-          const edgeCoverage = mix(
-            0.16,
+          const fallbackBand = smoothstep(-0.006, 0.004, filmHead)
+            .mul(smoothstep(foamWidth.mul(0.7), foamWidth.mul(1.25), filmHead).oneMinus());
+          const storedFoam = clamp(
+            // The state pass deliberately stores low-energy values so its
+            // advection remains stable. Remap those values into the original
+            // foamShape range here: the former 0.16..0.58 / 0.82 mapping
+            // required active state B ~= 0.34 before a single solid pixel
+            // could appear, and residue A could never reach the shape's
+            // onset at all. Active foam gets the lower presentation onset;
+            // residue stays a quiet modifier so old events cannot rebuild a
+            // continuous bright shoreline. This does not add a coverage
+            // floor or refill the source's true gaps.
+            smoothstep(0.12, 0.48, persistentShoreState.b).mul(0.9)
+              .add(smoothstep(0.25, 0.7, persistentShoreState.a).mul(0.18)),
+            0.0,
             1.0,
-            smoothstep(0.43, 0.72, patchNoise),
-          ).toVar();
-          const patchGate = smoothstep(0.55, 0.74, patchNoise).toVar();
-          const noisyHead = filmHead
-            .add(patchNoise.sub(0.5).mul(foamWidth).mul(1.4)).toVar();
-          const edgeBand = smoothstep(-0.008, 0.004, noisyHead)
-            .mul(smoothstep(foamWidth.mul(0.65), foamWidth.mul(1.35), noisyHead).oneMinus());
-          const edgePatches = edgeBand
-            .mul(edgeCoverage)
-            .mul(mix(0.38, 1.0, patchNoise))
-            .mul(0.86);
-
-          const trailBand = smoothstep(foamWidth.mul(0.5), foamWidth, noisyHead)
-            .mul(smoothstep(foamWidth.mul(3.6), foamWidth.mul(5.5), noisyHead).oneMinus());
-          const trailPatches = trailBand
-            .mul(patchGate)
-            .mul(mix(0.22, 0.78, patchNoise))
-            .mul(0.54);
+          );
           swashFoamRaw.assign(
-            clamp(edgePatches.add(trailPatches).mul(vSwashZone), 0.0, 1.0),
+            max(
+              storedFoam,
+              fallbackBand.mul(u.uUseShoreState.oneMinus()),
+            ).mul(vSwashZone),
           );
         });
       }
@@ -649,19 +699,17 @@ export function createWaterNodeMaterial({
         0.0,
         1.0,
       ).mul(foamAmount).toVar();
-      // Preserve the original crisp offshore foam, but do not force the
-      // continuous swash mask through its solid-band threshold. That threshold
-      // turned organic gradients into rectangular white slabs.
       const swashFoamValue = clamp(
         swashFoamRaw.mul(clamp(u.uSwashFoamAmount, 0.0, 2.0)),
         0.0,
         1.0,
       ).toVar();
-      const foamValue = max(
-        foam.foamShape(baseFoamRaw, foamXZ, u.uTime),
-        swashFoamValue,
-      ).toVar();
+      // The pre-session foam looked better because every source shared this
+      // crisp solid-core + dissolve-fringe shaping. Shape stored swash foam
+      // together with offshore/contact foam; never max an unshaped milky mask
+      // over the final result.
       const foamRaw = max(baseFoamRaw, swashFoamValue).toVar();
+      const foamValue = foam.foamShape(foamRaw, foamXZ, u.uTime).toVar();
 
       // Drifting cloud shadows plus scene shadows (shared sun-shadow pass).
       const cloudShadow = stylizedCloudShadow(
@@ -757,6 +805,12 @@ export function createWaterNodeMaterial({
         )],
         [8, vec4(vec3(fresnel), 1.0)],
         [9, vec4(crest, vCrest, whitecaps, 1.0)],
+        [10, vec4(
+          persistentShoreState.r,
+          persistentShoreState.g,
+          max(persistentShoreState.b, persistentShoreState.a),
+          1.0,
+        )],
       ];
       let debugMask = float(0.0);
       let debugSum = vec4(0.0);

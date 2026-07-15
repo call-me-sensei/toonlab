@@ -10,11 +10,15 @@
 
 export * from './waterSettings.js';
 export * from './waterMaterial.js';
+export * from './waterCurrentField.js';
+export * from './waterNearshorePhase.js';
 export * from './waterRippleSimulation.js';
 export * from './waterSplashSystem.js';
 export * from './waterBreakerSystem.js';
 export * from './waterScenePasses.js';
 export * from './waterInteraction.js';
 export * from './waterSurface.js';
+export * from './waterShoreStateField.js';
+export * from './waterShoreMaterial.js';
 export * from './waterRain.js';
 export * from './waterVegetation.js';

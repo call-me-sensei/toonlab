@@ -12,7 +12,13 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
-import { WaterKelpField, WaterRain, WaterSurface } from '../../../src/water/index.js';
+import {
+  createWaterShoreMaterial,
+  updateWaterShoreMaterial,
+  WaterKelpField,
+  WaterRain,
+  WaterSurface,
+} from '../../../src/water/index.js';
 import { createFauna } from '../../../src/fauna/index.js';
 import { createRockDocument, meshDocument } from '../../../src/rockgen/index.js';
 import { createLabRenderer, whenRendererReady } from '../../shared/rendererFactory.js';
@@ -137,7 +143,7 @@ const STAGE_DEFINITIONS = {
   },
 };
 
-function buildBedMesh(waterLevel, bed) {
+function buildBedMesh(waterLevel, bed, material) {
   // Well past the water tile: with the horizon fog, ground beyond the water
   // edge fades into the sky instead of reading as a bald cut-off wedge.
   const size = WATER_SIZE + 40;
@@ -146,7 +152,6 @@ function buildBedMesh(waterLevel, bed) {
   const positions = geometry.attributes.position;
   const colors = new Float32Array(positions.count * 3);
   const sand = new THREE.Color(0.87, 0.78, 0.57);
-  const wetSand = new THREE.Color(0.68, 0.59, 0.42);
   const shallows = new THREE.Color(0.62, 0.6, 0.45);
   const rock = new THREE.Color(0.17, 0.24, 0.27);
   const color = new THREE.Color();
@@ -157,10 +162,10 @@ function buildBedMesh(waterLevel, bed) {
     positions.setY(i, height);
     const depth = waterLevel - height;
     if (depth <= 0.25) {
-      // Swash band reads damp: the sand the backwash exposes shouldn't
-      // flash bone-dry between waves.
-      const damp = 1 - THREE.MathUtils.smoothstep(height - waterLevel, 0.12, 0.55);
-      color.copy(sand).lerp(wetSand, damp * 0.85);
+      // Author a dry base only. The shared persistent shoreline field owns
+      // inundation, moisture, sheen, and stranded foam at runtime, so the
+      // exposed beach no longer snaps between a static dark stripe and water.
+      color.copy(sand);
     } else if (depth < 2.2) {
       color.copy(shallows).lerp(sand, 1 - (depth - 0.25) / 1.95);
     } else {
@@ -172,7 +177,6 @@ function buildBedMesh(waterLevel, bed) {
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geometry.computeVertexNormals();
-  const material = new THREE.MeshStandardMaterial({ metalness: 0, roughness: 0.95, vertexColors: true });
   return new THREE.Mesh(geometry, material);
 }
 
@@ -313,8 +317,18 @@ export function createWaterLabEngine({ mount, store }) {
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
+  // Match the other designer labs explicitly: changing the left-drag mode
+  // must never disable the two camera actions that stay on wheel/right-drag.
+  controls.enablePan = true;
+  controls.enableRotate = true;
+  controls.enableZoom = true;
   controls.minDistance = 2;
-  controls.maxDistance = 90;
+  // Keep the designer camera inside the fully animated 180 m tile. The far
+  // skirt is a horizon safety net, not a second inspectable water system;
+  // unbounded pan/zoom could previously put the camera beyond the detailed
+  // mesh and expose its lower, flat edge as an obvious rectangular cutoff.
+  controls.maxDistance = 65;
+  controls.maxTargetRadius = 34;
   controls.screenSpacePanning = true;
   controls.zoomToCursor = true;
   function setCameraMode(mode) {
@@ -327,6 +341,10 @@ export function createWaterLabEngine({ mount, store }) {
     const framing = stage().camera;
     camera.position.set(...framing.position);
     controls.target.set(...framing.target);
+    // OrbitControls clamps pan around cursor. Recenter that sphere for each
+    // stage so Beach, basin, and open-water inspection all retain a useful
+    // 68 m pan diameter without ever reaching the simulation boundary.
+    controls.cursor.copy(controls.target);
     controls.update();
   }
   resetCamera();
@@ -342,6 +360,10 @@ export function createWaterLabEngine({ mount, store }) {
   let rocks = null;
   let kelp = null;
   let water = null;
+  // One material survives every Ground switch. Reusing its compiled graph is
+  // essential on WebGPU, and its texture node simply follows the shore-state
+  // ping-pong target each update.
+  const shoreMaterial = createWaterShoreMaterial();
 
   // WebGPU encodes and submits work at the end of the render frame. Ground
   // controls can fire between the scene update and that submit, so disposing
@@ -378,11 +400,34 @@ export function createWaterLabEngine({ mount, store }) {
       segmentsPerMeter: 1.5,
       maxSegments: 270,
       simulation: { resolution: 288, worldSize: 26 },
+      // The visible tile is biased offshore below, but the local interactive
+      // ripple window belongs around the camera's inspection target. Without
+      // an explicit follow point the simulation would follow the mesh origin
+      // to z=-40 and beach splashes would fall outside its 26 m window.
+      follow: (out) => out.set(controls.target.x, 0, controls.target.z),
       bedHeight: stage().bed,
+      // The calibration beach has one known offshore axis (+Z propagation).
+      // Other grounds include shelves/islands where this one-way mild-slope
+      // field is not a valid diffraction model, so they retain plane phase.
+      nearshorePhase: stageId === 'beach'
+        ? { incidentAxis: 'z', referenceX: 0, referenceZ: 0 }
+        : false,
+      // Fixed world-space band around every lab shoreline. The anisotropic
+      // 768x192 atlas gives ~23 cm cells in both axes: fine enough for torn
+      // foam rather than blocky rafts, while remaining a small 30 Hz pass.
+      shoreState: {
+        region: { centerX: 0, centerZ: -2, width: WATER_SIZE, depth: 44 },
+        resolution: { x: 768, y: 192 },
+      },
       ...settings,
     });
     surface.position.y = settings.waterLevel;
+    // Bias the single animated tile offshore: the measured z=-10..10 swash
+    // remains well inside it, while the far z edge moves from ~111 m to
+    // ~151 m from the beach camera—behind the scene's fully opaque fog.
+    surface.position.z = -40;
     surface.setDebugMode(store.getState().view.debug);
+    surface.attachShoreStateMaterial(shoreMaterial);
     scene.add(surface);
     return surface;
   }
@@ -426,6 +471,20 @@ export function createWaterLabEngine({ mount, store }) {
       water.applySettings(settings);
       water.position.y = settings.waterLevel;
     }
+    updateWaterShoreMaterial(shoreMaterial, {
+      stateField: water.shoreState,
+      foamColor: settings.foamColor,
+      // The shared ground-side fringe is the dry half of swash foam, not an
+      // independent effect. Its presentation follows the same dedicated
+      // Swash Foam control as the water-side half.
+      foamAmount: settings.swashFoamAmount,
+      wetDarkening: settings.wetSandDarkening,
+      // Wet sand is darker and smoother, but it is not a mirror. Mapping the
+      // authored sheen directly to full clearcoat produced broad white cloud
+      // patches from the bright sky instead of a restrained grazing glint.
+      wetRoughness: THREE.MathUtils.lerp(0.52, 0.28, settings.wetSandSheen),
+      wetClearcoat: settings.wetSandSheen * 0.48,
+    });
     syncEnvironment(settings);
     mirrorDataset(settings);
   }
@@ -533,10 +592,9 @@ export function createWaterLabEngine({ mount, store }) {
       scene.remove(staleBed);
       disposeAfterRenderBoundary(() => {
         staleBed.geometry.dispose();
-        staleBed.material.dispose();
       });
     }
-    bedMesh = buildBedMesh(state.settings.waterLevel, stage().bed);
+    bedMesh = buildBedMesh(state.settings.waterLevel, stage().bed, shoreMaterial);
     scene.add(bedMesh);
 
     if (rocks) {
@@ -571,7 +629,16 @@ export function createWaterLabEngine({ mount, store }) {
     // foam cycle from the same frame). The graph already has shoaling enabled,
     // so only its per-vertex terrain samples need to change.
     if (water && state.settings.quality === water.settings.quality) {
-      water.setBedHeightSampler(stage().bed);
+      water.setNearshorePhase(
+        stageId === 'beach'
+          ? { incidentAxis: 'z', referenceX: 0, referenceZ: 0 }
+          : false,
+        { bake: false },
+      );
+      // Defer the O(vertex-count) bed/phase bake to the normal update after
+      // applySettings has moved the rest water level, avoiding two synchronous
+      // bakes (old Y, then new Y) during the ground-selector event.
+      water.setBedHeightSampler(stage().bed, { bake: false });
     }
     applySettings(state.settings);
 

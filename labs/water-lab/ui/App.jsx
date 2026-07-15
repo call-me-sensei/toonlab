@@ -298,7 +298,7 @@ function Inspector({ actions, sectionId, state }) {
   const group = WATER_SETTING_GROUPS.find((entry) => entry.id === section.id);
   return (
     <aside className="wl-inspector tk" data-testid="inspector">
-      <h2 className="wl-inspector-header">Water</h2>
+      <h2 className="wl-inspector-header" data-testid="inspector-title">{section.label}</h2>
       <p className="wl-inspector-caption">{section.description}</p>
       {section.id === 'stage' && <PresetRow actions={actions} state={state} />}
       {section.id === 'stage' && <StageSection actions={actions} state={state} />}

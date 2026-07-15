@@ -579,7 +579,7 @@ Overrides numeric environment shader uniforms. Auto values preserve material def
 
 ## Water
 
-Module: `toonlab/water` — 7 groups, 72 fields.
+Module: `toonlab/water` — 7 groups, 79 fields.
 
 Settings are flat: `createWaterSettings({ preset: "ocean", waveIntensity: 0.6 })`. Groups exist for UI organization only.
 
@@ -595,6 +595,7 @@ Gerstner swell and detail ripple shaping.
 | `shoalingDepth` | number | `1.4` | 0.05 – 12 | Column depth in meters at which waves reach full height; shallower water shrinks them (needs a bed height sampler). |
 | `shorelineWaves` | number | `0.35` | 0 – 1 | Fraction of wave height that keeps rolling through the shallows as surf before dying at the waterline. |
 | `shorelineRunup` | number | `0.6` | 0 – 3 | How far incoming waves wash a thin foam film up the beach; reach scales with wave energy. |
+| `runupDistance` | number | `0` | 0 – 15 | Maximum horizontal reach in meters. Wave groups vary each event from 80–100%, and each backwash hands its endpoint into the next uprush. 0 lets wave energy decide. |
 | `breakerEnabled` | boolean | `true` | — | Master switch for the breaker system; off removes the mesh and skips all breaker work (for perf A/B). |
 | `breakerAmount` | number | `0` | 0 – 1 | Dedicated curling breaker shells along the break line; 0 disables the system (needs a bed height sampler). |
 | `breakerCurl` | number | `0.8` | 0 – 1 | Lip pitch: 0 spills down the face, 1 curls a full surfable tunnel. |
@@ -637,7 +638,13 @@ Shoreline foam, whitecaps, and wake foam.
 | Field | Type | Default | Range / options | Description |
 |---|---|---|---|---|
 | `foamColor` | color | `[0.94, 1, 0.99]` (#f0fffc) | — | Color of all foam: shoreline, whitecaps, wakes, and splashes. |
-| `foamAmount` | number | `1` | 0 – 2 | Global foam gain. |
+| `foamAmount` | number | `1` | 0 – 2 | Offshore contact foam, whitecap, and wake gain. |
+| `swashFoamAmount` | number | `1.15` | 0 – 2 | Independent gain for torn foam carried up and back down the beach. |
+| `swashFoamLifetime` | number | `4` | 0.25 – 30 | Seconds fresh aerated swash foam remains before thinning into residue. |
+| `swashFoamResidueLifetime` | number | `10` | 0.5 – 60 | Seconds fragmented beach foam persists and drifts after the active front passes. |
+| `wetSandDryTime` | number | `120` | 2 – 600 | Seconds saturated sand takes to return to its dry color after the water retreats. |
+| `wetSandDarkening` | number | `0.58` | 0 – 1 | How strongly remembered moisture darkens exposed sand. |
+| `wetSandSheen` | number | `0.78` | 0 – 1 | Strength of the short-lived glossy water film left on freshly exposed sand. |
 | `foamContactDistance` | number | `0.4` | 0.02 – 4 | Depth difference covered by the solid contact foam band. |
 | `foamLineSpacing` | number | `0.55` | 0.05 – 4 | Spacing of the animated lapping foam lines off the shore. |
 | `foamNoiseScale` | number | `0.6` | 0.05 – 8 | Breakup noise frequency for foam edges. |

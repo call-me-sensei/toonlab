@@ -4,6 +4,9 @@
 // registration feeds the preset picker. Run: node scripts/verify-watergen.mjs
 
 import process from 'node:process';
+import { readFileSync } from 'node:fs';
+
+import * as THREE from 'three';
 
 import {
   DEFAULT_WATER_SETTINGS,
@@ -14,6 +17,7 @@ import {
   WATER_SETTING_GROUPS,
   buildGerstnerWaves,
   computeBreakingDepth,
+  createWaterShoreMaterial,
   createWaterPresetDocument,
   createWaterSettings,
   extractBreakLineChains,
@@ -26,11 +30,15 @@ import {
   sampleSwashCycleVariation,
   sampleSwashDistance,
   sampleSwashEdgeOffset,
+  sampleSwashEventShape,
+  sampleSwashFrameState,
   sanitizeWaterPresetSettings,
   serializeWaterPreset,
   shapeSwashProgress,
   shouldUseDedicatedBreakerShell,
   validateWaterPresetDocument,
+  WaterShoreStateField,
+  updateWaterShoreMaterial,
 } from '../src/water/index.js';
 import { beachBedHeight } from '../labs/water-lab/engine/waterLabEngine.js';
 import {
@@ -196,6 +204,21 @@ check('explicit swash varies ordinary 10 m peaks over a bounded 8–10 m range',
   Math.min(...eventPeaks) >= 8 - 1e-9
     && Math.max(...eventPeaks) <= 10 + 1e-9
     && Math.max(...eventPeaks) - Math.min(...eventPeaks) > 0.7);
+const swashVariations = Array.from(
+  { length: 128 },
+  (_, index) => sampleSwashCycleVariation(index - 32),
+);
+check('deeper previous rundown gives only a non-negative modest uprush carry',
+  swashVariations.every((variation, offset) => {
+    const index = offset - 32;
+    const previous = sampleSwashCycleVariation(index - 1);
+    const expectedCarry = Math.max(previous.backwashStrength - 0.5, 0) * 0.04;
+    return variation.backwashCarry >= 0
+      && variation.backwashCarry <= 0.02 + 1e-12
+      && Math.abs(variation.backwashCarry - expectedCarry) < 1e-12
+      && variation.runupScale + 1e-12 >= variation.baseRunupScale;
+  })
+    && swashVariations.some((variation) => variation.backwashCarry > 0.005));
 check('successive swash events share one continuous rundown/uprush boundary',
   Array.from({ length: 12 }, (_, index) => {
     const boundary = (index + 1) * Math.PI;
@@ -212,10 +235,124 @@ check('swash sequence and variation expose the event used by the renderer',
   samplePrimarySwellSequence(phaseProbe, Math.PI * 4.2).index === 4
     && sampleSwashCycleVariation(4).runupScale >= 0.8
     && sampleSwashCycleVariation(4).runupScale <= 1);
+const sharedSwashFrame = sampleSwashFrameState(
+  phaseProbe,
+  Math.PI * 4.17,
+  BEACH_RUNUP_DISTANCE,
+);
+check('visible swash and temporal shoreline state share one CPU-authored frame',
+  Math.abs(sharedSwashFrame.edgeDistance - sampleSwashDistance(
+    phaseProbe,
+    Math.PI * 4.17,
+    BEACH_RUNUP_DISTANCE,
+  )) < 1e-9
+    && Math.abs(sharedSwashFrame.progress - shapeSwashProgress(sharedSwashFrame.cycle)) < 1e-9
+    && sharedSwashFrame.eventIndex === samplePrimarySwellSequence(
+      phaseProbe,
+      Math.PI * 4.17,
+    ).index
+    && Number.isFinite(sharedSwashFrame.edgeDistanceSpeed)
+    && Number.isFinite(sharedSwashFrame.progressSpeed)
+    && Number.isFinite(sharedSwashFrame.cycleSpeed)
+    && sharedSwashFrame.edgeShape.amplitude >= 0.55
+    && sharedSwashFrame.edgeShape.amplitude <= 1.05);
 check('oblique swash retains an alongshore arrival lag at nominal endpoints',
   sampleSwashEdgeOffset(-8, 0, 0, 0.34) > sampleSwashEdgeOffset(8, 0, 0, 0.34)
     && sampleSwashEdgeOffset(-8, 0, 1, 0.34) > sampleSwashEdgeOffset(8, 0, 1, 0.34)
     && sampleSwashEdgeOffset(0, 7.3, 0.63, 0.34) === 0);
+const macroShape = sampleSwashEventShape(4);
+const macroOffsets = [-30, -18, -8, 0, 9, 20, 30].map((x) => sampleSwashEdgeOffset(
+  x,
+  7.3,
+  shapeSwashProgress(0.34),
+  0.34,
+  0.34,
+  macroShape,
+));
+check('each swash event adds broad bounded tongues while preserving the centerline',
+  macroOffsets.every(Number.isFinite)
+    && Math.abs(macroOffsets[3]) < 1e-12
+    && Math.max(...macroOffsets) - Math.min(...macroOffsets) > 1.0
+    && Math.max(...macroOffsets.map(Math.abs)) < 4.5);
+
+// A 180 m tile used to turn the oblique x*slope term into a +/-20 m edge
+// displacement. Clamping that unbounded result pinned dozens of adjacent
+// columns to one reach endpoint, producing the ruler-straight line and the
+// block-by-block release visible in the Water Lab. Exercise the complete
+// alongshore span, including more extreme incidence than the beach preset.
+const swashAlongshoreSamples = Array.from({ length: 361 }, (_, index) => -90 + index * 0.5);
+const boundedEdgeOffsets = [
+  ...swashAlongshoreSamples.map((x) => sampleSwashEdgeOffset(x, 0, 0, 0.34)),
+  ...swashAlongshoreSamples.map((x) => sampleSwashEdgeOffset(x, 7.1, 0.5, 0.34)),
+  ...swashAlongshoreSamples.map((x) => sampleSwashEdgeOffset(x, 22.1, 0.5, -1)),
+  ...swashAlongshoreSamples.map((x) => sampleSwashEdgeOffset(x, 31.7, 0.83, 1)),
+];
+check('alongshore swash offset stays finite and bounded across the full 180 m tile',
+  boundedEdgeOffsets.every(Number.isFinite)
+    && Math.max(...boundedEdgeOffsets.map(Math.abs)) < 3.1,
+  `${Math.max(...boundedEdgeOffsets.map(Math.abs)).toFixed(3)} m`);
+
+// Probe a real low-energy event during uprush. A clamp plateau has identical
+// neighbouring edge positions for a long run; the bounded soft-sign profile
+// remains connected but continues changing from column to column.
+const profileTime = (11 + 0.17) * Math.PI;
+const profileProgress = shapeSwashProgress(samplePrimarySwellCycle(phaseProbe, profileTime));
+const profileCenter = sampleSwashDistance(phaseProbe, profileTime, BEACH_RUNUP_DISTANCE);
+const alongshoreEdgeProfile = swashAlongshoreSamples.map((x) => profileCenter +
+  sampleSwashEdgeOffset(x, profileTime, profileProgress, 0.34));
+let longestEdgePlateau = 1;
+let currentEdgePlateau = 1;
+for (let index = 1; index < alongshoreEdgeProfile.length; index += 1) {
+  if (Math.abs(alongshoreEdgeProfile[index] - alongshoreEdgeProfile[index - 1]) < 1e-5) {
+    currentEdgePlateau += 1;
+    longestEdgePlateau = Math.max(longestEdgePlateau, currentEdgePlateau);
+  } else {
+    currentEdgePlateau = 1;
+  }
+}
+check('connected oblique edge has no repeated-value clamp plateau',
+  longestEdgePlateau <= 2
+    && new Set(alongshoreEdgeProfile.map((value) => value.toFixed(6))).size >=
+      alongshoreEdgeProfile.length - 1,
+  `${longestEdgePlateau} columns`);
+
+// Centerline continuity alone did not catch the old wide-tile artifact. Test
+// the complete local edge (event distance + traveling oblique offset) on both
+// sides of twelve event boundaries and across the whole shoreline.
+let maximumAlongshoreBoundaryJump = 0;
+for (let eventIndex = 0; eventIndex < 12; eventIndex += 1) {
+  const boundary = (eventIndex + 1) * Math.PI;
+  const epsilon = 1e-4;
+  for (const x of swashAlongshoreSamples) {
+    const beforeTime = boundary - epsilon;
+    const afterTime = boundary + epsilon;
+    const beforeProgress = shapeSwashProgress(samplePrimarySwellCycle(phaseProbe, beforeTime));
+    const afterProgress = shapeSwashProgress(samplePrimarySwellCycle(phaseProbe, afterTime));
+    const beforeFrame = sampleSwashFrameState(
+      phaseProbe, beforeTime, BEACH_RUNUP_DISTANCE,
+    );
+    const afterFrame = sampleSwashFrameState(
+      phaseProbe, afterTime, BEACH_RUNUP_DISTANCE,
+    );
+    const beforeEdge = sampleSwashDistance(
+      phaseProbe, beforeTime, BEACH_RUNUP_DISTANCE,
+    ) + sampleSwashEdgeOffset(
+      x, beforeTime, beforeProgress, 0.34, beforeFrame.cycle, beforeFrame.edgeShape,
+    );
+    const afterEdge = sampleSwashDistance(
+      phaseProbe, afterTime, BEACH_RUNUP_DISTANCE,
+    ) + sampleSwashEdgeOffset(
+      x, afterTime, afterProgress, 0.34, afterFrame.cycle, afterFrame.edgeShape,
+    );
+    maximumAlongshoreBoundaryJump = Math.max(
+      maximumAlongshoreBoundaryJump,
+      Math.abs(afterEdge - beforeEdge),
+    );
+  }
+}
+check('full alongshore swash edge remains continuous across event boundaries',
+  maximumAlongshoreBoundaryJump < 0.005,
+  `${(maximumAlongshoreBoundaryJump * 1000).toFixed(2)} mm`);
 check('swash timing reserves more of each wave cycle for backwash than uprush',
   shapeSwashProgress(0.17) > 0.45
     && shapeSwashProgress(0.67) > 0.45);
@@ -251,6 +388,78 @@ check('shoreward Coast swell produces a continuous beach-facing break line',
 check('explicit beach swash uses the welded heightfield breaker, not a detached shell',
   !shouldUseDedicatedBreakerShell(coastBeach, true)
     && shouldUseDedicatedBreakerShell(createWaterSettings({ preset: 'coast', runupDistance: 0 }), true));
+
+// --- persistent shoreline state ------------------------------------------------
+const shoreField = new WaterShoreStateField({
+  region: { centerX: 2, centerZ: -1, width: 24, depth: 12 },
+  resolution: { x: 32, y: 16 },
+  bedHeight: (x, z) => 0.2 + x * 0.03 + z * 0.05,
+});
+const shoreRegion = shoreField.getRegion(new THREE.Vector4());
+const centerTexel = ((8 * 32) + 16) * 4;
+const bedData = shoreField.bedTexture.image.data;
+check('shore-state field uses a fixed world-space RGBA16F history atlas',
+  shoreField.texture.type === THREE.HalfFloatType
+    && shoreField.texture.format === THREE.RGBAFormat
+    && shoreRegion.equals(new THREE.Vector4(2, -1, 12, 6)));
+check('shore-state bed atlas stores height, X/Z gradients, and validity',
+  shoreField.bedTexture.type === THREE.FloatType
+    && Math.abs(bedData[centerTexel + 1] - 0.03) < 1e-5
+    && Math.abs(bedData[centerTexel + 2] - 0.05) < 1e-5
+    && bedData[centerTexel + 3] === 1);
+shoreField.setParameters({ foamDiffusion: 0, foamGain: 3.25 });
+check('shore-state transport parameters remain runtime-adjustable',
+  shoreField.material.uniforms.uFoamDiffusion.value === 0
+    && shoreField.material.uniforms.uFoamGain.value === 3.25);
+shoreField.dispose();
+
+const shorePresentationMaterial = createWaterShoreMaterial({ foamAmount: 1.2 });
+updateWaterShoreMaterial(shorePresentationMaterial, { foamAmount: 0 });
+check('sand-side foam presentation can be disabled by the Swash Foam control',
+  shorePresentationMaterial.uniforms.uShoreFoamAmount.value === 0);
+shorePresentationMaterial.dispose();
+
+// A direct value-noise fallback in the already-large visible shader caused
+// WebGPU's 8,192-byte private-address-space pipeline failure. Temporal source
+// breakup belongs in its own small pass; keep this architectural boundary
+// explicit in the fast regression suite in addition to the live smoke probe.
+const visibleWaterShaderSource = readFileSync(
+  new URL('../src/shaders-tsl/water.js', import.meta.url),
+  'utf8',
+);
+const shoreStateShaderSource = readFileSync(
+  new URL('../src/shaders-tsl/water-shore-state-simulation.js', import.meta.url),
+  'utf8',
+);
+const shoreGroundMaterialSource = readFileSync(
+  new URL('../src/water/waterShoreMaterial.js', import.meta.url),
+  'utf8',
+);
+const waterLabEngineSource = readFileSync(
+  new URL('../labs/water-lab/engine/waterLabEngine.js', import.meta.url),
+  'utf8',
+);
+check('temporal foam breakup stays out of the private-memory-heavy main shader',
+  !visibleWaterShaderSource.includes('waterValueNoise(')
+    && shoreStateShaderSource.includes('const fineNoise ='));
+check('swash foam injection stays registered to the visible signed water edge',
+  shoreStateShaderSource.includes('const sourceHead = filmHead.add(edgeJitter)')
+    && shoreStateShaderSource.includes('min(foamWidth.mul(0.22), 0.004)')
+    && !shoreStateShaderSource.includes('foamWidth).mul(1.4)'));
+check('swash foam rafts vary their inward reach without moving off the edge',
+  shoreStateShaderSource.includes('const raftReach = foamWidth')
+    && shoreStateShaderSource.includes('mix(0.5, 1.9, noiseSample.g)')
+    && shoreStateShaderSource.includes('smoothstep(-0.01, -0.001, sourceHead)'));
+check('fast uprush latches gated foam to the current lip without a coverage floor',
+  shoreStateShaderSource.includes('const attachedLip = frontSource.mul(0.72)')
+    && shoreStateShaderSource.includes('max(\n          retainedFoam.add'));
+check('coherent edge foam continues onto wet sand instead of clipping at the water mesh',
+  shoreGroundMaterialSource.includes('smoothstep(0.46, 0.68, activeFoam)')
+    && shoreGroundMaterialSource.includes('visibleActiveFoam.mul(0.72)')
+    && shoreGroundMaterialSource.includes('0.74,'));
+check('Swash Foam controls both the water-side and sand-side presentation',
+  shoreGroundMaterialSource.includes('uShoreFoamAmount')
+    && waterLabEngineSource.includes('foamAmount: settings.swashFoamAmount'));
 
 if (failures > 0) {
   console.error(`\nverify-watergen: ${failures} failure(s)`);

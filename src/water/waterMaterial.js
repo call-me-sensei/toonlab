@@ -133,6 +133,9 @@ export function applyWaterSettingsToMaterial(material, options = {}) {
   const waves = buildGerstnerWaves(settings);
 
   writeWaveUniforms(material, waves);
+  if (uniforms.uSwashIncidenceX) {
+    uniforms.uSwashIncidenceX.value = waves[0]?.dirX ?? 0;
+  }
 
   uniforms.uDetailNormalStrength.value = settings.detailNormalStrength;
   uniforms.uDetailScale.value = settings.detailScale;

@@ -6,25 +6,30 @@ import {
   setWaterDebugMode,
   updateWaterMaterialCamera,
 } from './waterMaterial.js';
+import { WaterCurrentField } from './waterCurrentField.js';
+import {
+  buildNearshorePhaseField,
+  sampleNearshorePhaseField,
+} from './waterNearshorePhase.js';
 import { shouldUseDedicatedBreakerShell, WaterBreakerSystem } from './waterBreakerSystem.js';
 import { WaterInteractionManager } from './waterInteraction.js';
 import { WaterRippleSimulation } from './waterRippleSimulation.js';
 import { WaterScenePasses } from './waterScenePasses.js';
+import { WaterShoreStateField } from './waterShoreStateField.js';
+import { updateWaterShoreMaterial } from './waterShoreMaterial.js';
 import { WaterSplashSystem } from './waterSplashSystem.js';
 import {
   createWaterSettings,
   sampleGerstnerHeight,
-  samplePrimarySwellSequence,
-  sampleSwashCycleVariation,
-  sampleSwashDistance,
   sampleSwashEdgeOffset,
-  shapeSwashProgress,
+  sampleSwashFrameState,
 } from './waterSettings.js';
 
 const worldPositionScratch = new THREE.Vector3();
 const localScratch = new THREE.Vector3();
 const breakerSampleScratch = { weight: 0, crestY: 0, flowX: 0, flowZ: 0 };
 const followScratch = new THREE.Vector3();
+const currentSampleScratch = new THREE.Vector2();
 
 function disposeAfterRenderBoundary(disposable) {
   const dispose = () => disposable.dispose();
@@ -60,6 +65,9 @@ export class WaterSurface extends THREE.Mesh {
     splashes = {},
     passes = {},
     interaction = {},
+    currentField = null,
+    nearshorePhase = false,
+    shoreState = false,
     follow = null,
     bedHeight = null,
     ...settingsOptions
@@ -79,6 +87,8 @@ export class WaterSurface extends THREE.Mesh {
     this.name = 'WaterSurface';
     this.width = width;
     this.depth = depth;
+    this.segmentsX = segmentsX;
+    this.segmentsZ = segmentsZ;
     this.settings = this.material.userData.waterSettings;
     this.time = 0;
     this.followTarget = follow;
@@ -96,7 +106,26 @@ export class WaterSurface extends THREE.Mesh {
     this.shoalingEnabled = typeof bedHeight === 'function';
     this.bedHeightSampler = this.shoalingEnabled ? bedHeight : null;
     this.shoalingBakedX = NaN;
+    this.shoalingBakedY = NaN;
     this.shoalingBakedZ = NaN;
+    // Optional mild-slope phase refraction for the primary swell and a true
+    // same-direction set-beat partner when that feature is enabled.
+    // The graph always reads aNearshorePhase on shoaling surfaces, so even a
+    // disabled/unsupported stage receives a disabled fallback attribute.
+    const nearshoreOptions = nearshorePhase === true ? {} : nearshorePhase;
+    this.nearshorePhaseEnabled = Boolean(this.shoalingEnabled && nearshoreOptions);
+    this.nearshorePhaseOptions = this.nearshorePhaseEnabled
+      ? { ...nearshoreOptions }
+      : null;
+    this.nearshorePhaseField = null;
+    this.nearshorePhaseBakedSignature = '';
+    this.nearshorePhaseReference = null;
+    this.nearshorePhaseSample = {};
+    this.nearshorePhaseStatus = {
+      active: false,
+      reason: this.nearshorePhaseEnabled ? 'not-baked' : 'disabled',
+    };
+    if (this.shoalingEnabled) this.writeNearshorePhaseAttribute(null);
     // Dedicated plunging-breaker shells along the break line; created lazily
     // in update() when settings.breakerAmount > 0 and a bed sampler exists.
     this.breakers = null;
@@ -129,11 +158,206 @@ export class WaterSurface extends THREE.Mesh {
 
     this.interactions = new WaterInteractionManager(this, interaction || {});
 
+    // Optional authored world-space current atlas. Passing a WaterCurrentField
+    // shares external ownership; passing an options object creates a field
+    // owned by this surface. Currents feed CPU gameplay queries and the small
+    // shoreline-state pass, not the private-memory-heavy main water shader.
+    const currentFieldOptions = currentField === true ? {} : currentField;
+    this.ownsCurrentField = Boolean(
+      currentFieldOptions && !currentFieldOptions.isWaterCurrentField,
+    );
+    this.currentField = currentFieldOptions?.isWaterCurrentField
+      ? currentFieldOptions
+      : currentFieldOptions
+        ? new WaterCurrentField({
+          region: { centerX: 0, centerZ: 0, width, depth },
+          ...currentFieldOptions,
+        })
+        : null;
+
+    // Persistent beach history is opt-in because rivers/open-water bodies do
+    // not all need a fixed shoreline atlas. It is a separate small GPU pass,
+    // so foam transport and wet-sand memory do not enlarge the already-dense
+    // main water material (important for WebGPU's private-memory limit).
+    const shoreStateOptions = shoreState === true ? {} : shoreState;
+    this.shoreState = this.bedHeightSampler && shoreStateOptions
+      ? new WaterShoreStateField({
+        region: {
+          centerX: 0,
+          centerZ: 0,
+          width,
+          depth,
+        },
+        bedHeightSampler: this.bedHeightSampler,
+        currentField: this.currentField,
+        ...(shoreStateOptions || {}),
+      })
+      : null;
+    this.shoreStateMaterials = new Set();
+
     this.syncSimulationParameters();
+    this.bindShoreState();
   }
 
   get gerstnerWaves() {
     return this.material.userData.gerstnerWaves ?? [];
+  }
+
+  dominantNearshoreFrame() {
+    const primary = this.gerstnerWaves[0];
+    const secondary = this.gerstnerWaves[1];
+    const directionLength = Math.hypot(primary?.dirX ?? 0, primary?.dirZ ?? 0) || 1;
+    const secondaryDirectionLength = Math.hypot(
+      secondary?.dirX ?? 0,
+      secondary?.dirZ ?? 0,
+    ) || 1;
+    const directionAgreement = primary && secondary
+      ? (
+        (primary.dirX * secondary.dirX + primary.dirZ * secondary.dirZ) /
+        (directionLength * secondaryDirectionLength)
+      )
+      : -1;
+    // The authored set-beat partner copies the primary direction exactly.
+    // Leave a tiny tolerance for serialization/normalization roundoff, but do
+    // not fold an ordinary spread-spectrum slot into the shared phase field.
+    const secondarySharesPhase = (this.settings.waveSetStrength ?? 0) > 0.001 &&
+      directionAgreement >= 0.9999;
+    const waves = secondarySharesPhase ? [primary, secondary] : [primary];
+    let weightedWaveNumber = 0;
+    let totalWeight = 0;
+    for (const wave of waves) {
+      const weight = Math.max(Math.abs(Number(wave?.amplitude) || 0), 1e-6);
+      const waveNumber = Number(wave?.waveNumber);
+      if (!(waveNumber > 0)) continue;
+      weightedWaveNumber += waveNumber * weight;
+      totalWeight += weight;
+    }
+    return {
+      directionX: (primary?.dirX ?? 1) / directionLength,
+      directionZ: (primary?.dirZ ?? 0) / directionLength,
+      deepWaveNumber: totalWeight > 0
+        ? weightedWaveNumber / totalWeight
+        : Math.max(Number(primary?.waveNumber) || 1, 1e-4),
+      slotMask: secondarySharesPhase ? 2 : 1,
+    };
+  }
+
+  nearshorePhaseSignature() {
+    const frame = this.dominantNearshoreFrame();
+    const options = this.nearshorePhaseOptions ?? {};
+    const dedicatedBreakers = shouldUseDedicatedBreakerShell(
+      this.settings,
+      Boolean(this.bedHeightSampler),
+    );
+    const solvesField = this.nearshorePhaseEnabled && !dedicatedBreakers;
+    return [
+      this.nearshorePhaseEnabled ? 1 : 0,
+      dedicatedBreakers ? 1 : 0,
+      frame.directionX,
+      frame.directionZ,
+      solvesField ? frame.slotMask : 0,
+      solvesField ? frame.deepWaveNumber : '',
+      solvesField ? options.incidentAxis ?? '' : '',
+      solvesField ? options.minDepth ?? '' : '',
+      solvesField ? options.maxWavenumberRatio ?? '' : '',
+    ].join('|');
+  }
+
+  // Writes packed q,dq/dx,dq/dz,slot-mask vertex data. A null field clears the
+  // mask, making the shader path an exact no-op for every wave
+  // direction on non-beach stages and whenever the mild-slope solve is unsafe.
+  writeNearshorePhaseAttribute(field) {
+    if (!this.shoalingEnabled) return this;
+    this.updateWorldMatrix(true, false);
+    const position = this.geometry.attributes.position;
+    const existing = this.geometry.attributes.aNearshorePhase;
+    const packed = existing?.count === position.count && existing.itemSize === 4
+      ? existing.array
+      : new Float32Array(position.count * 4);
+    const frame = this.dominantNearshoreFrame();
+    for (let index = 0; index < position.count; index += 1) {
+      localScratch.fromBufferAttribute(position, index).applyMatrix4(this.matrixWorld);
+      if (field) {
+        packed[index * 4] = field.phaseCoordinate[index];
+        packed[index * 4 + 1] = field.waveVector[index * 2];
+        packed[index * 4 + 2] = field.waveVector[index * 2 + 1];
+        packed[index * 4 + 3] = field.slotMask ?? frame.slotMask;
+      } else {
+        packed[index * 4] = frame.directionX * localScratch.x +
+          frame.directionZ * localScratch.z;
+        packed[index * 4 + 1] = frame.directionX;
+        packed[index * 4 + 2] = frame.directionZ;
+        packed[index * 4 + 3] = 0;
+      }
+    }
+    if (existing?.array === packed) {
+      existing.needsUpdate = true;
+    } else {
+      this.geometry.setAttribute('aNearshorePhase', new THREE.BufferAttribute(packed, 4));
+    }
+
+    this.nearshorePhaseReference = null;
+    if (field) {
+      const options = this.nearshorePhaseOptions ?? {};
+      const referenceX = Number.isFinite(options.referenceX) ? options.referenceX : 0;
+      const referenceZ = Number.isFinite(options.referenceZ) ? options.referenceZ : 0;
+      const sample = sampleNearshorePhaseField(field, referenceX, referenceZ, {});
+      const directionLength = Math.hypot(sample.waveVectorX, sample.waveVectorZ) || 1;
+      this.nearshorePhaseReference = {
+        phaseCoordinate: sample.phaseCoordinate,
+        directionX: sample.waveVectorX / directionLength,
+        directionZ: sample.waveVectorZ / directionLength,
+        x: referenceX,
+        z: referenceZ,
+      };
+    }
+    return this;
+  }
+
+  nearshoreBlendAt(restDepth) {
+    if (!this.nearshorePhaseField) return 0;
+    const range = Math.max(
+      this.settings.shoalingDepth ?? 1.4,
+      Math.max(this.waveEnergy, 1e-3) * 2.2,
+      1e-3,
+    );
+    return 1 - THREE.MathUtils.smoothstep(restDepth, range * 0.8, range * 1.8);
+  }
+
+  sampleNearshoreAt(x, z, restDepth) {
+    const blend = this.nearshoreBlendAt(restDepth);
+    if (!(blend > 0)) return null;
+    const sample = sampleNearshorePhaseField(
+      this.nearshorePhaseField,
+      x,
+      z,
+      this.nearshorePhaseSample,
+    );
+    sample.blend = blend;
+    sample.slotMask = this.nearshorePhaseField.slotMask ?? 1;
+    return sample;
+  }
+
+  nearshoreSwashTime(time = this.time) {
+    const primary = this.gerstnerWaves[0];
+    const coordinate = this.nearshorePhaseReference?.phaseCoordinate;
+    if (!primary || !Number.isFinite(coordinate) || !(primary.omega > 1e-6)) return time;
+    return time - (primary.waveNumber * coordinate) / primary.omega;
+  }
+
+  sampleSwashFrame(time = this.time, runupDistance = this.settings.runupDistance) {
+    const frame = sampleSwashFrameState(
+      this.gerstnerWaves,
+      this.nearshoreSwashTime(time),
+      runupDistance,
+    );
+    const reference = this.nearshorePhaseReference;
+    if (reference) {
+      frame.primaryDirectionX = reference.directionX;
+      frame.primaryDirectionZ = reference.directionZ;
+      frame.primaryDirection = [reference.directionX, reference.directionZ];
+    }
+    return frame;
   }
 
   syncSimulationParameters() {
@@ -143,6 +367,42 @@ export class WaterSurface extends THREE.Mesh {
       rippleFoamDecay: this.settings.rippleFoamDecay,
       rippleFoamGain: this.settings.rippleFoamGain,
     });
+    this.shoreState?.setParameters({
+      moistureDryTime: this.settings.wetSandDryTime,
+      foamWetLifetime: this.settings.swashFoamLifetime,
+      foamDryLifetime: Math.max(this.settings.swashFoamLifetime * 0.45, 0.25),
+      residueLifetime: this.settings.swashFoamResidueLifetime,
+    });
+  }
+
+  // A ground material can consume the same ping-pong texture as the water.
+  // Registering it here refreshes its texture binding immediately after every
+  // state swap and before refraction/reflection scene passes are captured.
+  attachShoreStateMaterial(material) {
+    if (!material) return this;
+    this.shoreStateMaterials.add(material);
+    updateWaterShoreMaterial(material, { stateField: this.shoreState });
+    return this;
+  }
+
+  detachShoreStateMaterial(material) {
+    this.shoreStateMaterials.delete(material);
+    return this;
+  }
+
+  bindShoreState() {
+    const uniforms = this.material.uniforms;
+    if (this.shoreState) {
+      uniforms.uShoreStateMap.value = this.shoreState.texture;
+      uniforms.uUseShoreState.value = 1;
+      this.shoreState.getRegion(uniforms.uShoreStateRegion.value);
+    } else {
+      uniforms.uUseShoreState.value = 0;
+    }
+    for (const material of this.shoreStateMaterials ?? []) {
+      updateWaterShoreMaterial(material, { stateField: this.shoreState });
+    }
+    return this;
   }
 
   // Merges option overrides into the current settings (pass { preset } to
@@ -206,6 +466,55 @@ export class WaterSurface extends THREE.Mesh {
     return this;
   }
 
+  // The material graph always supports the packed attribute, so a lab can
+  // opt a smooth beach in/out without recompiling WebGPU pipelines.
+  setNearshorePhase(nearshorePhase, { bake = true } = {}) {
+    const options = nearshorePhase === true ? {} : nearshorePhase;
+    this.nearshorePhaseEnabled = Boolean(this.shoalingEnabled && options);
+    this.nearshorePhaseOptions = this.nearshorePhaseEnabled ? { ...options } : null;
+    this.nearshorePhaseField = null;
+    this.nearshorePhaseReference = null;
+    this.nearshorePhaseBakedSignature = '';
+    this.nearshorePhaseStatus = {
+      active: false,
+      reason: this.nearshorePhaseEnabled ? 'not-baked' : 'disabled',
+    };
+    if (this.shoalingEnabled) {
+      this.writeNearshorePhaseAttribute(null);
+      if (bake && this.bedHeightSampler) this.bakeShoalingDepths();
+    }
+    return this;
+  }
+
+  // Replace the authored current atlas at runtime. Options objects become
+  // surface-owned fields; WaterCurrentField instances remain caller-owned.
+  setCurrentField(currentField, { disposePrevious = true } = {}) {
+    const options = currentField === true ? {} : currentField;
+    const nextOwned = Boolean(options && !options.isWaterCurrentField);
+    const next = options?.isWaterCurrentField
+      ? options
+      : options
+        ? new WaterCurrentField({
+          region: { centerX: 0, centerZ: 0, width: this.width, depth: this.depth },
+          ...options,
+        })
+        : null;
+    const previous = this.currentField;
+    const previousOwned = this.ownsCurrentField;
+    this.currentField = next;
+    this.ownsCurrentField = nextOwned;
+    this.shoreState?.setCurrentField(next);
+    if (disposePrevious && previousOwned && previous && previous !== next) previous.dispose();
+    return this;
+  }
+
+  // Authored large-scale current only. getFlowAt() below adds breakers and
+  // swash so boats/characters can choose either signal explicitly.
+  getCurrentAt(x, z, out = new THREE.Vector2()) {
+    if (!this.currentField) return out.set(0, 0);
+    return this.currentField.sampleAt(x, z, out);
+  }
+
   // Replace static terrain under an existing shoaling surface without
   // rebuilding its material, render passes, ripple simulation, or animation
   // clock. Whether shoaling exists is a graph-build choice, so callers cannot
@@ -221,8 +530,11 @@ export class WaterSurface extends THREE.Mesh {
     if (sampler === this.bedHeightSampler) return this;
 
     this.bedHeightSampler = sampler;
+    this.shoreState?.setBedHeightSampler(sampler);
     this.shoalingBakedX = NaN;
+    this.shoalingBakedY = NaN;
     this.shoalingBakedZ = NaN;
+    this.nearshorePhaseBakedSignature = '';
     this.breakerBuilt.x = NaN;
     this.breakerBuilt.y = NaN;
     this.breakerBuilt.z = NaN;
@@ -266,7 +578,14 @@ export class WaterSurface extends THREE.Mesh {
     // Mirror of the vertex shader's shallow-water chop filter.
     const chopWeight = THREE.MathUtils.lerp(
       0.15, 1, THREE.MathUtils.smoothstep(restDepth, range * 0.3, range * 1.4));
-    const raw = sampleGerstnerHeight(this.gerstnerWaves, x, z, this.time, chopWeight);
+    const raw = sampleGerstnerHeight(
+      this.gerstnerWaves,
+      x,
+      z,
+      this.time,
+      chopWeight,
+      this.sampleNearshoreAt(x, z, restDepth),
+    );
     const deepFactor = THREE.MathUtils.smoothstep(restDepth, 0, range);
     const rearUp = (1 - THREE.MathUtils.smoothstep(restDepth, range * 0.45, range * 1.5)) *
       THREE.MathUtils.smoothstep(restDepth, 0.05, 0.35);
@@ -289,36 +608,27 @@ export class WaterSurface extends THREE.Mesh {
     const safeSlope = Math.max(slope, 0.005);
     const gradientLength = Math.hypot(gradX, gradZ) || 1;
     const alongCoordinate = x * (gradZ / gradientLength) - z * (gradX / gradientLength);
-    const sequence = samplePrimarySwellSequence(waves, this.time);
-    const swashProgress = shapeSwashProgress(sequence.cycle);
     const automaticDistance = (settings.shorelineRunup ?? 0.6) * energy / safeSlope;
     const maximumDistance = explicit ? settings.runupDistance : automaticDistance;
-    const variation = sampleSwashCycleVariation(sequence.index);
-    const previousVariation = sampleSwashCycleVariation(sequence.index - 1);
-    const peakDistance = maximumDistance * (explicit ? variation.runupScale : 1);
+    const swashFrame = this.sampleSwashFrame(this.time, maximumDistance);
+    const swashProgress = swashFrame.progress;
     const edgeDistance = explicit
-      ? sampleSwashDistance(waves, this.time, maximumDistance)
-      : peakDistance * swashProgress;
-    const minimumDistance = explicit
-      ? Math.min(previousVariation.rundownOffset, variation.rundownOffset) - 0.25
-      : 0;
-    const swashReach = peakDistance * safeSlope;
+      ? swashFrame.edgeDistance
+      : maximumDistance * swashProgress;
     const edgeOffset = sampleSwashEdgeOffset(
       alongCoordinate,
       this.time,
       swashProgress,
-      waves[0]?.dirX ?? settings.flowDirection?.[0] ?? 0,
+      swashFrame.primaryDirectionX ?? waves[0]?.dirX ?? settings.flowDirection?.[0] ?? 0,
+      swashFrame.cycle,
+      swashFrame.edgeShape,
     );
-    const edgeHead = THREE.MathUtils.clamp(
-      edgeDistance * safeSlope + edgeOffset * safeSlope,
-      minimumDistance * safeSlope,
-      swashReach * 1.12,
-    );
+    const edgeHead = edgeDistance * safeSlope + edgeOffset * safeSlope;
     const filmHead = restDepth + edgeHead;
-    const film = THREE.MathUtils.clamp(filmHead * 0.45 + 0.008, -0.08, 0.045);
+    const film = THREE.MathUtils.clamp(filmHead * 0.45 + 0.008, 0.003, 0.045);
     const filmY = Math.min(
       (bed - surfaceY) + film,
-      Math.max(0.5, swashReach * 1.1),
+      Math.max(0.5, maximumDistance * safeSlope * 1.1),
     );
     const beach = 1 - THREE.MathUtils.smoothstep(restDepth, 0.06, 0.22);
     const base = THREE.MathUtils.lerp(brokenY, filmY, beach);
@@ -341,9 +651,14 @@ export class WaterSurface extends THREE.Mesh {
   // backwash so gameplay objects move with the rendered shoreline.
   getFlowAt(x, z, out = new THREE.Vector2()) {
     out.set(0, 0);
+    if (this.currentField) {
+      this.currentField.sampleAt(x, z, currentSampleScratch);
+      out.add(currentSampleScratch);
+    }
     if (this.breakers) {
       const shell = this.breakers.sampleAt(x, z, breakerSampleScratch);
-      out.set(shell.flowX, shell.flowZ);
+      out.x += shell.flowX;
+      out.y += shell.flowZ;
     }
     if (this.bedHeightSampler && (this.settings.runupDistance ?? 0) > 0.01) {
       this.getWorldPosition(worldPositionScratch);
@@ -356,35 +671,37 @@ export class WaterSurface extends THREE.Mesh {
       const slope = Math.max(Math.min(Math.hypot(gradX, gradZ), 1), 0.005);
       const gradientLength = Math.hypot(gradX, gradZ) || 1;
       const alongCoordinate = x * (gradZ / gradientLength) - z * (gradX / gradientLength);
-      const sequence = samplePrimarySwellSequence(this.gerstnerWaves, this.time);
-      const progress = shapeSwashProgress(sequence.cycle);
-      const variation = sampleSwashCycleVariation(sequence.index);
-      const previousVariation = sampleSwashCycleVariation(sequence.index - 1);
+      const swashFrame = this.sampleSwashFrame(this.time, this.settings.runupDistance);
+      const progress = swashFrame.progress;
       const offset = sampleSwashEdgeOffset(
-        alongCoordinate, this.time, progress, this.gerstnerWaves[0]?.dirX ?? 0);
-      const maximumDistance = this.settings.runupDistance;
-      const peakDistance = maximumDistance * variation.runupScale;
-      const edgeDistance = sampleSwashDistance(this.gerstnerWaves, this.time, maximumDistance);
-      const minimumDistance = Math.min(
-        previousVariation.rundownOffset,
-        variation.rundownOffset,
-      ) - 0.25;
-      const head = THREE.MathUtils.clamp(
-        edgeDistance * slope + offset * slope,
-        minimumDistance * slope,
-        peakDistance * slope * 1.12,
+        alongCoordinate,
+        this.time,
+        progress,
+        swashFrame.primaryDirectionX ?? this.gerstnerWaves[0]?.dirX ?? 0,
+        swashFrame.cycle,
+        swashFrame.edgeShape,
       );
+      const maximumDistance = this.settings.runupDistance;
+      const edgeDistance = swashFrame.edgeDistance;
+      const head = edgeDistance * slope + offset * slope;
       const filmHead = restDepth + head;
       const swashZone = 1 - THREE.MathUtils.smoothstep(restDepth, 0.06, 0.22);
       const wet = THREE.MathUtils.smoothstep(filmHead, -0.006, 0.025);
       if (swashZone > 0.001 && wet > 0.001) {
         const dt = 0.03;
-        const before = sampleSwashDistance(
-          this.gerstnerWaves, this.time - dt, maximumDistance,
-        );
-        const after = sampleSwashDistance(
-          this.gerstnerWaves, this.time + dt, maximumDistance,
-        );
+        const totalEdgeAt = (sampleTime) => {
+          const frame = this.sampleSwashFrame(sampleTime, maximumDistance);
+          return frame.edgeDistance + sampleSwashEdgeOffset(
+            alongCoordinate,
+            sampleTime,
+            frame.progress,
+            frame.primaryDirectionX ?? this.gerstnerWaves[0]?.dirX ?? 0,
+            frame.cycle,
+            frame.edgeShape,
+          );
+        };
+        const before = totalEdgeAt(this.time - dt);
+        const after = totalEdgeAt(this.time + dt);
         const edgeSpeed = THREE.MathUtils.clamp(
           (after - before) / (2 * dt), -3.5, 3.5,
         );
@@ -415,6 +732,10 @@ export class WaterSurface extends THREE.Mesh {
   bakeShoalingDepths() {
     if (!this.bedHeightSampler) return this;
     this.updateWorldMatrix(true, false);
+    this.getWorldPosition(worldPositionScratch);
+    const surfaceX = worldPositionScratch.x;
+    const surfaceY = worldPositionScratch.y;
+    const surfaceZ = worldPositionScratch.z;
     const positionAttr = this.geometry.attributes.position;
     const existing = this.geometry.attributes.aBedHeight;
     const existingSlope = this.geometry.attributes.aBedSlope;
@@ -428,12 +749,19 @@ export class WaterSurface extends THREE.Mesh {
     const bedGradients = existingGradient?.count === positionAttr.count
       ? existingGradient.array
       : new Float32Array(positionAttr.count * 2);
+    const useDedicatedBreakers = shouldUseDedicatedBreakerShell(
+      this.settings,
+      Boolean(this.bedHeightSampler),
+    );
+    const solveNearshore = this.nearshorePhaseEnabled && !useDedicatedBreakers;
+    const restDepths = solveNearshore ? new Float32Array(positionAttr.count) : null;
     const d = 0.5;
     for (let i = 0; i < positionAttr.count; i += 1) {
       localScratch.fromBufferAttribute(positionAttr, i).applyMatrix4(this.matrixWorld);
       const x = localScratch.x;
       const z = localScratch.z;
       bedHeights[i] = this.bedHeightSampler(x, z);
+      if (restDepths) restDepths[i] = surfaceY - bedHeights[i];
       // Local bed gradient magnitude — converts horizontal run-up meters
       // (runupDistance) into the vertical swash reach at this vertex.
       const gradX = (this.bedHeightSampler(x + d, z) - this.bedHeightSampler(x - d, z)) / (2 * d);
@@ -457,9 +785,76 @@ export class WaterSurface extends THREE.Mesh {
     } else {
       this.geometry.setAttribute('aBedGradient', new THREE.BufferAttribute(bedGradients, 2));
     }
-    this.getWorldPosition(worldPositionScratch);
-    this.shoalingBakedX = worldPositionScratch.x;
-    this.shoalingBakedZ = worldPositionScratch.z;
+
+    let phaseField = null;
+    let phaseStatus;
+    if (!this.nearshorePhaseEnabled) {
+      phaseStatus = { active: false, reason: 'disabled' };
+    } else if (useDedicatedBreakers) {
+      // The separate overhanging shell still evaluates its original plane
+      // phase. Until it can consume the same atlas, retain exact coherence by
+      // falling the heightfield back rather than showing two crest clocks.
+      phaseStatus = { active: false, reason: 'dedicated-breaker-shell' };
+    } else if (
+      (this.segmentsX + 1) * (this.segmentsZ + 1) !== positionAttr.count
+    ) {
+      phaseStatus = { active: false, reason: 'unexpected-geometry-grid' };
+    } else {
+      const frame = this.dominantNearshoreFrame();
+      const options = this.nearshorePhaseOptions ?? {};
+      try {
+        const candidate = buildNearshorePhaseField({
+          restDepths,
+          columns: this.segmentsX + 1,
+          rows: this.segmentsZ + 1,
+          originX: surfaceX - this.width * 0.5,
+          originZ: surfaceZ - this.depth * 0.5,
+          stepX: this.width / this.segmentsX,
+          stepZ: this.depth / this.segmentsZ,
+          directionX: frame.directionX,
+          directionZ: frame.directionZ,
+          deepWaveNumber: frame.deepWaveNumber,
+          incidentAxis: options.incidentAxis,
+          minDepth: options.minDepth ?? 0.05,
+          maxWavenumberRatio: options.maxWavenumberRatio ?? 4,
+        });
+        // A one-way eikonal solve cannot represent turning rays, diffraction,
+        // or shadow zones. Invalidity propagates downstream in the builder;
+        // rejecting the complete atlas avoids a phase seam where a fallback
+        // cell would otherwise meet a refracted cell.
+        if (candidate.invalidCount === 0) {
+          candidate.slotMask = frame.slotMask;
+          phaseField = candidate;
+          phaseStatus = {
+            active: true,
+            reason: 'active',
+            incidentAxis: candidate.incidentAxis,
+            invalidFraction: 0,
+            slotMask: candidate.slotMask,
+          };
+        } else {
+          phaseStatus = {
+            active: false,
+            reason: 'invalid-mild-slope-field',
+            incidentAxis: candidate.incidentAxis,
+            invalidFraction: candidate.invalidFraction,
+          };
+        }
+      } catch (error) {
+        phaseStatus = {
+          active: false,
+          reason: 'phase-bake-error',
+          error: error instanceof Error ? error.message : String(error),
+        };
+      }
+    }
+    this.nearshorePhaseField = phaseField;
+    this.nearshorePhaseStatus = phaseStatus;
+    this.writeNearshorePhaseAttribute(phaseField);
+    this.nearshorePhaseBakedSignature = this.nearshorePhaseSignature();
+    this.shoalingBakedX = surfaceX;
+    this.shoalingBakedY = surfaceY;
+    this.shoalingBakedZ = surfaceZ;
     return this;
   }
 
@@ -582,8 +977,18 @@ export class WaterSurface extends THREE.Mesh {
     if (this.bedHeightSampler) {
       this.getWorldPosition(worldPositionScratch);
       const movedX = Math.abs(worldPositionScratch.x - this.shoalingBakedX);
+      const phaseUsesDepth = this.nearshorePhaseEnabled && !shouldUseDedicatedBreakerShell(
+        this.settings,
+        Boolean(this.bedHeightSampler),
+      );
+      const movedY = phaseUsesDepth
+        ? Math.abs(worldPositionScratch.y - this.shoalingBakedY)
+        : 0;
       const movedZ = Math.abs(worldPositionScratch.z - this.shoalingBakedZ);
-      if (!(movedX <= 0.05 && movedZ <= 0.05)) this.bakeShoalingDepths();
+      const phaseChanged = this.nearshorePhaseBakedSignature !== this.nearshorePhaseSignature();
+      if (!(movedX <= 0.05 && movedY <= 0.02 && movedZ <= 0.05) || phaseChanged) {
+        this.bakeShoalingDepths();
+      }
     }
     this.updateBreakers();
 
@@ -620,19 +1025,37 @@ export class WaterSurface extends THREE.Mesh {
     }
 
     const uniforms = this.material.uniforms;
-    if ((this.settings.runupDistance ?? 0) > 0.01) {
-      const sequence = samplePrimarySwellSequence(this.gerstnerWaves, this.time);
-      const currentVariation = sampleSwashCycleVariation(sequence.index);
-      const previousVariation = sampleSwashCycleVariation(sequence.index - 1);
-      uniforms.uSwashRunupScale.value = currentVariation.runupScale;
-      uniforms.uSwashStartOffset.value = previousVariation.rundownOffset;
-      uniforms.uSwashEndOffset.value = currentVariation.rundownOffset;
-    } else {
-      uniforms.uSwashRunupScale.value = 1;
-      uniforms.uSwashStartOffset.value = 0;
-      uniforms.uSwashEndOffset.value = 0;
-    }
+    const swashFrame = this.sampleSwashFrame(this.time, this.settings.runupDistance);
+    uniforms.uSwashCycle.value = swashFrame.cycle;
+    uniforms.uSwashProgress.value = swashFrame.progress;
+    uniforms.uSwashIncidenceX.value = swashFrame.primaryDirectionX;
+    uniforms.uSwashEdgeShape.value.set(
+      swashFrame.edgeShape.phase,
+      swashFrame.edgeShape.frequency,
+      swashFrame.edgeShape.amplitude,
+    );
+    uniforms.uSwashRunupScale.value = (this.settings.runupDistance ?? 0) > 0.01
+      ? swashFrame.runupScale
+      : 1;
+    uniforms.uSwashStartOffset.value = (this.settings.runupDistance ?? 0) > 0.01
+      ? swashFrame.startOffset
+      : 0;
+    uniforms.uSwashEndOffset.value = (this.settings.runupDistance ?? 0) > 0.01
+      ? swashFrame.endOffset
+      : 0;
     uniforms.uTime.value = this.time;
+    if (this.shoreState) {
+      this.getWorldPosition(worldPositionScratch);
+      this.shoreState.update(renderer, {
+        time: this.time,
+        waterLevel: worldPositionScratch.y,
+        waves: this.gerstnerWaves,
+        settings: this.settings,
+        waveEnergy: this.waveEnergy,
+        swashFrame,
+      }, clampedDelta);
+      this.bindShoreState();
+    }
     // Mirror scene.fog so distant water hazes with the rest of the world
     // (the material handles fog manually — see uSceneFog* in the shader;
     // setDistanceFog adds the environment-matching exponential layer).
@@ -667,6 +1090,9 @@ export class WaterSurface extends THREE.Mesh {
     this.geometry.dispose();
     this.material.dispose();
     this.ripples?.dispose();
+    this.shoreState?.dispose();
+    if (this.ownsCurrentField) this.currentField?.dispose();
+    this.shoreStateMaterials.clear();
     this.splashSystem?.dispose();
     this.breakers?.dispose();
     this.passes?.dispose();

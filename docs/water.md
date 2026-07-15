@@ -51,7 +51,7 @@ objects with `userData.waterExclude` (both passes) or
 ## Settings, presets, tones
 
 Water settings are flat (`createWaterSettings({ preset: 'ocean',
-waveIntensity: 0.6 })`); all 72 fields across 7 groups (waves, surface,
+waveIntensity: 0.6 })`); all 79 fields across 7 groups (waves, surface,
 foam, lighting, ripples, splashes, quality) are in the
 [settings reference](settings-reference.md). Highlights:
 
@@ -64,9 +64,17 @@ foam, lighting, ripples, splashes, quality) are in the
   deepColor`), separate from wave motion. `colorTone` picks a named palette
   from `WATER_COLOR_TONES`: `classic`, `anime`, `teal`, `caribbean`,
   `lagoon`, `deepOcean`.
-- **Shore** — `shoalingDepth`, `shorelineWaves`, `shorelineRunup` tune surf;
+- **Shore** — `shoalingDepth`, `shorelineWaves`, `shorelineRunup`, and
+  `runupDistance` tune surf and swash reach. With an explicit
+  `runupDistance`, event peaks vary over 80–100% of that bound and the next
+  uprush starts at the preceding rundown endpoint rather than resetting.
   `breakerEnabled/breakerAmount/breakerCurl/breakerScale/breakerPeel`
   control the plunging-breaker shells.
+- **Persistent beach state** — `swashFoamAmount`, `swashFoamLifetime`,
+  `swashFoamResidueLifetime`, `wetSandDryTime`, `wetSandDarkening`, and
+  `wetSandSheen` are separate from offshore `foamAmount`. They take effect
+  when the surface is constructed with a `shoreState` field and the beach
+  uses a shore-state material.
 
 Built-in presets (`WATER_PRESET_NAMES`): `mirror`, `calm`, `lake`, `river`,
 `coast`, `ocean`, `storm` — plus `call_me_sensei`, the studio-managed
@@ -97,6 +105,59 @@ if (result.ok) registerWaterPreset(result.value.id, result.value, { overwrite: t
 `validateWaterPresetDocument` / `createWaterPresetDocument` /
 `sanitizeWaterPresetSettings` round out the document API.
 
+## Persistent swash, foam, and wet sand
+
+`shoreState` is opt-in because a lake or open-ocean tile does not necessarily
+need a fixed beach-history atlas. It requires `bedHeight`, and its `region` is
+world-anchored rather than camera-following. The four state channels are:
+
+| Channel | Stored beach history |
+|---|---|
+| R | persistent sediment moisture |
+| G | short-lived surface film |
+| B | active aerated foam |
+| A | stranded and drying foam residue |
+
+The water samples this atlas so swash foam remains attached to the moving
+wet/dry edge. A beach material can sample the same atlas, preserving wet sand,
+the glossy draining film, and foam that has just crossed onto exposed sand.
+The ground mesh must provide a `color` vertex attribute because
+`createWaterShoreMaterial` uses it as the dry albedo.
+
+```js
+import {
+  WaterSurface,
+  createWaterShoreMaterial,
+} from '@call-me-sensei/toonlab/water';
+
+const water = new WaterSurface({
+  width: 80,
+  depth: 40,
+  preset: 'coast',
+  bedHeight: (x, z) => terrainHeightAt(x, z),
+  runupDistance: 10, // event maxima vary from about 8 m to 10 m
+  nearshorePhase: true,
+  shoreState: {
+    region: { centerX: 0, centerZ: 0, width: 80, depth: 40 },
+    resolution: { x: 512, y: 256 },
+  },
+});
+
+const beachMaterial = createWaterShoreMaterial({
+  stateField: water.shoreState,
+  foamColor: water.settings.foamColor,
+  foamAmount: water.settings.swashFoamAmount,
+  wetDarkening: water.settings.wetSandDarkening,
+});
+beach.material = beachMaterial;
+water.attachShoreStateMaterial(beachMaterial);
+```
+
+Call `water.attachShoreStateMaterial(material)` rather than binding only the
+initial texture. The shore state uses ping-pong targets, and the attachment
+refreshes the material after every swap. The field is a visual history model,
+not a sediment, air-entrainment, or two-phase-fluid simulation.
+
 ## Quality tiers
 
 `quality: 'low' | 'medium' | 'high'` gates the most expensive fragment
@@ -125,6 +186,16 @@ directly (`createWaterMaterial`).
 - **`WaterRippleSimulation`** — GPU ping-pong heightfield with velocity,
   foam energy, absorbing borders, and a texel-exact moving window that
   follows a target across large surfaces.
+- **`WaterCurrentField`** — optional CPU-authored, world-space horizontal
+  current atlas mirrored to a compact GPU texture. It can project authored
+  flow away from signed-distance obstacles and feeds gameplay queries plus
+  shore-foam transport. It does not solve pressure, circulation, separation,
+  or turbulence.
+- **`WaterShoreStateField`** — optional world-anchored GPU ping-pong atlas for
+  moisture, surface film, active swash foam, and residue. Pair it with
+  **`createWaterShoreMaterial`** and `water.attachShoreStateMaterial(...)` so
+  the water and beach render the same history instead of looking like two
+  independent systems.
 - **`WaterSplashSystem`** — GPU-ballistic droplet points, procedural spray
   crown, expanding foam rings; all in-shader, no sprite atlas.
 - **`WaterBreakerSystem`** — dedicated curl-shell geometry swept along the
@@ -159,10 +230,109 @@ must stay in lockstep — see
 [shader-constants.md](shader-constants.md#water) for the full list and
 where each lives.
 
+On a shoaling surface, `nearshorePhase: true` optionally bakes a static-bed,
+one-way mild-slope/ray approximation for the two dominant swell components.
+It keeps the incident period while shortening and turning those components in
+shallower water, and CPU height queries sample the same field. The shader's
+analytic macro normal uses the corresponding baked phase gradient. This
+is intentionally bounded: it does not model diffraction, reflection, a ray
+turning back toward the incident boundary, moving bathymetry, or every detail
+wave. Dedicated breaker-shell mode currently bypasses this phase solve.
+
+Swash also has one CPU-authored frame per event. The visible water, gameplay
+queries, and persistent shore-state pass share the same event index, oblique
+edge shape, uprush/backwash progress, and endpoints. That shared frame is what
+prevents foam, wetness, and the moving water edge from becoming separately
+looping animations.
+
 ## Debug views
 
 `?waterDebug=<mode>` in the labs or `water.setDebugMode(mode)`:
 
 ```text
-depth | foam | normal | ripple | reflection | caustics | specular | fresnel | crest
+depth | foam | normal | ripple | reflection | caustics | specular | fresnel | crest | shoreState
 ```
+
+`shoreState` displays moisture in red, surface film in green, and the stronger
+of active foam/residue in blue. It is the quickest way to tell whether a visual
+gap is caused by state generation, state/material binding, or final shading.
+
+## Technique and research matrix
+
+This table separates what the renderer actually implements from useful
+coastal-engineering reference models. The references constrain terminology
+and expected behavior; they are not evidence that this stylized system has
+been physically validated.
+
+| Technique | ToonLab status | Scope and important boundary |
+|---|---|---|
+| Eight-component Gerstner spectrum | **Implemented** | Drives open-water geometry and has a CPU mirror for height queries. This is a compact directional spectrum, not an FFT ocean and not a fluid solver. |
+| Finite-depth nearshore phase/refraction | **Implemented, opt-in** | A static-bed, one-way mild-slope/ray bake affects the dominant swell pair. It approximates wavelength shortening and refraction but omits diffraction, reflection, turning rays, moving beds, and the six detail waves. The physical phenomena and numerical methods are covered in the [USACE Coastal Engineering Manual, Part II](https://www.publications.usace.army.mil/Portals/76/Publications/EngineerManuals/EM_1110-2-1100_Part-02.pdf). |
+| Shoaling and breaking | **Implemented, stylized** | Bed depth attenuates/amplifies the authored swell and can drive a separate curling-breaker shell. It is not an energy-conserving Boussinesq, shallow-water, or two-phase breaking calculation; dedicated breaker-shell mode currently bypasses the nearshore phase bake. See the [USACE Coastal Engineering Manual, Part II](https://www.publications.usace.army.mil/Portals/76/Publications/EngineerManuals/EM_1110-2-1100_Part-02.pdf) for the engineering treatment of wave transformations and surf-zone processes. |
+| Swash run-up and backwash | **Implemented, stylized** | A continuous event state gives fast uprush, slower return, 80–100% peak variation, correlated sets, oblique macro-shape, and endpoint handoff. `runupDistance` is a horizontal art/calibration control, not the `R2%` elevation predicted by an empirical model. [Carrier & Greenspan (1958)](https://www.cambridge.org/core/journals/journal-of-fluid-mechanics/article/abs/water-waves-of-finite-amplitude-on-a-sloping-beach/9628CB59A4761A52C12E098ACCE3F1C6) derive nonlinear shallow-water run-up on a plane slope; [Stockdon et al. (2006)](https://pubs.usgs.gov/publication/70030520) show observed run-up depends on setup plus incident- and infragravity-band swash and on offshore conditions and beach properties. ToonLab does not solve or fit either model. |
+| Persistent foam, film, and wet sand | **Implemented, opt-in** | A world-anchored RGBA state atlas is shared by water and ground materials. It preserves visual history but does not simulate bubbles, air entrainment, sediment transport, infiltration, or two-phase flow. |
+| Interactive ripple heightfield | **Implemented, local** | A camera-following 2D GPU heightfield handles splashes and wakes. It is not mass/momentum conserving, is not coupled to the offshore spectrum, and is not a wetting/drying shoreline solver. |
+| Flow maps / spatial currents | **Foundation implemented; authored input required** | `WaterCurrentField` stores authored XZ velocity and an optional domain/obstacle mask for gameplay and shore-foam advection. Its signed-distance projection discourages bank penetration but cannot infer pressure, circulation, wakes, separation, rip currents, or turbulence. Those patterns still need authored/baked vectors or a solver upstream. |
+| Shallow-water equations (SWE) | **Not implemented** | There is no depth-and-momentum time integration, conservative wetting/drying front, obstacle-coupled flow, or numerical run-up solution. The current swash and ripple systems must not be described as SWE. [Carrier & Greenspan (1958)](https://www.cambridge.org/core/journals/journal-of-fluid-mechanics/article/abs/water-waves-of-finite-amplitude-on-a-sloping-beach/9628CB59A4761A52C12E098ACCE3F1C6) is a useful primary reference for the nonlinear shallow-water model class on a plane beach. |
+| FFT spectral ocean | **Not implemented** | No frequency-domain spectrum is transformed into a displacement field. FFT could be a future open-ocean option, but it would not by itself supply beach wetting/drying, swash history, or obstacle-aware currents. |
+| Full CFD / two-phase foam | **Not implemented** | Spray droplets and foam are rendering/simulation effects, not Navier–Stokes water/air volume fractions. |
+
+### Research references
+
+- G. F. Carrier and H. P. Greenspan, [“Water waves of finite amplitude on a
+  sloping beach”](https://www.cambridge.org/core/journals/journal-of-fluid-mechanics/article/abs/water-waves-of-finite-amplitude-on-a-sloping-beach/9628CB59A4761A52C12E098ACCE3F1C6),
+  *Journal of Fluid Mechanics* 4(1), 1958. Primary analytic nonlinear
+  shallow-water treatment of shoreline motion on a plane slope.
+- H. F. Stockdon, R. A. Holman, P. A. Howd, and A. H. Sallenger Jr.,
+  [“Empirical parameterization of setup, swash, and
+  runup”](https://pubs.usgs.gov/publication/70030520), *Coastal Engineering*
+  53(7), 2006. Primary field-data study separating setup, incident swash, and
+  infragravity swash in run-up estimates.
+- U.S. Army Corps of Engineers, [*Coastal Engineering Manual, Part
+  II*](https://www.publications.usace.army.mil/Portals/76/Publications/EngineerManuals/EM_1110-2-1100_Part-02.pdf),
+  EM 1110-2-1100, 2002. Official engineering reference for wave mechanics,
+  transformations, breaking, and surf-zone processes.
+
+## Water Lab visual acceptance gates
+
+These are regression targets derived from the reported Water Lab captures,
+not a claim that every current build already passes. Use **Ground → Beach
+(swash)**, a 20 m test beach, `runupDistance: 10`, and a camera that can inspect
+the shoreline both alongshore and from above. Observe at least eight complete
+events; a single attractive still does not prove continuity.
+
+- **Reach and continuity:** centerline inland maxima fall between 8 m and
+  10 m, consecutive events visibly differ, and the edge returns continuously
+  to an event-dependent rundown endpoint. No teleport/reset is allowed when a
+  cycle changes.
+- **Connected, oblique edge:** the water/sand silhouette remains one connected
+  front with an incidence angle, broad tongues, smaller scallops, and real
+  gaps. It must not become a ruler-straight or clamped plateau, release one
+  mesh column/block at a time, or repeat the same outline every cycle.
+- **Foam belongs to the edge:** the strongest fresh foam intersects the actual
+  wet/dry silhouette on both water and sand sides. It may tear into patches and
+  leave residue, but a detached interior white strip that looks like a
+  reflection or a second looping system is a failure.
+- **Shape variety:** compare several cycles at the same camera. Broad tongue
+  widths, holes, breaks, and alongshore positions change while remaining
+  spatially coherent; avoid evenly spaced teeth or nearly uniform ribbons.
+- **One optical system:** shallow color, opacity, refraction, and caustic
+  motion transition into the swash film without a sharp internal handoff.
+  Caustics may fade as the film becomes physically thin and foam may occlude
+  them, but they must not stop at a fixed line inside connected water.
+- **Retreat history:** active foam thins into residue, recently exposed sand
+  stays darker and briefly glossier, and those marks decay on their configured
+  lifetimes instead of disappearing at the procedural cycle boundary.
+- **Coverage:** supported orbit, pan, and zoom views do not reveal a rectangular
+  water-tile edge, skirt gap, or finite patch against the horizon. Either the
+  water covers the view or scene composition hides its boundary.
+- **Ground switching and controls:** after switching into Beach (swash), orbit,
+  pan, and zoom remain responsive; a rendered scene followed by a multi-second
+  input freeze is a failure.
+- **Backend safety:** native WebGPU and the WebGL2 fallback retain displaced
+  waves and swash. Neither may log a WebGPU private-address-space pipeline
+  error or silently fall back to a completely flat surface.
+- **Debug cross-check:** in `shoreState`, the blue foam signal follows the same
+  event as the moving edge, green film trails the retreat, and red moisture
+  outlives both. In `caustics` and `foam`, no fixed internal seam should reveal
+  two independently phased systems.

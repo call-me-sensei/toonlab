@@ -422,6 +422,10 @@ async function main() {
         saturation: 1.24,
         shadowTintColor: [0.6, 0.66, 0.82],
         skyTintStrength: 0.1,
+        // This look runs near-zero ambient; full-strength cast shadows
+        // crush building-scale masses (village walls) to black. 0.72 keeps
+        // them painted mid-tones.
+        sunShadowStrength: 0.72,
         // World-projected detail so cliff walls keep texture density —
         // planar terrain UVs stretch to nothing on near-vertical faces.
         // The painted stone diffuse (envTriplanarMap) tiles every ~14 m so
@@ -441,6 +445,51 @@ async function main() {
         shadowStrength: 0.7,
         tipColor: [0.56, 0.84, 0.31],
       },
+    },
+    // The living layer (?birds=0&butterflies=0&dragonflies=0&fish=0 for
+    // per-species perf triage; ?nofauna kills the cluster).
+    fauna: params.has('nofauna') ? false : {
+      seed: Number(params.get('seed')) || 20260712,
+      species: {
+        birds: params.has('birds') ? Number(params.get('birds')) || 0 : 40,
+        butterflies: params.has('butterflies') ? Number(params.get('butterflies')) || 0 : 60,
+        dragonflies: params.has('dragonflies') ? Number(params.get('dragonflies')) || 0 : 12,
+        fish: params.has('fish') ? Number(params.get('fish')) || 0 : 80,
+      },
+    },
+    // Ambient atmosphere (?nofx=1 disables; ?fireflies=2&petals=0 etc.
+    // scale or kill individual effects for perf triage).
+    ambientfx: params.has('nofx') ? false : {
+      effects: Object.fromEntries(['petals', 'leaves', 'fireflies', 'pollen', 'mist']
+        .map((id) => [id, params.has(id)
+          ? (Number(params.get(id)) > 0 ? { density: Number(params.get(id)) } : false)
+          : true])),
+      seed: Number(params.get('seed')) || 20260712,
+      timeOfDay: 14, // matches the 2 PM sun; swap for a game clock when one exists
+    },
+    // Civilization layer: ?villages=2&shrines=1 grows named settlements
+    // connected by roads (the M4 beat). POI street routes merge into the
+    // path network automatically.
+    pois: params.has('villages') || params.has('shrines') || params.has('hamlets') ? {
+      pierHamlets: Number(params.get('hamlets')) || 0,
+      seed: Number(params.get('seed')) || 20260712,
+      shrines: Number(params.get('shrines')) || 0,
+      // keep settlements inside the walkable clamp, off the decorative rim
+      size: { x: WORLD.bounds.x * 2, z: WORLD.bounds.z * 2 },
+      villages: Number(params.get('villages')) || 0,
+    } : false,
+    // Path network: seeded routes between probed points of interest, with
+    // bridges over water. ?paths=N sets the destination count, ?nopaths=1
+    // (or ?paths=0) removes the network for perf triage.
+    paths: params.has('nopaths') || params.get('paths') === '0' ? false : {
+      auto: {
+        count: Number(params.get('paths')) || 4,
+        styles: ['dirt', 'dirt', 'stone'],
+      },
+      seed: Number(params.get('seed')) || 20260712,
+      // Cheaper water crossings than the library default: this lake-heavy
+      // terrain should grow a bridge or two instead of always detouring.
+      settings: { routing: { waterCost: 6 } },
     },
     shadows: params.has('noshadow') ? false : undefined,
     renderer,
@@ -647,7 +696,10 @@ async function main() {
       if (keys.has('KeyD') || keys.has('ArrowRight')) movement.sub(right);
       const moving = movement.lengthSq() > 0;
       const running = moving && (keys.has('ShiftLeft') || keys.has('ShiftRight'));
-      const ground = heightAt(character.position.x, character.position.z);
+      // Ground through the collision service, not raw heightAt: on a path
+      // the flattened ribbon profile wins, and on a bridge the deck carries
+      // the character over the water instead of dropping them into a swim.
+      const ground = world.collision.groundHeight(character.position.x, character.position.z);
       // Deep water → swim: float on the actual wave surface (CPU-mirrored
       // Gerstner heights), slower movement, swim/tread clips.
       const swimming = ground < WORLD.waterLevel - 1.1;
@@ -803,16 +855,25 @@ async function main() {
   const travelTo = (x, z) => {
     character.position.x = Math.min(Math.max(x, -WORLD.bounds.x), WORLD.bounds.x);
     character.position.z = Math.min(Math.max(z, -WORLD.bounds.z), WORLD.bounds.z);
-    const ground = heightAt(character.position.x, character.position.z);
+    const ground = world.collision.groundHeight(character.position.x, character.position.z);
     character.position.y = Math.max(ground, WORLD.waterLevel - 0.8);
     vertical.velocity = 0;
     vertical.grounded = true;
     world.collision.resolve(character.position, 0.35);
     setView('explore');
   };
+  // POI markers: named places on both maps (click to travel).
+  const poiMarkers = (world.pois ?? []).map((poi) => ({
+    color: poi.archetype === 'shrine' ? '#f4c96b' : '#f4e9c8',
+    label: poi.name,
+    x: poi.center.x,
+    z: poi.center.z,
+  }));
   const minimap = createWorldMinimap({
     heightAt,
+    markers: poiMarkers,
     onPick: travelTo,
+    paths: world.paths, // network overlay baked into the base layer
     size: Math.max(WORLD.width, WORLD.depth), // minimap is square; rect worlds letterbox
     waterLevel: WORLD.waterLevel,
   });
@@ -824,7 +885,9 @@ async function main() {
   const bigmap = createWorldMinimap({
     displaySize: Math.min(window.innerHeight - 120, 720),
     heightAt,
+    markers: poiMarkers,
     onPick: (x, z) => { travelTo(x, z); bigmapEl.hidden = true; },
+    paths: world.paths,
     resolution: 512,
     size: Math.max(WORLD.width, WORLD.depth), // minimap is square; rect worlds letterbox
     waterLevel: WORLD.waterLevel,
@@ -837,6 +900,66 @@ async function main() {
     if (event.code === 'Escape') toggleBigmap(false);
   });
 
+  // Set dressing along the road network: ranch fences line the first route,
+  // stone tōrō lanterns pace every route. One placeAlongSpline call each —
+  // the placement pipeline grounds, collides, instances, and LODs them.
+  // (?noprops=1 removes the dressing for perf triage.)
+  const propUpdaters = [];
+  if (!params.has('noprops') && world.paths?.splines?.length) {
+    const {
+      createPropAsset, placeAlongSpline,
+    } = await import('@call-me-sensei/toonlab/propgen');
+    const { applyEnvironmentShader } = await import('@call-me-sensei/toonlab/environment');
+    const propsRoot = new THREE.Group();
+    propsRoot.name = 'PathDressing';
+    const worldSeed = Number(params.get('seed')) || 20260712;
+    const fence = createPropAsset({ asset: { seed: worldSeed, type: 'fence', variant: 'ranch' } });
+    const lantern = createPropAsset({ asset: { seed: worldSeed + 1, type: 'lantern', variant: 'stoneToro' } });
+    // Dressing stays on dry land — the road may bridge water, its fences
+    // and lanterns must not march into it.
+    const dryLand = (x, z) => heightAt(x, z) > WORLD.waterLevel + 0.25;
+    world.paths.splines.forEach((spline, index) => {
+      if (index === 0) {
+        placeAlongSpline({
+          asset: fence,
+          collision: world.collision,
+          heightAt: world.paths.heightAt,
+          mask: dryLand,
+          offset: 2.7,
+          parent: propsRoot,
+          seed: worldSeed + 11 + index,
+          sides: [1],
+          spacing: 2.2,
+          spline,
+        });
+      }
+      const lanterns = placeAlongSpline({
+        asset: lantern,
+        collision: world.collision,
+        heightAt: world.paths.heightAt,
+        mask: dryLand,
+        offset: 2.5,
+        parent: propsRoot,
+        seed: worldSeed + 31 + index,
+        sides: [-1],
+        spacing: 28,
+        spline,
+      });
+      propUpdaters.push(lanterns.update);
+    });
+    // The world's environment conversion ran at creation; dressing added
+    // afterwards converts itself with the same fog/palette parameters.
+    await applyEnvironmentShader(propsRoot, {
+      parameters: {
+        heightFogColor: [0.63, 0.8, 0.98],
+        heightFogDensity: 0.0012,
+        heightFogFalloff: 400,
+        saturation: 1.24,
+      },
+    });
+    terrainRoot.add(propsRoot);
+  }
+
   window.toonWorld = world; // console access for debugging
   window.toonTerrain = terrain;
   window.toonOrbit = orbit; // headless probes aim the explore camera
@@ -844,6 +967,12 @@ async function main() {
   window.toonCharacter = character;
   document.getElementById('loading').remove();
   document.body.dataset.worldReady = 'true'; // headless smoke checks key off this
+  // Path network stats for headless probes (screenshot/perf harnesses).
+  document.body.dataset.pathRoutes = String(world.paths?.routes?.length ?? 0);
+  document.body.dataset.pathBridges = String(world.paths?.bridges?.length ?? 0);
+  document.body.dataset.pathTriangles = String(world.paths?.stats?.triangles ?? 0);
+  document.body.dataset.poiCount = String(world.pois?.length ?? 0);
+  document.body.dataset.poiNames = (world.pois ?? []).map((poi) => poi.name).join('|');
 
   const fpsLabel = document.getElementById('fps');
   // Which backend actually won: WebGPURenderer silently falls back to
@@ -875,6 +1004,7 @@ async function main() {
       rocks.updateLod(camera.getWorldPosition(rockLodFocus));
     }
     window.toonReeds?.update(delta);
+    for (const update of propUpdaters) update(delta, camera); // prop LOD swaps
     mixer.update(delta);
     if (!params.has('nochar')) passes.update();
     world.update(delta);

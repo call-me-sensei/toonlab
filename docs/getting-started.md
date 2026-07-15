@@ -32,6 +32,7 @@ HUD **Scene** select switches between them; these are the direct URLs:
 | Rock Lab | `/rock-lab/` | Procedural stylized rocks, cliffs, heightfields, sculpt edits, and GLB export from `@call-me-sensei/toonlab/rockgen`. |
 | Tree Lab | `/tree-lab/` | Procedural stylized trees, flowers, sketches, recipes, and GLB export from `@call-me-sensei/toonlab/vegetation`. |
 | Debris Lab | `/debris-lab/` | Procedural debris and scatter pieces with preset thumbnails and GLB export from `@call-me-sensei/toonlab/debrisgen`. |
+| Texture Lab | `/texture-lab/` | Seamless procedural PBR textures for anything — 60+ material presets, layered pattern/color/overlay controls, an AI prompt box (offline mapper built in; add your own Gemini/OpenAI key for smarter mapping), and PNG/ZIP export from `@call-me-sensei/toonlab/texgen`. |
 
 The water scenes expose an **Env** lighting select (Noon / Sunset / Moonlit /
 Overcast / Storm), water **Mode** and **Tone** selects, quality tiers, debug

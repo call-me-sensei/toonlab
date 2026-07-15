@@ -96,9 +96,75 @@ Every cluster has a `default` and a studio-managed `call_me_sensei` preset.
 
 `/toon` `/environment` `/water` `/vegetation` (incl. scatter helpers +
 `StylizedForest`) `/sky` `/post` `/character` `/loaders` `/rockgen`
-`/debrisgen` `/debug`; root adds `createStylizedTerrain`,
+`/debrisgen` `/pathgen` `/debug`; root adds `createStylizedTerrain`,
 `createStylizedWorld`, `createWorldCollision`, `createWorldMinimap`,
-`resolveWorldPreset`.
+`resolveWorldPreset`, `createStylizedPaths`.
+
+Paths/roads/bridges: `createStylizedWorld({ paths: { seed, auto: { count: 4,
+styles: ['dirt', 'stone'] } } })` routes seeded trails around slopes, bridges
+water crossings, parts grass/trees around the ribbon, and feeds the flattened
+profile to `world.collision.groundHeight` — use that (not raw `heightAt`) for
+character ground so bridges carry the walk. Minimap: pass `paths: world.paths`
+to `createWorldMinimap` for the network overlay.
+
+Catalog (`/catalog`): the whole library, browsable and spawnable —
+`catalog.list({ tags, cluster, text })`, `catalog.get(id)`, and the headline
+`catalog.spawn(id, { seed })` → a PropAsset for any prop / building / tree /
+rock / debris entry (settings presets throw with their copy-paste snippet
+instead). `catalog.register(entry)` adds user assets;
+`catalog.addSource(url, { headers })` mounts remote registries (the pro
+seam). Browser lab at `/catalog/`.
+
+Villages (`/villagegen`): `createStylizedWorld({ pois: { seed, villages: 2,
+shrines: 1, pierHamlets: 1, size } })` → named settlements (seeded syllable
+names) with streets merged into the world path network, buildings facing
+their street behind picket fences, wells/lanterns/clutter by archetype, POI
+entries auto-connected by roads. `world.pois` feeds
+`createWorldMinimap({ markers })` labels. Fully-shadowed building facades
+need `parameters.sunShadowStrength ≈ 0.7` in worlds that run near-zero
+ambient (full-strength cast shadows crush large vertical masses to black).
+
+Fauna (`/fauna`) and ambient VFX (`/ambientfx`) are one option each:
+`createStylizedWorld({ fauna: { species: { birds: 40, fish: 80 } },
+ambientfx: { effects: { petals: true, fireflies: true } } })` — both join
+the world's fog/wind/cloud-shadow automatically.
+
+Gameplay VFX (`/vfxgen`): event-driven combat/movement effects, spawned at
+gameplay moments (not a world option) — `createVfxSystem({ seed, preset,
+heightAt })` then `vfx.spawn('slash' | 'impact' | 'fireball' | 'footstep' |
+'landing', { at | follow, power, look })` and `vfx.update(delta, camera)`
+per frame. All bursts share TWO draw calls; slash trails / fireball cores
+are pooled meshes. `vfx.setDistanceFog(...)` joins the height-fog layer;
+`vfx.setTimeScale(0)` is hit-stop. Weapons + moves are batteries-included:
+`createStylizedWeapon({ type: 'sword' | 'greatsword' | 'spear' | 'dagger'
+| 'hammer' })` + `createMoveController({ weapon, vfx })` →
+`attack.play('slash' | 'overhead' | 'thrust' | 'spin' | 'plunge')` — authored
+phase-based motions whose event tracks fire the VFX at the right beats
+(plunge = the full crouch→leap→dive→landfall decomposition); weapon weight
+scales timing and hit power. Design interactively in the VFX Lab
+(`/vfx-lab/`): weapon picker + move triggers + schema panels, exports a
+recipe (preset + seed + overrides) that drops straight into `createVfxSystem`.
+The `call_me_sensei` preset targets the reference action-RPG hit language
+(smooth gradient arcs, four-point star + shockwave circle per hit,
+hard-saturated pyro fireball). Demo loop: `examples/vfx-arena/`.
+
+Buildings (`/buildinggen`): seeded grammar exteriors —
+`buildingAsset({ type: 'cottage' | 'shed' | 'farmhouse' | 'watchtower' |
+'shrine', seed })` is a PropAsset (multi-circle footprint, buried foundation
+skirt for slopes ≤ ~20°, hi/lo LOD, `door` anchor with outward normal for
+street-facing placement). `createBuildingFromRecipe(recipe)` rebuilds
+deterministically; ≤ 6 draw calls per building.
+
+Props (`/propgen`): every placeable thing is a PropAsset —
+`createPropAsset({ asset: { type: 'lantern', variant: 'stoneToro', seed } })`
+or `propAssetFromObject(importedGlb)` (auto footprint + ground anchor).
+Place with ONE call: `placeAlongSpline({ asset, spline: world.paths.splines[0],
+spacing, offset, mask, heightAt: world.paths.heightAt, collision:
+world.collision, parent })` (fences/walls build continuously; point props
+instance with hi/lo LOD — call the returned `update(delta, camera)` per
+frame), or `scatterProps`/`placeProps`. Props added after `createStylizedWorld`
+need `applyEnvironmentShader(propsRoot, { parameters: { …fog } })` to join the
+look; pass a dry-land `mask` so dressing never marches into water.
 
 ## Symptom table — check before debugging blind
 

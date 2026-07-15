@@ -8,10 +8,6 @@ Every tunable field in the settings schemas, generated from the
 drive the [debug panel](debug-panel.md), so everything listed here appears
 as a live control in the labs.
 
-Renderer note: all settings drive the TSL material stack. Native WebGPU is
-the default renderer; `?renderer=webgl` uses the same settings through the
-TSL WebGL2 fallback.
-
 - [Character toon shading](#character-toon-shading)
 - [Environment shading](#environment-shading)
 - [Water](#water)
@@ -20,10 +16,16 @@ TSL WebGL2 fallback.
 - [Flowers](#flowers)
 - [Trees](#trees)
 - [Sky](#sky)
+- [Paths, roads & bridges](#paths-roads-bridges)
+- [Ambient VFX](#ambient-vfx)
+- [Gameplay VFX](#gameplay-vfx)
+- [Fauna](#fauna)
+- [Buildings](#buildings)
+- [Procedural textures](#procedural-textures)
 
 ## Character toon shading
 
-Module: `@call-me-sensei/toonlab/toon` — 23 groups, 298 fields.
+Module: `toonlab/toon` — 23 groups, 298 fields.
 
 Settings are nested per group: `createToonSettings({ rimLight: { intensity: 0.2 } })`.
 
@@ -481,7 +483,7 @@ Opt-in shell fur for matched materials (collars, trims, animal parts). Off by de
 
 ## Environment shading
 
-Module: `@call-me-sensei/toonlab/environment` — 2 groups, 72 fields.
+Module: `toonlab/environment` — 2 groups, 76 fields.
 
 Settings are `{ features, parameters }`: `createEnvironmentSettings({ parameters: { exposure: 0.95 } })`.
 
@@ -557,6 +559,7 @@ Overrides numeric environment shader uniforms. Auto values preserve material def
 | `shadeSoftness` | number | — | 0 – 1 | Overrides shade softness; leave unset in code to use the material default. |
 | `shadeStrength` | number | — | 0 – 2 | Overrides shade strength; leave unset in code to use the material default. |
 | `shadowLift` | number | — | 0 – 1 | Overrides shadow lift; leave unset in code to use the material default. |
+| `sunShadowStrength` | number | — | 0 – 2 | Overrides sun shadow strength; leave unset in code to use the material default. |
 | `shadowTintColor` | color | — | — | Overrides shadow tint; leave unset in code to use the material default. |
 | `skyGroundTint` | color | — | — | Overrides sky ground tint; leave unset in code to use the material default. |
 | `skyTintStrength` | number | — | 0 – 2 | Overrides sky tint strength; leave unset in code to use the material default. |
@@ -568,12 +571,15 @@ Overrides numeric environment shader uniforms. Auto values preserve material def
 | `spotLightStrength` | number | — | 0 – 2 | Overrides spot light; leave unset in code to use the material default. |
 | `sunBoost` | number | — | 0 – 1 | Overrides sun boost; leave unset in code to use the material default. |
 | `sunBoostColor` | color | — | — | Overrides sun boost color; leave unset in code to use the material default. |
+| `triplanarDetail` | number | — | 0 – 1 | Overrides triplanar detail; leave unset in code to use the material default. |
+| `triplanarDetailScale` | number | — | 0.25 – 64 | Overrides triplanar detail scale; leave unset in code to use the material default. |
+| `triplanarEdgeHighlight` | number | — | 0 – 1 | Overrides rock edge highlight; leave unset in code to use the material default. |
 | `untexturedGradientStrength` | number | — | 0 – 2 | Overrides untextured gradient strength; leave unset in code to use the material default. |
 | `vertexAoStrength` | number | — | 0 – 2 | Overrides vertex ao strength; leave unset in code to use the material default. |
 
 ## Water
 
-Module: `@call-me-sensei/toonlab/water` — 7 groups, 72 fields.
+Module: `toonlab/water` — 7 groups, 72 fields.
 
 Settings are flat: `createWaterSettings({ preset: "ocean", waveIntensity: 0.6 })`. Groups exist for UI organization only.
 
@@ -612,7 +618,7 @@ Water body color, refraction, and caustics.
 
 | Field | Type | Default | Range / options | Description |
 |---|---|---|---|---|
-| `colorTone` | select | `'classic'` | `classic` \|  `anime` \| `teal` \| `caribbean` \| `lagoon` \| `deepOcean` | Named body-color palette forced over the preset colors; classic returns control to the preset. |
+| `colorTone` | select | `'classic'` | `classic` \| `anime` \| `teal` \| `caribbean` \| `lagoon` \| `deepOcean` | Named body-color palette forced over the preset colors; classic returns control to the preset. |
 | `shallowColor` | color | `[0.42, 0.85, 0.88]` (#6bd9e0) | — | Water tint right at the shoreline. |
 | `midColor` | color | `[0.2, 0.62, 0.8]` (#339ecc) | — | Water tint at moderate depth. |
 | `deepColor` | color | `[0.1, 0.38, 0.6]` (#1a6199) | — | Water tint where the bottom is no longer visible. |
@@ -700,7 +706,7 @@ Shader quality tier gating caustics, sparkles, and noise octaves.
 
 ## Post-processing
 
-Module: `@call-me-sensei/toonlab/post` — 2 groups, 37 fields.
+Module: `toonlab/post` — 2 groups, 37 fields.
 
 Settings are `{ features, parameters }`: `createPostProcessingSettings({ preset: "softAnime" })`.
 
@@ -757,7 +763,7 @@ Tuning values used by the post-processing effects when their feature toggles are
 
 ## Grass
 
-Module: `@call-me-sensei/toonlab/vegetation` — 5 groups, 20 fields.
+Module: `toonlab/vegetation` — 5 groups, 20 fields.
 
 Flat settings consumed by `new StylizedGrassField(options)` and `grass.applySettings(options)`.
 
@@ -818,7 +824,7 @@ Character push-away response around the push target.
 
 ## Flowers
 
-Module: `@call-me-sensei/toonlab/vegetation` — 3 groups, 7 fields.
+Module: `toonlab/vegetation` — 3 groups, 7 fields.
 
 Flat settings consumed by `new StylizedFlowerField(options)` and `flowers.applySettings(options)`.
 
@@ -852,7 +858,7 @@ Petal/center palette and scene-shadow darkening.
 
 ## Trees
 
-Module: `@call-me-sensei/toonlab/vegetation` — 5 groups, 68 fields.
+Module: `toonlab/vegetation` — 5 groups, 68 fields.
 
 Grouped settings consumed by `new StylizedTree(options)` and `tree.applySettings(options)`.
 
@@ -961,7 +967,7 @@ Leaf material response: wind, sun, alpha cutout, scene and cloud shadows. Applie
 
 ## Sky
 
-Module: `@call-me-sensei/toonlab/sky` — 5 groups, 15 fields.
+Module: `toonlab/sky` — 5 groups, 15 fields.
 
 Flat settings consumed by `new StylizedSky(options)` and `sky.applySettings(options)`.
 
@@ -1014,3 +1020,656 @@ Procedural star field for night skies.
 | Field | Type | Default | Range / options | Description |
 |---|---|---|---|---|
 | `starsStrength` | number | `0` | 0 – 2 | Brightness of the procedural star field. 0 (default) hides stars for daytime skies. |
+
+## Paths, roads & bridges
+
+Module: `toonlab/pathgen` — 4 groups, 22 fields.
+
+Grouped settings consumed by `createStylizedPaths({ settings })` and serialized in path recipes.
+
+### Paths, roads & bridges: Routing
+
+Cost-field router: how strongly slope and water repel routes, and how much existing paths attract reuse (forks and junctions).
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `pointCount` | number | `4` | 2 – 8 | Auto mode: number of destinations probed from the terrain and connected into a network. |
+| `slopeCost` | number | `26` | 0 – 80 | How expensive climbing is for the router. Higher values hug contours and produce switchbacks instead of straight climbs. |
+| `waterCost` | number | `14` | 2 – 60 | Cost multiplier for crossing water. High enough that routes only cross where a bridge is worth it, low enough that crossings still happen. |
+| `reuseBonus` | number | `0.45` | 0 – 0.9 | Cost discount (0..1) on cells an earlier route already walks — the source of natural forks and shared trunk roads. |
+| `gridStep` | number | `8` | 3 – 24 | Router grid resolution in meters. Smaller steps find finer detours and cost more to solve. |
+| `shoreMargin` | number | `0.6` | 0 – 2 | Meters above the waterline a cell must be to count as dry land. |
+| `loopChance` | number | `0.35` | 0 – 1 | Auto mode: chance to add one extra ring road beyond the spanning network. |
+
+### Paths, roads & bridges: Ribbon
+
+The walkable strip: width, hand-drawn wobble, edge skirts that tuck into the terrain, and the height-profile smoothing that flattens the walk.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `width` | number | `2.6` | 1 – 6 | Walkable ribbon width in meters (dirt trail 2–3, stone road 3–4). |
+| `widthWobble` | number | `0.22` | 0 – 0.6 | Low-frequency width variation (0..1) for the hand-drawn look. 0 is a survey-straight road. |
+| `edgeSkirt` | number | `1.1` | 0.2 – 2.5 | Extra meters each side that slope down and tuck under the terrain so the ribbon never floats on side slopes. |
+| `lift` | number | `0.07` | 0.02 – 0.25 | Meters the ribbon rides above the height profile — the true-overlay offset that prevents z-fighting. |
+| `smoothing` | number | `16` | 0 – 40 | Moving-average window in meters applied to the terrain height along the route; the flattened profile is what paths.heightAt reports. |
+| `stepLength` | number | `2` | 1 – 5 | Meters between ribbon cross-sections. Smaller steps follow curves tighter and spend more triangles. |
+| `edgeFade` | number | `1.4` | 0.2 – 4 | Meters past the ribbon edge over which maskAt falls from 1 to 0 — the band where grass and flowers thin out. |
+
+### Paths, roads & bridges: Bridges
+
+Arched plank bridges generated where a route crosses open water.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `arc` | number | `0.1` | 0 – 0.18 | Deck rise as a fraction of span length. 0 is a flat causeway, 0.14 a strong arched footbridge. |
+| `railStyle` | select | `'posts'` | `posts` \| `beams` \| `none` | Bridge railing construction. |
+| `postSpacing` | number | `2.2` | 1.2 – 4 | Meters between railing posts. |
+| `minSpan` | number | `4` | 2 – 12 | Meters of open water a route must cross before a bridge is generated (shorter crossings ford instead). |
+| `pierSpacing` | number | `7` | 4 – 16 | Long crossings get support piers to the bed every this many meters. |
+| `deckClearance` | number | `1.1` | 0.3 – 3 | Minimum meters between the water level and the deck at mid-span. |
+
+### Paths, roads & bridges: Stairs
+
+Stepped stone segments swapped in where the route climbs steeply. Visual only — paths.heightAt stays a smooth ramp.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `slopeThreshold` | number | `0.45` | 0.2 – 0.9 | Rise-over-run along the route beyond which the ribbon switches to stepped stone segments. |
+| `stepHeight` | number | `0.19` | 0.12 – 0.3 | Riser height of generated steps in meters. |
+
+## Ambient VFX
+
+Module: `toonlab/ambientfx` — 6 groups, 54 fields.
+
+Settings are nested per group: `createAmbientFx({ settings: { fireflies: { blinkSpeed: 0.8 } } })`. Effect entries in `effects` override their group; `density` there is a multiplier.
+
+### Ambient VFX: Shared
+
+Wind, sun, and the follow-window every effect emits into. Match windDirection/windSpeed/windStrength with the grass and tree wind so the whole world blows the same way.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `windDirection` | vector2 | `[1, 0.3]` | — | Horizontal (XZ) heading the wind blows toward — share with grass/trees. Magnitude is ignored. |
+| `windSpeed` | number | `1` | 0 – 4 | How fast wind-driven motion oscillates and mist scrolls. |
+| `windStrength` | number | `0.16` | 0 – 1 | How far particles drift downwind. |
+| `sunDirection` | vector3 | `[0.35, 0.72, 0.42]` | — | World-space direction toward the sun (normalized on apply); drives the pollen backlight and petal sheen. |
+| `windowRadius` | number | `45` | 15 – 120 | Meters of the follow window particles exist in around the follow target. Construction-only. |
+| `maxParticles` | number | `20000` | 1000 – 40000 | Hard budget; effect densities are scaled down proportionally when their sum would exceed it. Construction-only. |
+
+### Ambient VFX: Petals
+
+Flutter-falling blossom petals. Emit from registered bloom volumes (flowering canopies) when any exist, otherwise from the open air above the ground.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `true` | — | Master toggle for the effect. |
+| `density` | number | `0.03` | 0 – 0.15 | Petals per m³ of the emission volume. |
+| `canopyDensity` | number | `4.5` | 0 – 20 | Petals per m³ inside registered bloom volumes (crowns shed far more than open air). |
+| `sizeRange` | vector2 | `[0.06, 0.11]` | — | Min/max petal size in meters. |
+| `colorA` | color | `[1, 0.52, 0.68]` (#ff85ad) | — | Primary petal color. |
+| `colorB` | color | `[1, 0.75, 0.84]` (#ffbfd6) | — | Secondary petal color; each petal picks between the two. |
+| `emitHeight` | vector2 | `[2, 9]` | — | Min/max meters above ground petals spawn at when not bound to canopies. Construction-only. |
+| `flutter` | number | `1` | 0 – 3 | Side-to-side rocking amplitude while falling. |
+| `windResponse` | number | `1` | 0 – 3 | Multiplier on the shared wind drift for this effect. |
+| `gate` | select | `'day'` | `day` \| `night` \| `duskNight` \| `dawnDusk` \| `any` | When the effect is visible; weights follow the environmentTimeOfDay hour. |
+
+### Ambient VFX: Falling Leaves
+
+Tumble-falling leaves with strong gust response. Emit from bloom volumes tagged effect:"leaves", otherwise globally.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `true` | — | Master toggle for the effect. |
+| `density` | number | `0.022` | 0 – 0.15 | Leaves per m³ of the emission volume. |
+| `canopyDensity` | number | `3.2` | 0 – 20 | Leaves per m³ inside bloom volumes tagged effect:"leaves". |
+| `sizeRange` | vector2 | `[0.09, 0.16]` | — | Min/max leaf size in meters. |
+| `colorA` | color | `[0.93, 0.64, 0.2]` (#eda333) | — | Primary leaf color. |
+| `colorB` | color | `[0.78, 0.4, 0.13]` (#c76621) | — | Secondary leaf color; each leaf picks between the two. |
+| `emitHeight` | vector2 | `[2, 10]` | — | Min/max meters above ground leaves spawn at when not bound to canopies. Construction-only. |
+| `tumble` | number | `1` | 0 – 3 | Rotational tumbling speed while falling. |
+| `windResponse` | number | `1.35` | 0 – 3 | Multiplier on the shared wind drift for this effect. |
+| `gate` | select | `'any'` | `day` \| `night` \| `duskNight` \| `dawnDusk` \| `any` | When the effect is visible; weights follow the environmentTimeOfDay hour. |
+
+### Ambient VFX: Fireflies
+
+Hovering, blinking emissive motes over grass and shore margins. Unlit by design; they ramp with the time-of-day dusk.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `true` | — | Master toggle for the effect. |
+| `density` | number | `0.045` | 0 – 0.2 | Fireflies per m³ of the near-ground hover band. |
+| `sizeRange` | vector2 | `[0.13, 0.2]` | — | Min/max glow-sprite size in meters. |
+| `color` | color | `[1, 0.87, 0.42]` (#ffde6b) | — | Emissive glow color (unlit; never touched by scene lights). |
+| `hoverHeight` | vector2 | `[0.25, 2.2]` | — | Min/max meters above ground fireflies hover at. Construction-only. |
+| `hoverRadius` | number | `0.9` | 0 – 4 | Meters of wander around each spawn point. |
+| `blinkSpeed` | number | `1` | 0 – 4 | How fast the blink program pulses. |
+| `intensity` | number | `1` | 0 – 4 | Emissive brightness multiplier. |
+| `windResponse` | number | `0.1` | 0 – 3 | Multiplier on the shared wind drift for this effect. |
+| `gate` | select | `'duskNight'` | `day` \| `night` \| `duskNight` \| `dawnDusk` \| `any` | When the effect is visible; weights follow the environmentTimeOfDay hour. |
+
+### Ambient VFX: Pollen Motes
+
+Slow curl-drifting dust motes, brightest looking toward the sun (backlit). Bind to flower masks via the effects config.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `true` | — | Master toggle for the effect. |
+| `density` | number | `0.06` | 0 – 0.3 | Motes per m³ of the near-ground drift band. |
+| `sizeRange` | vector2 | `[0.045, 0.085]` | — | Min/max mote size in meters. |
+| `color` | color | `[1, 0.93, 0.72]` (#ffedb8) | — | Mote color (additive, so it reads as light). |
+| `hoverHeight` | vector2 | `[0.3, 2.6]` | — | Min/max meters above ground motes drift at. Construction-only. |
+| `driftRadius` | number | `1.3` | 0 – 5 | Meters of curl-drift wander around each spawn point. |
+| `backlitStrength` | number | `1` | 0 – 3 | Brightness boost when the camera looks toward the sun through the motes. |
+| `windResponse` | number | `0.5` | 0 – 3 | Multiplier on the shared wind drift for this effect. |
+| `gate` | select | `'day'` | `day` \| `night` \| `duskNight` \| `dawnDusk` \| `any` | When the effect is visible; weights follow the environmentTimeOfDay hour. |
+
+### Ambient VFX: Ground Mist
+
+Soft horizontal wisps scrolling with the wind, hugging water margins and low ground at dawn/dusk.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `true` | — | Master toggle for the effect. |
+| `density` | number | `0.0045` | 0 – 0.02 | Wisps per m³ of the ground-hugging band — a few dozen quads, not thousands. |
+| `sizeRange` | vector2 | `[1.6, 3]` | — | Min/max wisp height in meters (width is ~3–5× the height). |
+| `color` | color | `[0.84, 0.9, 0.97]` (#d6e6f7) | — | Wisp color. |
+| `opacity` | number | `0.34` | 0 – 0.6 | Peak alpha at a wisp center; the sprite falls off softly from there. |
+| `scrollSpan` | number | `26` | 5 – 60 | Meters a wisp travels downwind before wrapping (fades at both ends). |
+| `marginWidth` | number | `7` | 1 – 20 | Meters of \|ground − waterLevel\| that count as the water-margin emission band. Construction-only. |
+| `windResponse` | number | `1` | 0 – 3 | Multiplier on the shared wind drift for this effect. |
+| `gate` | select | `'dawnDusk'` | `day` \| `night` \| `duskNight` \| `dawnDusk` \| `any` | When the effect is visible; weights follow the environmentTimeOfDay hour. |
+
+## Gameplay VFX
+
+Module: `toonlab/vfxgen` — 6 groups, 47 fields.
+
+Settings are nested per group: `createVfxSystem({ settings: { impact: { sparkCount: 40 } } })`. Per-spawn `look` overrides re-tint one spawn without touching settings.
+
+### Gameplay VFX: Shared
+
+Budgets and global pacing for every effect. The one-shot backbone renders all bursts in two draw calls; these bound its ring buffers and the pooled trail/projectile meshes.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `maxParticles` | number | `4096` | 256 – 32768 | Ring-buffer capacity of the one-shot backbone (sparks, embers, puffs, rings, flashes). Oldest instances are overwritten first. Construction-only. |
+| `maxProjectiles` | number | `8` | 1 – 32 | Pooled projectile core meshes (fireballs in flight). Spawns beyond this reuse the oldest. Construction-only. |
+| `maxTrails` | number | `8` | 1 – 32 | Pooled slash-trail ribbons live at once. Spawns beyond this reuse the oldest. Construction-only. |
+| `timeScale` | number | `1` | 0 – 2 | Global VFX clock multiplier — hit-stop and slow-motion hooks feed this. |
+
+### Gameplay VFX: Slash Trail
+
+Weapon-swing ribbon sampled from a followed blade (base + tip anchors), with a stepped toon fade and edge sparkle. The anime arc smear.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `true` | — | Master toggle for the effect. |
+| `color` | color | `[0.55, 0.8, 1]` (#8cccff) | — | Trail color toward the blade tip (the hot edge). |
+| `coreColor` | color | `[1, 1, 1]` (#ffffff) | — | Trail color toward the blade base; white core + colored edge is the classic anime read. |
+| `lifetime` | number | `0.28` | 0.05 – 1.5 | Seconds a ribbon segment persists before fading out. |
+| `bands` | number | `3` | 1 – 8 | Toon quantization steps of the age fade — fewer bands, chunkier cel look. |
+| `intensity` | number | `1` | 0 – 4 | Emissive brightness multiplier on the glow parts. |
+| `sparkle` | number | `60` | 0 – 300 | Sparks per second shed from the blade tip while the trail is active. |
+| `segments` | number | `48` | 8 – 128 | Ribbon history capacity in samples — longer fast swings need more. Construction-only. |
+
+### Gameplay VFX: Impact Burst
+
+Hit feedback: a radial star flash plus ballistic sparks with gravity. `power` at spawn scales count, speed, and flash size.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `true` | — | Master toggle for the effect. |
+| `sparkColor` | color | `[1, 0.85, 0.45]` (#ffd973) | — | Ballistic spark color (additive). |
+| `flashColor` | color | `[1, 0.97, 0.88]` (#fff7e0) | — | Radial star-flash color at the hit point. |
+| `sparkCount` | number | `26` | 0 – 120 | Sparks per burst at power 1; spawn `power` scales this. |
+| `sparkSpeed` | number | `7` | 0 – 30 | Initial spark speed in m/s, biased along the hit normal. |
+| `gravity` | number | `18` | 0 – 60 | Downward pull on sparks in m/s² — high values read as metal chips. |
+| `flashSize` | number | `0.9` | 0 – 4 | Star-flash quad size in meters at power 1. |
+| `spikes` | number | `6` | 3 – 12 | Point count of the star flash — 4 reads as an action-RPG glint, 6–8 as an anime hit star. |
+| `shockwave` | boolean | `true` | — | Camera-facing expanding ring at the hit point — the action-RPG hit circle. Tinted by Flash Color. |
+| `lifetime` | number | `0.5` | 0.05 – 2 | Seconds sparks live (the flash pops in about a quarter of this). |
+| `intensity` | number | `1` | 0 – 4 | Emissive brightness multiplier on the glow parts. |
+
+### Gameplay VFX: Fireball
+
+Projectile: a flame-shaded core billboard shedding embers in flight; explodes into an impact burst, smoke puffs, and an expanding scorch ring.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `true` | — | Master toggle for the effect. |
+| `coreSize` | number | `0.42` | 0.05 – 2 | Flame-core billboard radius in meters. |
+| `coreColor` | color | `[1, 0.95, 0.6]` (#fff299) | — | Hot center of the flame shader. |
+| `flameColor` | color | `[1, 0.45, 0.12]` (#ff731f) | — | Outer flame licks and ember tint. |
+| `emberRate` | number | `90` | 0 – 400 | Embers shed per second while the projectile flies. |
+| `emberSize` | vector2 | `[0.05, 0.12]` | — | Min/max ember size in meters. |
+| `emberLifetime` | number | `0.55` | 0.05 – 2 | Seconds each shed ember lives. |
+| `intensity` | number | `1.2` | 0 – 4 | Emissive brightness multiplier on the glow parts. |
+| `explosionPower` | number | `1.6` | 0 – 5 | `power` handed to the impact burst + smoke on detonation. |
+| `scorchRing` | boolean | `true` | — | Expanding ground ring on detonation. |
+| `ringColor` | color | `[1, 0.55, 0.2]` (#ff8c33) | — | Scorch-ring glow color. |
+
+### Gameplay VFX: Footstep Dust
+
+Small chunky dust puffs kicked up at a footfall. Cheap enough to fire every step.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `true` | — | Master toggle for the effect. |
+| `puffCount` | number | `5` | 0 – 20 | Dust puffs per footfall. |
+| `sizeRange` | vector2 | `[0.1, 0.22]` | — | Min/max puff size in meters (puffs grow ~2× over life). |
+| `color` | color | `[0.78, 0.72, 0.62]` (#c7b89e) | — | Dust color — sample the ground palette. |
+| `lifetime` | number | `0.55` | 0.05 – 2 | Seconds a puff lives. |
+| `rise` | number | `0.5` | 0 – 2 | Upward drift in m/s — heavier dust settles faster. |
+| `spread` | number | `0.22` | 0 – 1 | Horizontal scatter radius in meters around the footfall. |
+
+### Gameplay VFX: Landing Ring
+
+The classic landing hit: a radial ring of dust puffs expanding outward from the touch-down point. `power` at spawn scales radius and count.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `true` | — | Master toggle for the effect. |
+| `puffCount` | number | `14` | 0 – 40 | Puffs around the ring at power 1; spawn `power` scales this. |
+| `ringRadius` | number | `1.1` | 0.2 – 5 | Meters the dust ring expands to at power 1. |
+| `sizeRange` | vector2 | `[0.18, 0.38]` | — | Min/max puff size in meters. |
+| `color` | color | `[0.78, 0.72, 0.62]` (#c7b89e) | — | Dust color — sample the ground palette. |
+| `lifetime` | number | `0.7` | 0.05 – 2 | Seconds the ring takes to expand and fade. |
+
+## Fauna
+
+Module: `toonlab/fauna` — 5 groups, 48 fields.
+
+Settings are nested per species group: `createFauna({ settings: { birds: { fleeRadius: 15 } } })`. Populations are passed separately: `createFauna({ species: { birds: 40, fish: 80 } })`.
+
+### Fauna: Shared
+
+Cross-species simulation budgets: the staggered steering-tick share and the distance beyond which agents degrade to scripted loops.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `tickShare` | number | `0.25` | 0.05 – 0.5 | Fraction of all agents that receive a full steering tick per update; the rest integrate their last velocity. 0.25 = every agent steers at ~15 Hz on a 60 Hz host. |
+| `farDistance` | number | `150` | 40 – 400 | Meters from the follow target beyond which agents stop steering entirely and fly scripted circles (fish keep their depth clamps). |
+
+### Fauna: Birds
+
+Flocking boids in a roaming altitude band; perch on registered points (or terrain) and flush when the follow target approaches.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `altitudeMin` | number | `7` | 1 – 40 | Bottom of the preferred flight band, meters above the local terrain. |
+| `altitudeMax` | number | `26` | 2 – 80 | Top of the preferred flight band, meters above the local terrain. |
+| `cruiseSpeed` | number | `7` | 1 – 20 | Relaxed flight speed in m/s; flocks settle around it. |
+| `maxSpeed` | number | `12` | 2 – 30 | Hard speed cap in m/s, reached when fleeing. |
+| `neighborRadius` | number | `14` | 2 – 30 | Meters within which flockmates influence cohesion and alignment. |
+| `separationRadius` | number | `2.6` | 0.5 – 8 | Personal-space radius in meters; closer neighbors are pushed away. |
+| `cohesion` | number | `0.9` | 0 – 2 | Pull toward the local flock center — the flock-tightness knob. |
+| `alignment` | number | `0.8` | 0 – 2 | Pull toward the local average heading. |
+| `separation` | number | `1.3` | 0 – 3 | Push away from neighbors inside the separation radius. |
+| `wander` | number | `0.45` | 0 – 2 | Per-bird sinusoidal drift so flocks meander instead of orbiting. |
+| `fleeRadius` | number | `12` | 0 – 40 | Meters from the follow target at which flying birds scatter and perched birds flush. |
+| `perchChance` | number | `0.5` | 0 – 1 | Appetite for landing: expected perch attempts scale with this per ~10 s of flight. |
+| `perchDuration` | number | `11` | 2 – 40 | Mean seconds a bird stays perched (each stay jitters ±40%). |
+| `flapHz` | number | `3.4` | 0.5 – 8 | Wingbeats per second; the GPU flap phase/speed attributes derive from it. Birds glide (near-zero amplitude) when descending. |
+| `scale` | number | `1` | 0.4 – 2.5 | Uniform body scale multiplier (±12% per-bird jitter on top). |
+| `palette` | select | `'swallow'` | `swallow` \| `egret` \| `finch` | Named body palette; each palette carries 2–4 vertex-colored variants. |
+
+### Fauna: Butterflies
+
+Individual noise-wanderers anchored to flower-mask points, hovering just above the terrain.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `hoverMin` | number | `0.5` | 0.1 – 3 | Bottom of the flutter band, meters above the local terrain. |
+| `hoverMax` | number | `1.7` | 0.2 – 5 | Top of the flutter band, meters above the local terrain. |
+| `speed` | number | `1.3` | 0.2 – 4 | Typical flutter speed in m/s. |
+| `wanderRadius` | number | `6` | 2 – 30 | Meters a butterfly may drift from its flower-mask anchor before being pulled back. |
+| `fleeRadius` | number | `3.5` | 0 – 15 | Meters from the follow target at which butterflies scatter upward. |
+| `flapHz` | number | `8.5` | 2 – 16 | Wingbeats per second for the GPU wing fold. |
+| `scale` | number | `1` | 0.4 – 2.5 | Uniform body scale multiplier (±20% per-agent jitter on top). |
+| `palette` | select | `'meadow'` | `meadow` \| `twilight` | Named wing palette; each palette carries up to 4 vertex-colored variants. |
+
+### Fauna: Dragonflies
+
+Hover-and-dart flyers anchored to the water margin, holding a fixed height above the water surface.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `hoverHeight` | number | `0.6` | 0.2 – 3 | Meters above the water surface dragonflies hold. |
+| `hoverRadius` | number | `5` | 1 – 20 | Meters of drift allowed around the current hover anchor. |
+| `dartSpeed` | number | `7` | 1 – 16 | Straight-line speed in m/s when relocating to a new anchor. |
+| `dartChance` | number | `0.5` | 0 – 1 | Appetite for relocating: expected darts scale with this per ~8 s of hovering. |
+| `flapHz` | number | `36` | 10 – 60 | Wing oscillations per second; high rates read as the classic wing shimmer. |
+| `scale` | number | `1` | 0.4 – 2.5 | Uniform body scale multiplier. |
+| `palette` | select | `'pond'` | `pond` \| `ember` | Named body palette; each palette carries 2–3 vertex-colored variants. |
+
+### Fauna: Fish
+
+Schooling boids clamped between the water surface and the bed; visible from above through the water refraction pass.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `surfaceMargin` | number | `0.3` | 0.1 – 2 | Minimum meters a fish stays below the water surface (never breaches). |
+| `bedMargin` | number | `0.35` | 0.1 – 2 | Minimum meters a fish stays above the terrain bed. |
+| `minSpawnDepth` | number | `1.1` | 0.3 – 5 | Meters of water column required for a fish spawn point; shallower bounds simply hold fewer fish. |
+| `cruiseSpeed` | number | `1.5` | 0.2 – 5 | Relaxed swim speed in m/s. |
+| `maxSpeed` | number | `3.2` | 0.5 – 8 | Hard speed cap in m/s, reached when fleeing. |
+| `neighborRadius` | number | `4` | 1 – 12 | Meters within which schoolmates influence cohesion and alignment. |
+| `separationRadius` | number | `0.8` | 0.2 – 4 | Personal-space radius in meters. |
+| `cohesion` | number | `0.9` | 0 – 2 | Pull toward the local school center — schooling tightness. |
+| `alignment` | number | `0.85` | 0 – 2 | Pull toward the local average heading. |
+| `separation` | number | `1.1` | 0 – 3 | Push away from neighbors inside the separation radius. |
+| `wander` | number | `0.5` | 0 – 2 | Per-fish sinusoidal drift so schools roam the basin. |
+| `fleeRadius` | number | `7` | 0 – 25 | Meters from the follow target (a swimmer, a bridge walker) at which fish scatter. |
+| `swayHz` | number | `2.8` | 0.5 – 8 | Tail-sway cycles per second for the GPU body flex. |
+| `scale` | number | `1` | 0.3 – 3 | Uniform body scale multiplier (±25% per-fish jitter on top). |
+| `palette` | select | `'koi'` | `koi` \| `silver` | Named body palette: koi for ponds and lakes, silver for open water. |
+
+## Buildings
+
+Module: `toonlab/buildinggen` — 5 groups, 28 fields.
+
+Grouped settings consumed by `createBuildingFromRecipe(...)` / `buildingAsset(...)`; `{ type, seed }` ride alongside the groups.
+
+### Buildings: Footprint
+
+Ground plan: rect, L, or T, in meters.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `kind` | select | `'rect'` | `rect` \| `L` \| `T` | Ground-plan shape. |
+| `width` | number | `6.5` | 2.5 – 14 | Main rect width in meters. |
+| `depth` | number | `5` | 2.5 – 12 | Main rect depth in meters. |
+| `wingRatio` | number | `0.55` | 0.3 – 0.85 | L/T wing size relative to the main rect. |
+
+### Buildings: Massing
+
+Floors, per-floor inset, and the slight outward wall lean that keeps facades hand-drawn.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `floors` | number | `1` | 1 – 5 | Full floors (towers go tall). |
+| `floorHeight` | number | `2.5` | 2.1 – 3.4 | Meters per floor. |
+| `atticRatio` | number | `0.55` | 0 – 0.8 | Half-floor under a gable roof (0 = none). |
+| `inset` | number | `0` | 0 – 0.3 | Meters each floor steps inward — watchtower massing. |
+| `wallLean` | number | `0.012` | 0 – 0.05 | Outward lean per meter of height. Exaggerated proportions are settings, not bugs. |
+
+### Buildings: Roof
+
+Roof form: gable, hip, shed, or the curved pagoda-ish shrine roof. Roofs always overhang walls.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `kind` | select | `'gable'` | `gable` \| `hip` \| `shed` \| `pagoda` | Roof construction. |
+| `pitch` | number | `0.85` | 0.25 – 1.4 | Rise over half-span. |
+| `overhang` | number | `0.55` | 0.25 – 1.6 | Meters the roof reaches past the walls (invariant: > 0). |
+| `curvature` | number | `0` | 0 – 1 | Upturned eave sweep — the shrine-roof signature. |
+| `ridgeDecor` | number | `0` | 0 – 1 | Ridge cap beam and end finials. |
+
+### Buildings: Facade
+
+Timber framing, window rhythm (windows never intersect beams), and the door (always on an exterior wall).
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `beams` | number | `1` | 0 – 1 | Visible beam grid strength (0 hides framing). |
+| `bayWidth` | number | `1.6` | 1 – 2.6 | Meters between beam columns; windows land mid-bay. |
+| `windowChance` | number | `0.75` | 0 – 1 | Chance an eligible bay gets a window. |
+| `windowWidth` | number | `0.75` | 0.4 – 1.4 | Window width in meters (clamped inside its bay). |
+| `windowHeight` | number | `0.95` | 0.4 – 1.6 | Window height in meters. |
+| `doorWidth` | number | `1` | 0.7 – 2.2 | Door width in meters. |
+| `doorHeight` | number | `2` | 1.7 – 2.4 | Door height in meters. |
+| `baseHeight` | number | `0.35` | 0 – 1.2 | Stone base band height (shrines ride a full veranda plinth). |
+
+### Buildings: Palette
+
+Material role colors: wall, beam, roof, trim, door.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `wall` | color | `[0.82, 0.74, 0.6]` (#d1bd99) | — | Plaster / plank wall color. |
+| `beam` | color | `[0.32, 0.22, 0.14]` (#523824) | — | Timber framing color. |
+| `roof` | color | `[0.42, 0.3, 0.24]` (#6b4d3d) | — | Roof surface color. |
+| `trim` | color | `[0.45, 0.46, 0.44]` (#737570) | — | Stone base, chimney, and sills. |
+| `door` | color | `[0.5, 0.3, 0.16]` (#804d29) | — | Door color. |
+| `variation` | number | `0.12` | 0 – 0.4 | Per-vertex color drift. |
+
+## Procedural textures
+
+Module: `toonlab/texgen` — 10 groups, 166 fields.
+
+Grouped settings consumed by `evaluateTextureMaps(settings)` and serialized in texture recipes (`createTextureSettings`).
+
+### Procedural textures: Seed
+
+Deterministic seed shared by every layer.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `seed` | number | `1337` | 0 – 99999 | Deterministic seed — every value is a different texture with the same recipe. |
+
+### Procedural textures: Base pattern
+
+The primary structure: pattern, frequency, warp.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `generator` | select | `'fbm'` | `fbm` \| `billow` \| `ridged` \| `turbulence` \| `value` \| `perlin` \| `worley` \| `worleyF2` \| `cells` \| `cracks` \| `caustics` \| `speckle` \| `bricks` \| `tiles` \| `hex` \| `checker` \| `grid` \| `stripes` \| `chevron` \| `weave` \| `basketWeave` \| `scales` \| `dots` \| `marble` \| `woodGrain` \| `flat` | Primary structure of the material: this drives height, color banding, and pattern cells. |
+| `contrast` | number | `0` | -1 – 1 | Sharpens (+) or flattens (-) the base pattern. |
+| `bias` | number | `0` | -0.5 – 0.5 | Shifts the whole pattern up or down the ramp. |
+| `invert` | boolean | `false` | — | Flips the base pattern (crevices become ridges). |
+| `scale` | number | `6` | 1 – 64 | Feature cells across the tile. Higher = finer features. |
+| `rotate90` | boolean | `false` | — | Turns the pattern a quarter turn (planks run vertical, strata run horizontal). Tiling stays exact. |
+| `detail` | number | `4` | 1 – 8 | Fractal octaves layered into the noise. |
+| `detailGain` | number | `0.5` | 0.15 – 0.85 | How much each finer octave contributes. |
+| `stretchX` | number | `1` | 0.25 – 8 | Horizontal anisotropy (brushed metal, wood planks). |
+| `stretchY` | number | `1` | 0.25 – 8 | Vertical anisotropy (drips, strata, fibers). |
+| `warp` | number | `0` | 0 – 1 | Domain warp: melts straight features into organic meanders. |
+| `warpScale` | number | `3` | 1 – 32 | Frequency of the warp field. |
+| `columns` | number | `4` | 1 – 64 | Pattern cells across the tile. |
+| `rows` | number | `8` | 1 – 64 | Pattern cells down the tile. |
+| `gap` | number | `0.06` | 0 – 0.4 | Mortar/groove width between pattern cells. |
+| `bevel` | number | `0.12` | 0 – 0.5 | Edge ramp from groove up to the cell face. |
+| `cellJitter` | number | `1` | 0 – 1 | Randomizes cell centers: 0 = perfect grid, 1 = organic. |
+| `cellVariation` | number | `0.35` | 0 – 1 | Per-cell brightness variance (brick tint shifts). |
+| `edgeWidth` | number | `0.12` | 0.01 – 0.6 | Width of cracks / caustic filaments / speckle chips. |
+| `rings` | number | `6` | 1 – 32 | Ring or vein count across the tile (wood, marble). |
+| `grain` | number | `0.5` | 0 – 1 | Streak amount (wood) or vein sharpness (marble). |
+
+### Procedural textures: Detail layer A
+
+Mid-frequency relief blended over the base.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `true` | — | Toggles this detail layer. |
+| `generator` | select | `'fbm'` | `fbm` \| `billow` \| `ridged` \| `turbulence` \| `value` \| `perlin` \| `worley` \| `worleyF2` \| `cells` \| `cracks` \| `caustics` \| `speckle` \| `bricks` \| `tiles` \| `hex` \| `checker` \| `grid` \| `stripes` \| `chevron` \| `weave` \| `basketWeave` \| `scales` \| `dots` \| `marble` \| `woodGrain` \| `flat` | Pattern blended over the base height. |
+| `blend` | select | `'overlay'` | `overlay` \| `add` \| `multiply` \| `screen` \| `min` \| `max` \| `mix` | How this layer combines with the height underneath. |
+| `amount` | number | `0.35` | 0 – 1 | Blend strength of this layer. |
+| `invert` | boolean | `false` | — | Flips the layer before blending. |
+| `contrast` | number | `0` | -1 – 1 | Sharpens (+) or flattens (-) the layer. |
+| `scale` | number | `18` | 1 – 64 | Feature cells across the tile. Higher = finer features. |
+| `rotate90` | boolean | `false` | — | Turns the pattern a quarter turn (planks run vertical, strata run horizontal). Tiling stays exact. |
+| `detail` | number | `4` | 1 – 8 | Fractal octaves layered into the noise. |
+| `detailGain` | number | `0.5` | 0.15 – 0.85 | How much each finer octave contributes. |
+| `stretchX` | number | `1` | 0.25 – 8 | Horizontal anisotropy (brushed metal, wood planks). |
+| `stretchY` | number | `1` | 0.25 – 8 | Vertical anisotropy (drips, strata, fibers). |
+| `warp` | number | `0` | 0 – 1 | Domain warp: melts straight features into organic meanders. |
+| `warpScale` | number | `3` | 1 – 32 | Frequency of the warp field. |
+| `columns` | number | `4` | 1 – 64 | Pattern cells across the tile. |
+| `rows` | number | `8` | 1 – 64 | Pattern cells down the tile. |
+| `gap` | number | `0.06` | 0 – 0.4 | Mortar/groove width between pattern cells. |
+| `bevel` | number | `0.12` | 0 – 0.5 | Edge ramp from groove up to the cell face. |
+| `cellJitter` | number | `1` | 0 – 1 | Randomizes cell centers: 0 = perfect grid, 1 = organic. |
+| `cellVariation` | number | `0.35` | 0 – 1 | Per-cell brightness variance (brick tint shifts). |
+| `edgeWidth` | number | `0.12` | 0.01 – 0.6 | Width of cracks / caustic filaments / speckle chips. |
+| `rings` | number | `6` | 1 – 32 | Ring or vein count across the tile (wood, marble). |
+| `grain` | number | `0.5` | 0 – 1 | Streak amount (wood) or vein sharpness (marble). |
+
+### Procedural textures: Detail layer B
+
+Fine grain, pores, chips.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `false` | — | Toggles this detail layer. |
+| `generator` | select | `'speckle'` | `fbm` \| `billow` \| `ridged` \| `turbulence` \| `value` \| `perlin` \| `worley` \| `worleyF2` \| `cells` \| `cracks` \| `caustics` \| `speckle` \| `bricks` \| `tiles` \| `hex` \| `checker` \| `grid` \| `stripes` \| `chevron` \| `weave` \| `basketWeave` \| `scales` \| `dots` \| `marble` \| `woodGrain` \| `flat` | Pattern blended over the base height. |
+| `blend` | select | `'add'` | `overlay` \| `add` \| `multiply` \| `screen` \| `min` \| `max` \| `mix` | How this layer combines with the height underneath. |
+| `amount` | number | `0.2` | 0 – 1 | Blend strength of this layer. |
+| `invert` | boolean | `false` | — | Flips the layer before blending. |
+| `contrast` | number | `0` | -1 – 1 | Sharpens (+) or flattens (-) the layer. |
+| `scale` | number | `24` | 1 – 64 | Feature cells across the tile. Higher = finer features. |
+| `rotate90` | boolean | `false` | — | Turns the pattern a quarter turn (planks run vertical, strata run horizontal). Tiling stays exact. |
+| `detail` | number | `4` | 1 – 8 | Fractal octaves layered into the noise. |
+| `detailGain` | number | `0.5` | 0.15 – 0.85 | How much each finer octave contributes. |
+| `stretchX` | number | `1` | 0.25 – 8 | Horizontal anisotropy (brushed metal, wood planks). |
+| `stretchY` | number | `1` | 0.25 – 8 | Vertical anisotropy (drips, strata, fibers). |
+| `warp` | number | `0` | 0 – 1 | Domain warp: melts straight features into organic meanders. |
+| `warpScale` | number | `3` | 1 – 32 | Frequency of the warp field. |
+| `columns` | number | `4` | 1 – 64 | Pattern cells across the tile. |
+| `rows` | number | `8` | 1 – 64 | Pattern cells down the tile. |
+| `gap` | number | `0.06` | 0 – 0.4 | Mortar/groove width between pattern cells. |
+| `bevel` | number | `0.12` | 0 – 0.5 | Edge ramp from groove up to the cell face. |
+| `cellJitter` | number | `1` | 0 – 1 | Randomizes cell centers: 0 = perfect grid, 1 = organic. |
+| `cellVariation` | number | `0.35` | 0 – 1 | Per-cell brightness variance (brick tint shifts). |
+| `edgeWidth` | number | `0.12` | 0.01 – 0.6 | Width of cracks / caustic filaments / speckle chips. |
+| `rings` | number | `6` | 1 – 32 | Ring or vein count across the tile (wood, marble). |
+| `grain` | number | `0.5` | 0 – 1 | Streak amount (wood) or vein sharpness (marble). |
+
+### Procedural textures: Color
+
+Five-stop height ramp, painterly jitter, cavity & sheen, final grade.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `color0` | color | `[0.16, 0.14, 0.13]` (#292421) | — | Ramp stop at the darkest crevices. |
+| `color1` | color | `[0.35, 0.31, 0.28]` (#594f47) | — | Ramp stop between crevices and the mid tone. |
+| `color2` | color | `[0.55, 0.5, 0.45]` (#8c8073) | — | Ramp stop for the average surface. |
+| `color3` | color | `[0.72, 0.68, 0.62]` (#b8ad9e) | — | Ramp stop approaching the ridges. |
+| `color4` | color | `[0.88, 0.85, 0.79]` (#e0d9c9) | — | Ramp stop at the highest ridges. |
+| `pos1` | number | `0.25` | 0.02 – 0.98 | Where the Low stop sits on the height ramp. |
+| `pos2` | number | `0.5` | 0.02 – 0.98 | Where the Mid stop sits on the height ramp. |
+| `pos3` | number | `0.75` | 0.02 – 0.98 | Where the High stop sits on the height ramp. |
+| `rampSmooth` | number | `1` | 0 – 1 | 1 = smooth gradient, 0 = hard cel bands between the five stops. |
+| `jitterHue` | number | `0.04` | 0 – 0.5 | Painterly hue drift across the surface. |
+| `jitterValue` | number | `0.08` | 0 – 0.5 | Painterly brightness drift across the surface. |
+| `jitterScale` | number | `24` | 2 – 64 | Frequency of the painterly drift. |
+| `jitterCells` | boolean | `false` | — | Applies drift per pattern cell (per brick / plank / scale) instead of smoothly. |
+| `cavity` | number | `0.35` | 0 – 1 | Darkens crevices toward the cavity tint — the hand-painted occlusion read. |
+| `cavityTint` | color | `[0.13, 0.09, 0.08]` (#211714) | — | Color the crevices sink toward. |
+| `sheen` | number | `0.18` | 0 – 1 | Screens the sheen tint over ridges and edges — worn highlight. |
+| `sheenTint` | color | `[1, 0.97, 0.88]` (#fff7e0) | — | Color of the ridge highlight. |
+| `hueShift` | number | `0` | -0.5 – 0.5 | Rotates the final palette hue. |
+| `saturation` | number | `1` | 0 – 2 | Final color saturation. |
+| `brightness` | number | `1` | 0.25 – 1.75 | Final brightness multiplier. |
+| `contrast` | number | `0` | -1 – 1 | Final color contrast. |
+| `gamma` | number | `1` | 0.4 – 2.5 | Final gamma on the albedo. |
+
+### Procedural textures: Wear & tear
+
+One-knob damage and dirt macros layered over everything.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `damage` | number | `0` | 0 – 1 | Universal wear macro: carves seeded scratches and chips into the surface and roughens them. One knob, many parameters. |
+| `dirt` | number | `0` | 0 – 1 | Grime macro: darkens crevices with pooled dirt and raises their roughness, independent of the overlay slots. |
+
+### Procedural textures: Overlay A
+
+Masked colored overlay: moss, rust, dirt, snow, lichen…
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `false` | — | Toggles this overlay. |
+| `generator` | select | `'fbm'` | `fbm` \| `billow` \| `ridged` \| `turbulence` \| `value` \| `perlin` \| `worley` \| `worleyF2` \| `cells` \| `cracks` \| `caustics` \| `speckle` \| `bricks` \| `tiles` \| `hex` \| `checker` \| `grid` \| `stripes` \| `chevron` \| `weave` \| `basketWeave` \| `scales` \| `dots` \| `marble` \| `woodGrain` \| `flat` | Mask pattern deciding where the overlay lands. |
+| `color` | color | `[0.35, 0.48, 0.22]` (#597a38) | — | Overlay color where the mask is strongest. |
+| `colorB` | color | `[0.52, 0.62, 0.28]` (#859e47) | — | Secondary overlay color for variation within the mask. |
+| `coverage` | number | `0.35` | 0 – 1 | How much of the surface the overlay claims. |
+| `softness` | number | `0.18` | 0.01 – 0.6 | Feather width of the overlay border. |
+| `creviceBias` | number | `0.5` | -1 – 1 | +1 pools into crevices (moss, grime); -1 caps ridges and peaks (snow, wear). |
+| `blend` | select | `'normal'` | `normal` \| `multiply` \| `overlay` \| `screen` | How the overlay color mixes into the albedo. |
+| `roughnessShift` | number | `0.25` | -1 – 1 | Overlay area gets rougher (+) or glossier (-). |
+| `heightShift` | number | `0.05` | -0.5 – 0.5 | Overlay area rises (+) or sinks (-) in the height map. |
+| `metalShift` | number | `0` | -1 – 1 | Overlay area gains (+) or loses (-) metalness — rust strips metal. |
+| `contrast` | number | `0` | -1 – 1 | Sharpens (+) or flattens (-) the mask pattern. |
+| `invert` | boolean | `false` | — | Flips the mask before thresholding. |
+| `scale` | number | `5` | 1 – 64 | Feature cells across the tile. Higher = finer features. |
+| `rotate90` | boolean | `false` | — | Turns the pattern a quarter turn (planks run vertical, strata run horizontal). Tiling stays exact. |
+| `detail` | number | `4` | 1 – 8 | Fractal octaves layered into the noise. |
+| `detailGain` | number | `0.5` | 0.15 – 0.85 | How much each finer octave contributes. |
+| `stretchX` | number | `1` | 0.25 – 8 | Horizontal anisotropy (brushed metal, wood planks). |
+| `stretchY` | number | `1` | 0.25 – 8 | Vertical anisotropy (drips, strata, fibers). |
+| `warp` | number | `0.3` | 0 – 1 | Domain warp: melts straight features into organic meanders. |
+| `warpScale` | number | `3` | 1 – 32 | Frequency of the warp field. |
+| `columns` | number | `4` | 1 – 64 | Pattern cells across the tile. |
+| `rows` | number | `8` | 1 – 64 | Pattern cells down the tile. |
+| `gap` | number | `0.06` | 0 – 0.4 | Mortar/groove width between pattern cells. |
+| `bevel` | number | `0.12` | 0 – 0.5 | Edge ramp from groove up to the cell face. |
+| `cellJitter` | number | `1` | 0 – 1 | Randomizes cell centers: 0 = perfect grid, 1 = organic. |
+| `cellVariation` | number | `0.35` | 0 – 1 | Per-cell brightness variance (brick tint shifts). |
+| `edgeWidth` | number | `0.12` | 0.01 – 0.6 | Width of cracks / caustic filaments / speckle chips. |
+| `rings` | number | `6` | 1 – 32 | Ring or vein count across the tile (wood, marble). |
+| `grain` | number | `0.5` | 0 – 1 | Streak amount (wood) or vein sharpness (marble). |
+
+### Procedural textures: Overlay B
+
+Second masked overlay: grime, stains, scorch, drips…
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `false` | — | Toggles this overlay. |
+| `generator` | select | `'turbulence'` | `fbm` \| `billow` \| `ridged` \| `turbulence` \| `value` \| `perlin` \| `worley` \| `worleyF2` \| `cells` \| `cracks` \| `caustics` \| `speckle` \| `bricks` \| `tiles` \| `hex` \| `checker` \| `grid` \| `stripes` \| `chevron` \| `weave` \| `basketWeave` \| `scales` \| `dots` \| `marble` \| `woodGrain` \| `flat` | Mask pattern deciding where the overlay lands. |
+| `color` | color | `[0.16, 0.12, 0.09]` (#291f17) | — | Overlay color where the mask is strongest. |
+| `colorB` | color | `[0.3, 0.24, 0.18]` (#4d3d2e) | — | Secondary overlay color for variation within the mask. |
+| `coverage` | number | `0.3` | 0 – 1 | How much of the surface the overlay claims. |
+| `softness` | number | `0.22` | 0.01 – 0.6 | Feather width of the overlay border. |
+| `creviceBias` | number | `0.6` | -1 – 1 | +1 pools into crevices (moss, grime); -1 caps ridges and peaks (snow, wear). |
+| `blend` | select | `'multiply'` | `normal` \| `multiply` \| `overlay` \| `screen` | How the overlay color mixes into the albedo. |
+| `roughnessShift` | number | `0.2` | -1 – 1 | Overlay area gets rougher (+) or glossier (-). |
+| `heightShift` | number | `-0.03` | -0.5 – 0.5 | Overlay area rises (+) or sinks (-) in the height map. |
+| `metalShift` | number | `0` | -1 – 1 | Overlay area gains (+) or loses (-) metalness — rust strips metal. |
+| `contrast` | number | `0` | -1 – 1 | Sharpens (+) or flattens (-) the mask pattern. |
+| `invert` | boolean | `false` | — | Flips the mask before thresholding. |
+| `scale` | number | `4` | 1 – 64 | Feature cells across the tile. Higher = finer features. |
+| `rotate90` | boolean | `false` | — | Turns the pattern a quarter turn (planks run vertical, strata run horizontal). Tiling stays exact. |
+| `detail` | number | `4` | 1 – 8 | Fractal octaves layered into the noise. |
+| `detailGain` | number | `0.5` | 0.15 – 0.85 | How much each finer octave contributes. |
+| `stretchX` | number | `1` | 0.25 – 8 | Horizontal anisotropy (brushed metal, wood planks). |
+| `stretchY` | number | `1` | 0.25 – 8 | Vertical anisotropy (drips, strata, fibers). |
+| `warp` | number | `0.25` | 0 – 1 | Domain warp: melts straight features into organic meanders. |
+| `warpScale` | number | `3` | 1 – 32 | Frequency of the warp field. |
+| `columns` | number | `4` | 1 – 64 | Pattern cells across the tile. |
+| `rows` | number | `8` | 1 – 64 | Pattern cells down the tile. |
+| `gap` | number | `0.06` | 0 – 0.4 | Mortar/groove width between pattern cells. |
+| `bevel` | number | `0.12` | 0 – 0.5 | Edge ramp from groove up to the cell face. |
+| `cellJitter` | number | `1` | 0 – 1 | Randomizes cell centers: 0 = perfect grid, 1 = organic. |
+| `cellVariation` | number | `0.35` | 0 – 1 | Per-cell brightness variance (brick tint shifts). |
+| `edgeWidth` | number | `0.12` | 0.01 – 0.6 | Width of cracks / caustic filaments / speckle chips. |
+| `rings` | number | `6` | 1 – 32 | Ring or vein count across the tile (wood, marble). |
+| `grain` | number | `0.5` | 0 – 1 | Streak amount (wood) or vein sharpness (marble). |
+
+### Procedural textures: Surface
+
+PBR response: relief, occlusion, roughness, metalness.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `heightScale` | number | `0.5` | 0 – 1 | Overall relief strength — feeds the normal map, AO, and displacement. |
+| `normalStrength` | number | `1` | 0 – 3 | Extra multiplier on the derived normal map. |
+| `invertHeight` | boolean | `false` | — | Flips the height map (grooves become ridges). |
+| `aoStrength` | number | `0.55` | 0 – 1 | Baked ambient occlusion depth in the crevices. |
+| `roughness` | number | `0.75` | 0 – 1 | Base roughness: 0 = mirror gloss, 1 = fully matte. |
+| `roughnessContrast` | number | `0.35` | -1 – 1 | +1 = crevices rough & ridges polished; -1 = the reverse. |
+| `metalness` | number | `0` | 0 – 1 | Base metalness of the material. |
+
+### Procedural textures: Glow
+
+Optional emissive map.
+
+| Field | Type | Default | Range / options | Description |
+|---|---|---|---|---|
+| `enabled` | boolean | `false` | — | Adds a glow map (lava cracks, sci-fi circuits, embers). |
+| `color` | color | `[1, 0.45, 0.12]` (#ff731f) | — | Emissive color. |
+| `intensity` | number | `2` | 0 – 8 | Emissive brightness (preview material intensity). |
+| `source` | select | `'crevices'` | `crevices` \| `peaks` \| `band` \| `accentA` \| `accentB` \| `everywhere` | Which part of the surface glows. |
+| `threshold` | number | `0.5` | 0 – 1 | Height level the glow hugs (band / crevices / peaks). |
+| `width` | number | `0.25` | 0.02 – 0.8 | Thickness of the glowing region. |
+| `softness` | number | `0.2` | 0.01 – 0.6 | Feather on the glow border. |

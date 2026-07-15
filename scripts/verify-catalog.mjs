@@ -1,0 +1,146 @@
+// Catalog verification — the "catalog is a contract, not a wiki" suite:
+// every entry validates, every ASSET entry actually spawns and builds a
+// grounded object headlessly, snippets reference real exports, and the
+// remote-source seam works. Run: node scripts/verify-catalog.mjs
+
+import process from 'node:process';
+
+import * as root from '../src/index.js';
+import { catalog, createCatalog } from '../src/catalog/index.js';
+import { validateCatalogEntry } from '../src/catalog/manifest.js';
+
+let failures = 0;
+function check(label, condition, detail = '') {
+  if (condition) console.log(`ok   ${label}`);
+  else {
+    failures += 1;
+    console.error(`FAIL ${label}${detail ? ` — ${detail}` : ''}`);
+  }
+}
+
+const entries = catalog.list();
+check('catalog has a real library (≥ 60 entries)', entries.length >= 60, `${entries.length}`);
+check('every entry validates', entries.every((entry) => validateCatalogEntry(entry).ok));
+check('every existing preset family appears',
+  ['propgen', 'buildinggen', 'vegetation', 'rockgen', 'debrisgen', 'pathgen', 'water', 'sky', 'post', 'toon']
+    .every((cluster) => entries.some((entry) => entry.cluster === cluster)));
+
+// --- spawn contract across asset clusters -----------------------------------------
+const SPAWN_IDS = {
+  buildinggen: 'building/cottage/default',
+  debrisgen: 'debris/call-me-sensei',
+  propgen: 'prop/lantern/stone-toro',
+  rockgen: 'rock/boulder',
+  vegetation: 'tree/broadleaf/sensei',
+};
+for (const [cluster, id] of Object.entries(SPAWN_IDS)) {
+  try {
+    const asset = catalog.spawn(id, { seed: 11 });
+    if (cluster === 'vegetation') {
+      // Tree foliage bakes canvas textures — browser-only. The contract
+      // shape is asserted here; the catalog lab exercises the real build.
+      check(`${cluster}: spawn('${id}') returns an asset (build is browser-only)`,
+        typeof asset.build === 'function' && asset.linear === false);
+      continue;
+    }
+    const built = asset.build(11);
+    const okShape = Boolean(built.object3D?.isObject3D)
+      && Boolean(built.footprint?.radius || built.footprint?.circles?.length)
+      && Number.isFinite(built.anchor ?? 0);
+    check(`${cluster}: spawn('${id}') → PropAsset builds`, okShape);
+    const again = asset.build(11);
+    check(`${cluster}: spawn deterministic per seed`, (() => {
+      let a = 0;
+      let b = 0;
+      built.object3D.traverse((o) => { if (o.isMesh) a += o.geometry.attributes.position.count; });
+      again.object3D.traverse((o) => { if (o.isMesh) b += o.geometry.attributes.position.count; });
+      return a === b && a > 0;
+    })());
+  } catch (error) {
+    check(`${cluster}: spawn('${id}')`, false, error.message);
+  }
+}
+
+// settings presets refuse to spawn, helpfully
+let refused = false;
+try {
+  catalog.spawn('water/lake');
+} catch (error) {
+  refused = error.message.includes('snippet');
+}
+check('settings presets refuse spawn with the snippet', refused);
+
+// --- snippets reference real exports ----------------------------------------------------
+const exportNames = new Set(Object.keys(root));
+const snippetFunctions = new Set();
+for (const entry of entries) {
+  for (const match of entry.spawn.matchAll(/([A-Za-z_$][\w$]*)\s*\(/g)) {
+    snippetFunctions.add(match[1]);
+  }
+}
+const KNOWN_CONTEXT = new Set(['heightAt', 'entry', 'seed', 'THREE', 'Mesh', 'MeshStandardMaterial', 'loadModelAsset', 'new']);
+const unknown = [...snippetFunctions].filter((name) => !exportNames.has(name)
+  && !KNOWN_CONTEXT.has(name)
+  && !['WaterSurface', 'StylizedSky'].includes(name));
+check('every snippet function is a real export', unknown.length === 0, unknown.join(', '));
+
+// --- register / addSource seam ----------------------------------------------------------
+const isolated = createCatalog();
+isolated.register({
+  cluster: 'propgen',
+  id: 'user/test/lantern',
+  kind: 'recipe',
+  label: 'Test',
+  recipe: catalog.get('prop/lantern/stone-toro').recipe,
+  spawn: 'createPropAssetFromRecipe(entry.recipe)',
+  tags: ['user'],
+});
+check('user entries register + list', isolated.list({ tags: ['user'] }).length === 1);
+check('user entry spawns', Boolean(isolated.spawn('user/test/lantern').build().object3D));
+check('register rejects invalid entries', (() => {
+  try {
+    isolated.register({ id: 'BAD ID' });
+    return false;
+  } catch {
+    return true;
+  }
+})());
+
+// addSource against a local data URL-style fetch: spin a micro server
+const { createServer } = await import('node:http');
+const manifest = JSON.stringify({
+  entries: [{
+    cluster: 'propgen',
+    id: 'remote/prop/bench',
+    kind: 'recipe',
+    label: 'Remote bench',
+    recipe: catalog.get('prop/bench/plank').recipe,
+    spawn: 'createPropAssetFromRecipe(entry.recipe)',
+    tags: ['remote'],
+    thumbnail: 'thumbs/bench.webp',
+    version: 1,
+  }],
+});
+const server = createServer((request, response) => {
+  response.setHeader('content-type', 'application/json');
+  response.end(manifest);
+});
+await new Promise((resolve) => { server.listen(0, resolve); });
+const port = server.address().port;
+const added = await isolated.addSource(`http://127.0.0.1:${port}/registry.json`, { name: 'test-remote' });
+server.close();
+check('addSource mounts remote entries', added === 1
+  && isolated.get('remote/prop/bench') !== null);
+check('remote thumbnails resolved absolute',
+  isolated.get('remote/prop/bench').thumbnail.startsWith('http'));
+check('remote entry spawns like a native one',
+  Boolean(isolated.spawn('remote/prop/bench').build().object3D));
+
+// --- list/filter behavior ---------------------------------------------------------------
+check('tag filter works', catalog.list({ tags: ['shrine'] }).every((entry) => entry.tags.includes('shrine'))
+  && catalog.list({ tags: ['shrine'] }).length >= 2);
+check('text search works', catalog.list({ text: 'lantern' }).length >= 2);
+check('cluster filter works', catalog.list({ cluster: 'rockgen' }).length >= 10);
+
+console.log(failures === 0 ? '\nverify-catalog: all checks passed' : `\nverify-catalog: ${failures} failure(s)`);
+process.exit(failures === 0 ? 0 : 1);

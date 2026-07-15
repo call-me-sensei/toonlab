@@ -22,6 +22,12 @@ import {
 } from './vegetation/scatter.js';
 import { resolveWorldPreset } from './worldPresets.js';
 import { createWorldCollision } from './worldCollision.js';
+import { createStylizedPaths } from './pathgen/stylizedPaths.js';
+import { connectPointsOfInterest } from './pathgen/pathRouter.js';
+import { createStylizedVillage } from './villagegen/stylizedVillage.js';
+import { pickPoiSites } from './villagegen/villageSites.js';
+import { createFauna } from './fauna/index.js';
+import { createAmbientFx } from './ambientfx/index.js';
 
 // The composed golden path: one call assembles a complete stylized outdoor
 // world — environment-shaded terrain, sun rig, sky dome, interactive water,
@@ -70,6 +76,11 @@ function cleanObject(value) {
  * @param {string} [options.preset] World preset name (default 'outdoorGameplay').
  * @param {Object|false} [options.water] `{ level, width, depth, settings }`,
  *   or `false` to skip water.
+ * @param {Object|false} [options.paths] A network from `createStylizedPaths`
+ *   OR options for one (`{ seed, auto, routes, settings }`). Wired fully:
+ *   ribbons join the environment shading + fog, the on-path mask parts
+ *   grass/flowers/trees, bridge rails register collision, and
+ *   `collision.groundHeight` follows the flattened `paths.heightAt`.
  * @param {Object|false} [options.trees] `{ scatter, settings, center }`
  *   overrides over the world preset, or `false` to skip.
  * @param {Object|false} [options.grass] Same shape as trees, or `false`.
@@ -92,6 +103,10 @@ export async function createStylizedWorld({
   terrain,
   preset = 'outdoorGameplay',
   water = {},
+  paths = false,
+  pois = false,
+  fauna = false,
+  ambientfx = false,
   sky: skyOptions = {},
   fog = {},
   shadows = {},
@@ -126,6 +141,104 @@ export async function createStylizedWorld({
     if (Number.isFinite(worldPreset.camera.near)) camera.near = worldPreset.camera.near;
     if (Number.isFinite(worldPreset.camera.far)) camera.far = worldPreset.camera.far;
     camera.updateProjectionMatrix();
+  }
+
+  // POIs before paths, paths before the environment conversion. Villages
+  // contribute their street centerlines as explicit routes, and their
+  // entries become router nodes — roads between settlements come free.
+  const earlyWaterLevel = water !== false ? Number(cleanObject(water).level) || 0 : 0;
+  let poiList = [];
+  const poiRoutes = [];
+  if (pois && heightAt) {
+    const poiOptions = cleanObject(pois);
+    const poiSeed = Math.round(Number(poiOptions.seed) || 1);
+    const requests = [];
+    for (const [key, archetype] of [
+      ['villages', 'village'],
+      ['shrines', 'shrine'],
+      ['ruins', 'ruin'],
+      ['campsites', 'campsite'],
+      ['pierHamlets', 'pierHamlet'],
+    ]) {
+      const count = Math.max(Math.round(Number(poiOptions[key]) || 0), 0);
+      if (count > 0) requests.push({ archetype, count });
+    }
+    // Hosts with decorative rims beyond the playable area pass pois.size to
+    // keep settlements reachable.
+    const poiSize = poiOptions.size ?? { x: width, z: depth };
+    const sites = pickPoiSites({
+      heightAt,
+      requests,
+      seed: poiSeed,
+      size: poiSize,
+      waterLevel: earlyWaterLevel,
+    });
+    poiList = sites.map((site) => {
+      const village = createStylizedVillage({
+        archetype: site.archetype,
+        center: { x: site.x, z: site.z },
+        heightAt,
+        parent: terrainRoot,
+        radius: site.radius,
+        seed: site.seed,
+        waterLevel: earlyWaterLevel,
+      });
+      poiRoutes.push(...village.streetRoutes);
+      return village;
+    });
+    // Connect POI entries into a road network (MST + occasional loop).
+    const entryNodes = poiList.map((poi) => ({
+      x: (poi.entries[0].x + poi.entries[1].x) / 2,
+      z: (poi.entries[0].z + poi.entries[1].z) / 2,
+    }));
+    if (entryNodes.length >= 2) {
+      const edges = connectPointsOfInterest(entryNodes, { loopChance: 0.3, seed: poiSeed });
+      for (const [fromIndex, toIndex] of edges) {
+        const fromPoi = poiList[fromIndex];
+        const toPoi = poiList[toIndex];
+        // route from the nearest entry of one place to the nearest of the other
+        let bestPair = null;
+        for (const from of fromPoi.entries) {
+          for (const to of toPoi.entries) {
+            const distance = (from.x - to.x) ** 2 + (from.z - to.z) ** 2;
+            if (!bestPair || distance < bestPair.distance) bestPair = { distance, from, to };
+          }
+        }
+        poiRoutes.push({
+          from: [bestPair.from.x, bestPair.from.z],
+          style: 'dirt',
+          to: [bestPair.to.x, bestPair.to.z],
+        });
+      }
+    }
+  }
+
+  // Path network before the environment conversion, so ribbons and bridges
+  // parented under the terrain root get shaded (and join the height fog)
+  // exactly like the terrain itself. Accepts a prebuilt network or builds
+  // one here from the terrain contract.
+  let pathsSystem = null;
+  let ownsPaths = false;
+  if (paths || poiRoutes.length > 0) {
+    if (paths && typeof paths.maskAt === 'function' && paths.root) {
+      pathsSystem = paths;
+    } else if (heightAt) {
+      const pathOptions = cleanObject(paths);
+      const userRoutes = Array.isArray(pathOptions.routes) ? pathOptions.routes : [];
+      const hasExplicit = userRoutes.length > 0 || poiRoutes.length > 0;
+      pathsSystem = createStylizedPaths({
+        auto: pathOptions.auto
+          ?? (hasExplicit || !paths ? null : { count: pathOptions.count ?? 4, styles: pathOptions.styles ?? ['dirt'] }),
+        heightAt,
+        routes: [...poiRoutes, ...userRoutes],
+        seed: pathOptions.seed ?? 1,
+        settings: pathOptions.settings ?? {},
+        size: { x: width, z: depth },
+        waterLevel: earlyWaterLevel,
+      });
+      ownsPaths = true;
+    }
+    if (pathsSystem?.root && !pathsSystem.root.parent) terrainRoot.add(pathsSystem.root);
   }
 
   // Environment shading over the terrain (and anything parented under it).
@@ -299,14 +412,50 @@ export async function createStylizedWorld({
     }
   }
 
-  // Placement masks: no vegetation on cliffs or under water.
+  // Placement masks: no vegetation on cliffs, under water, or on paths.
   const masks = heightAt
     ? {
       slope: createSlopeMask({ heightAt, maxSlope: 0.55 }),
       water: createWaterMask({ heightAt, margin: 0.4, waterLevel }),
     }
     : null;
-  const vegetationMask = masks ? combineMasks(masks.slope, masks.water) : null;
+  if (masks && pathsSystem) {
+    // Grass/flowers/trees part around the network instead of growing
+    // through the road surface. The low threshold clears a shoulder wide
+    // enough that meter-tall blades can't lean over the ribbon.
+    masks.paths = (x, z) => pathsSystem.maskAt(x, z) <= 0.12;
+  }
+  if (masks && poiList.length > 0) {
+    // No trees through roofs: a coarse spatial hash over every POI blocker
+    // circle (buildings, wells, fences) keeps scatter out of settlements.
+    const cell = 8;
+    const buckets = new Map();
+    for (const poi of poiList) {
+      for (const circle of poi.blockers) {
+        const pad = circle.radius + 1.2;
+        for (let ix = Math.floor((circle.x - pad) / cell); ix <= Math.floor((circle.x + pad) / cell); ix += 1) {
+          for (let iz = Math.floor((circle.z - pad) / cell); iz <= Math.floor((circle.z + pad) / cell); iz += 1) {
+            const key = `${ix},${iz}`;
+            const bucket = buckets.get(key);
+            if (bucket) bucket.push(circle);
+            else buckets.set(key, [circle]);
+          }
+        }
+      }
+    }
+    masks.pois = (x, z) => {
+      const bucket = buckets.get(`${Math.floor(x / cell)},${Math.floor(z / cell)}`);
+      if (!bucket) return true;
+      for (const circle of bucket) {
+        const pad = circle.radius + 1.2;
+        if ((circle.x - x) ** 2 + (circle.z - z) ** 2 < pad * pad) return false;
+      }
+      return true;
+    };
+  }
+  const vegetationMask = masks
+    ? combineMasks(masks.slope, masks.water, masks.paths, masks.pois)
+    : (pathsSystem ? (x, z) => pathsSystem.maskAt(x, z) <= 0.12 : null);
   const defaultCenter = followTarget?.position ?? { x: 0, z: 0 };
   // Per-system custom masks (e.g. a createNoisePatchMask forest-cluster
   // mask) AND with the built-in slope/water masks.
@@ -431,12 +580,73 @@ export async function createStylizedWorld({
     }
   }
 
+  // The living layer: instanced GPU-animated ambient creatures, staggered
+  // steering, budgets as populations. Off unless asked for.
+  let faunaSystem = null;
+  if (fauna && heightAt) {
+    const faunaOptions = cleanObject(fauna);
+    faunaSystem = createFauna({
+      bounds: { x: width / 2 - 10, z: depth / 2 - 10 },
+      followTarget,
+      heightAt,
+      masks: { flowers: faunaOptions.flowerMask ?? vegetationMask ?? null },
+      preset: faunaOptions.preset ?? null,
+      seed: faunaOptions.seed ?? 1,
+      settings: faunaOptions.settings ?? {},
+      species: faunaOptions.species ?? {},
+      waterLevel,
+    });
+    // Same height-fog layer terrain/water/forest get — birds that skip it
+    // stay sharp saturated specks on hazed mountains.
+    faunaSystem.setDistanceFog({
+      color: heightFogParams.heightFogColor ?? [0.66, 0.8, 0.94],
+      density: Number(heightFogParams.heightFogDensity) || 0.0016,
+      falloff: Number(heightFogParams.heightFogFalloff) || 400,
+      floorY: environmentBox.min.y,
+    });
+    scene.add(faunaSystem.root);
+  }
+
+  // Ambient atmosphere: petals/leaves/fireflies/pollen/mist over one GPU
+  // particle backbone, in a follow window like the grass. One wind for the
+  // whole world.
+  let ambientFx = null;
+  if (ambientfx) {
+    const fxOptions = cleanObject(ambientfx);
+    ambientFx = createAmbientFx({
+      followTarget,
+      heightAt,
+      seed: Number(fxOptions.seed) || 1,
+      waterLevel: waterSurface ? waterLevel : null,
+      ...fxOptions,
+    });
+    const grassWind = grassField?.settings ?? {};
+    ambientFx.setWind({
+      windDirection: grassWind.windDirection,
+      windSpeed: grassWind.windSpeed,
+      windStrength: grassWind.windStrength,
+    });
+    ambientFx.setDistanceFog({
+      color: heightFogParams.heightFogColor ?? [0.66, 0.8, 0.94],
+      density: Number(heightFogParams.heightFogDensity) || 0.0016,
+      falloff: Number(heightFogParams.heightFogFalloff) || 400,
+      floorY: environmentBox.min.y,
+    });
+    if (Array.isArray(skySunDirection)) ambientFx.setSun({ direction: skySunDirection });
+    scene.add(ambientFx.root);
+  }
+
   // Walkability: circle blockers on a spatial hash, tree trunks
   // pre-registered, so characters can't walk through the world ToonLab just
   // built. Hosts add their own blockers (rocks, props) via
   // `world.collision.addCircles(...)` and call
   // `world.collision.resolve(character.position, radius)` per frame.
-  const collision = createWorldCollision({ heightAt });
+  // Ground truth follows the flattened path profile where one exists, so
+  // characters walk the road surface (and bridge decks) instead of the raw
+  // terrain underneath.
+  const collision = createWorldCollision({ heightAt: pathsSystem?.heightAt ?? heightAt });
+  if (pathsSystem?.blockers?.length) collision.addCircles(pathsSystem.blockers);
+  for (const poi of poiList) collision.addCircles(poi.blockers);
   if (forest) {
     const trunkScale = [
       cleanObject(cleanObject(trees).settings).size,
@@ -453,6 +663,7 @@ export async function createStylizedWorld({
     waterSurface?.setCloudShadow(field);
     grassField?.setCloudShadow(field);
     forest?.setCloudShadow(field);
+    faunaSystem?.setCloudShadow?.(field);
   };
   if (cloudShadows !== false) applyCloudShadow(cleanObject(cloudShadows));
 
@@ -465,7 +676,12 @@ export async function createStylizedWorld({
       disposed = true;
       sunShadowPass?.dispose();
       forest?.dispose();
-      for (const object of [sky, waterSurface, forest, grassField, flowerField, sunRig?.group ?? sunRig]) {
+      if (ownsPaths) pathsSystem?.dispose();
+      for (const poi of poiList) poi.dispose();
+      faunaSystem?.dispose();
+      ambientFx?.dispose();
+      for (const object of [sky, waterSurface, forest, grassField, flowerField,
+        faunaSystem?.root, ambientFx?.root, sunRig?.group ?? sunRig]) {
         if (object?.parent) object.parent.remove(object);
       }
     },
@@ -473,7 +689,11 @@ export async function createStylizedWorld({
     fog: sceneFog,
     forest,
     get grass() { return grassField; },
+    ambientFx,
+    fauna: faunaSystem,
     masks,
+    paths: pathsSystem,
+    pois: poiList,
     setCloudShadow: applyCloudShadow,
     sky,
     sunRig,
@@ -488,6 +708,9 @@ export async function createStylizedWorld({
       shadowFrame += 1;
       if (sunShadowPass && shadowFrame % shadowInterval === 0) sunShadowPass.update();
       refreshGrassWindow();
+      for (const poi of poiList) poi.update(delta, camera);
+      faunaSystem?.update(delta);
+      ambientFx?.update(delta, camera);
       waterSurface?.update(renderer, scene, camera, delta);
       sky.update(delta, camera);
       grassField?.update(delta);

@@ -50,11 +50,29 @@ the HUD Scene select:
   heightfields, sculpt edits, and GLB export.
 - **Tree Lab** (`/tree-lab/`) — procedural stylized trees,
   flowers, sketches, recipes, and GLB export.
+- **Texture Lab** (`/texture-lab/`) — seamless procedural PBR textures for
+  anything: 60+ material presets across stone, wood, metal, fabric,
+  creature, and sci-fi, a layered generator you can tune down to every
+  parameter, and a prompt box that maps plain words ("old leather jacket")
+  to parameters — offline out of the box, smarter with your own Gemini or
+  OpenAI key. Exports albedo/normal/roughness/metalness/AO/height/ORM/
+  emissive as PNGs or one ZIP.
+- **Prop Lab** (`/prop-lab/`) — 12 parametric prop generators (fences,
+  lanterns, torii, wells, piers…): seed/palette controls, LOD preview,
+  scatter preview, GLB + recipe export, thumbnails.
+- **Building Lab** (`/building-lab/`) — grammar-generated stylized
+  buildings (cottage, shed, farmhouse, watchtower, shrine): footprint →
+  massing → roof → facade → palette, slope test, GLB + recipe export.
+- **Catalog** (`/catalog/`) — the whole library as one browsable grid:
+  thumbnails, tag/cluster/text filters, live spawn preview, copy-paste
+  spawn snippets, GLB export, local user library.
 - **Outdoor World** (`/examples/outdoor-world/`) — the flagship example: a
   seeded 1×1 km open world built entirely from the public library API —
-  generated terrain, forests, lakes, cliffs, a swimmable character, and a
-  click-to-travel minimap. Re-roll it from the URL:
-  `?seed=42&archetype=lakeland&water=0.4&islands=3`.
+  generated terrain, forests, lakes, cliffs, roads with bridges, named
+  villages and shrines, birds/fish/butterflies, petals and fireflies, a
+  swimmable character, and a click-to-travel minimap with place labels.
+  Re-roll it from the URL:
+  `?seed=42&archetype=lakeland&water=0.4&villages=2&shrines=1&paths=4`.
 
 Every URL parameter has a HUD control, lab state persists per lab in
 `localStorage`, and **Reset Lab** clears it. Point any lab at your own model
@@ -69,8 +87,16 @@ with the Model URL input or `?model=` — see
 | Environment shading | `@call-me-sensei/toonlab/environment` | Modern anime-style scene shader for texture packs, standard glTF, and untextured scenes: material-role classification, wrapped lighting, packed-map hints, window cutouts, sun/lamp rigs, time-of-day, six-direction ambient probe, planar floor reflections, BVH vertex-AO baking, height fog, cloud shadows. [Docs](docs/environment.md) |
 | Water | `@call-me-sensei/toonlab/water` | Fully procedural interactive water: Gerstner wave stack with a calm→storm dial, wave sets, plunging breakers you can surf, three-stop absorption color, refraction/caustics/foam, GPU ripple sim, splashes, wakes, rain, kelp, underwater view — with a CPU mirror of the whole spectrum for buoyancy. [Docs](docs/water.md) |
 | Vegetation | `@call-me-sensei/toonlab/vegetation` | Instanced grass and flower fields (wind, push-away, scene + cloud shadows, backlit translucency) and procedural stylized trees with a serializable recipe system. [Docs](docs/vegetation-sky.md) |
+| Paths, roads & bridges | `@call-me-sensei/toonlab/pathgen` | Seeded path networks routed over any `heightAt`: cost-field router (slope/water aware), hand-drawn ribbon overlay in dirt/stone/planks, arched plank bridges with collision, stepped stone climbs, flattened `paths.heightAt` for walkability, scatter exclusion mask, minimap overlay. |
+| Props & placement | `@call-me-sensei/toonlab/propgen` | The universal placement pipeline (the PropAsset contract: grounded, collided, instanced, hi/lo LOD by true 3D distance) + 12 seeded prop generators across fences, lanterns, signposts, stairs, milestones, wells, crates, firewood, torii, piers, stone walls, benches. `propAssetFromObject` drops any imported GLB into the same pipeline. |
+| Buildings | `@call-me-sensei/toonlab/buildinggen` | Shape-grammar stylized exteriors (cottage/shed/farmhouse/watchtower/shrine): seeded recipes, timber facades with windows that never intersect beams, always-overhanging roofs (gable/hip/shed/pagoda-ish), buried foundation skirts for slopes, ≤ 6 draw calls per building, grammar invariants asserted across 1000 seeds. |
+| Villages & POIs | `@call-me-sensei/toonlab/villagegen` | Seeded settlements composed from paths + props + buildings: site scoring, main-street layout with parcels facing the street, archetypes as data (village, fishing hamlet, shrine, campsite, ruin), seeded place names, world `pois` option that roads everything together. |
+| Fauna | `@call-me-sensei/toonlab/fauna` | Instanced GPU-animated ambient creatures: flocking birds that perch and flush, butterflies over flower masks, hovering dragonflies, schooling koi — staggered boids, hard population budgets, ≤ 1 ms CPU at defaults. |
+| Ambient VFX | `@call-me-sensei/toonlab/ambientfx` | One GPU particle backbone, five effects: falling petals and leaves, dusk fireflies, backlit pollen, shoreline mist — follow-window emission, shared wind with grass, time-of-day gates, 3 draw calls total. |
+| Asset catalog | `@call-me-sensei/toonlab/catalog` | Every recipe/preset as a searchable manifest with one headline call: `catalog.spawn(id, { seed })` → a placeable PropAsset for props, buildings, trees, rocks, and debris. `catalog.addSource(url)` mounts remote registries. |
 | Sky | `@call-me-sensei/toonlab/sky` | Procedural gradient/sun/painterly-cloud/star dome that also shows up in water reflections. [Docs](docs/vegetation-sky.md) |
 | Post-processing | `@call-me-sensei/toonlab/post` | Optional single-pipeline compositor: character-aware bloom, color grade, LUT, vignette, screen outline, depth cue — schema-driven, preset-serializable. [Docs](docs/post-processing.md) |
+| Procedural textures | `@call-me-sensei/toonlab/texgen` | Seamless CPU-baked PBR texture generator: 25 tileable pattern/noise generators, layered detail + colored overlays (moss, rust, grime), five-stop cel-capable color ramp, cavity/sheen hand-painted read, derived normal/AO/roughness/metalness/height/ORM/emissive maps, 60+ presets, and a natural-language recipe mapper (offline keywords or BYO-key Gemini/OpenAI). [Docs](docs/texture-lab.md) |
 | Character pipeline | `@call-me-sensei/toonlab/character` | Bone-role adapters for VRM/MMD/Mixamo/Rigify rigs, native-clip conventions, Mixamo retarget helpers, and a procedural freestyle swim clip. [Docs](docs/characters.md) |
 | Model loaders | `@call-me-sensei/toonlab/loaders` | Optional GLB/glTF, VRM 0+1, PMX/PMD, FBX, OBJ, and text-USDZ loading helpers. Kept off the root import so apps that do not load models avoid loader dependencies. [Docs](docs/characters.md) |
 | Debug panel | `@call-me-sensei/toonlab/debug` | One-line schema-driven tuning GUI for any settings module — the same panel the labs use. [Docs](docs/debug-panel.md) |
@@ -175,6 +201,7 @@ stack, with WebGL2 fallback through the same TSL path.
 - [Water](docs/water.md)
 - [Vegetation and sky](docs/vegetation-sky.md)
 - [Post-processing](docs/post-processing.md)
+- [Texture Lab and texgen](docs/texture-lab.md)
 - [Characters and animation](docs/characters.md)
 - [Debug panel](docs/debug-panel.md)
 - [World scale and world presets](docs/world-scale.md) — the meters

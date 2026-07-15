@@ -51,6 +51,69 @@ export const SCENE_HUB_OPTIONS = Object.freeze([
     path: '/debris-lab/',
     search: '',
   }),
+  Object.freeze({
+    id: 'textureLab',
+    label: 'Texture Lab',
+    path: '/texture-lab/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'propLab',
+    label: 'Prop Lab',
+    path: '/prop-lab/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'buildingLab',
+    label: 'Building Lab',
+    path: '/building-lab/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'catalog',
+    label: 'Catalog',
+    path: '/catalog/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'assetLab',
+    label: 'Asset Browser (CC0 imports)',
+    path: '/asset-lab/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'vfxLab',
+    label: 'VFX Lab',
+    path: '/vfx-lab/',
+    search: '',
+  }),
+  // Showcase pages (examples/, not labs): reachable from the hub so the
+  // world-scale systems — roads/bridges, villages, fauna, ambient VFX —
+  // are discoverable without typing URLs. They render their own HUDs.
+  Object.freeze({
+    id: 'outdoorWorld',
+    label: 'Outdoor World (paths · villages)',
+    path: '/examples/outdoor-world/',
+    search: '?villages=2&shrines=1',
+  }),
+  Object.freeze({
+    id: 'faunaDemo',
+    label: 'Fauna Demo',
+    path: '/examples/fauna-demo/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'ambientFxDemo',
+    label: 'Ambient VFX Demo',
+    path: '/examples/ambientfx-demo/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'vfxArena',
+    label: 'VFX Arena Demo',
+    path: '/examples/vfx-arena/',
+    search: '',
+  }),
 ]);
 
 const SCENE_HUB_OPTION_BY_ID = new Map(SCENE_HUB_OPTIONS.map((option) => [option.id, option]));
@@ -92,6 +155,12 @@ export function resolveSceneHubId(params = new URLSearchParams(window.location.s
   const pathname = window.location.pathname.toLowerCase();
   if (pathname.startsWith('/tree-lab') || pathname.startsWith('/tree-designer')) return 'treeLab';
   if (pathname.startsWith('/debris-lab')) return 'debrisLab';
+  if (pathname.startsWith('/texture-lab')) return 'textureLab';
+  if (pathname.startsWith('/prop-lab')) return 'propLab';
+  if (pathname.startsWith('/building-lab')) return 'buildingLab';
+  if (pathname.startsWith('/catalog')) return 'catalog';
+  if (pathname.startsWith('/asset-lab')) return 'assetLab';
+  if (pathname.startsWith('/vfx-lab')) return 'vfxLab';
   const onPlaygroundPath = pathname.startsWith('/playground');
   const onRockLabPath = pathname.startsWith('/rock-lab');
   const controller = (params.get('controller') || '').toLowerCase();

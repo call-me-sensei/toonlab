@@ -19,7 +19,18 @@ export * from './character/characterRig.js';
 export * from './character/freestyleSwimClip.js';
 export * from './rockgen/index.js';
 export * from './debrisgen/index.js';
+export * from './pathgen/index.js';
+export * from './propgen/index.js';
+export * from './buildinggen/index.js';
+export * from './villagegen/index.js';
+export * from './catalog/manifest.js';
+// hashCombine is exported by both clusters below; the ambiguous name drops
+// out of the root surface (import it from a subpath instead).
+export * from './fauna/index.js';
+export * from './ambientfx/index.js';
+export * from './vfxgen/index.js';
 export * from './vegetation/scatter.js';
+export * from './vegetation/treeRecipe.js';
 export * from './worldPresets.js';
 export * from './stylizedWorld.js';
 export * from './vegetation/stylizedForest.js';

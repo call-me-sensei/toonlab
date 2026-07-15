@@ -162,6 +162,11 @@ export function createEnvironmentNodeMaterial({
     lightingInfluence: uniform(hasSun ? 1.0 : 0.36),
     saturation: uniform(1.12),
     shadowLift: uniform(hasSun ? 0.0 : 0.66),
+    // How much of the CAST sun shadow applies to direct light. 1 = classic
+    // full-depth shadows. Worlds whose look runs near-zero ambient (the
+    // vivid outdoor presets) crush building-scale shadow masses to black at
+    // 1.0 — ~0.7 keeps them as painted mid-tones instead.
+    sunShadowStrength: uniform(1.0),
     skyTintStrength: uniform(0.24),
     emissiveStrength: uniform(hasSun ? 0.0 : isEmissive ? 0.55 : 0.0),
     sunBoost: uniform(hasSun ? 0.08 : 0.0),
@@ -526,7 +531,7 @@ export function createEnvironmentNodeMaterial({
     const sampledSunShadow = sampleEnvironmentSunShadow(vWorldPosition).toVar();
     const sunlightVisibility = float(1.0).toVar();
     If(u.enableShadowMask.greaterThan(0.5), () => {
-      sunlightVisibility.assign(sampledSunShadow);
+      sunlightVisibility.assign(mix(1.0, sampledSunShadow, u.sunShadowStrength));
     });
     // Drifting procedural cloud shadows over outdoor terrain; strength
     // defaults to 0 so indoor scenes are untouched.

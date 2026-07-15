@@ -110,6 +110,7 @@ export const DEFAULT_ENVIRONMENT_PARAMETERS = Object.freeze({
   shadeSoftness: null,
   shadeStrength: null,
   shadowLift: null,
+  sunShadowStrength: null,
   shadowTintColor: null,
   skyGroundTint: null,
   skyTintStrength: null,
@@ -211,6 +212,7 @@ const FIELD_LABEL_OVERRIDES = Object.freeze({
   shadeSoftness: 'Shade Softness',
   shadeStrength: 'Shade Strength',
   shadowLift: 'Shadow Lift',
+  sunShadowStrength: 'Sun Shadow Strength',
   shadowMask: 'Shadow Mask',
   shadowMesh: 'Shadow Mesh',
   shadowTintColor: 'Shadow Tint',
@@ -258,6 +260,7 @@ function rangeForParameter(key) {
   if (key === 'shadeStrength') return { max: 2, min: 0, step: 0.01 };
   if (key === 'shadeSoftness') return { max: 1, min: 0, step: 0.001 };
   if (key === 'shadowLift') return { max: 1, min: 0, step: 0.01 };
+  if (key === 'sunShadowStrength') return { max: 1, min: 0, step: 0.01 };
   if (key === 'sunBoost') return { max: 1, min: 0, step: 0.01 };
   return { max: 1, min: 0, step: 0.01 };
 }
@@ -484,6 +487,7 @@ export function applyEnvironmentSettingsToMaterial(material, settingsInput = {})
   setNumberUniform(uniforms, 'shadeSoftness', parameters.shadeSoftness);
   setNumberUniform(uniforms, 'shadeStrength', parameters.shadeStrength);
   setNumberUniform(uniforms, 'shadowLift', parameters.shadowLift);
+  setNumberUniform(uniforms, 'sunShadowStrength', parameters.sunShadowStrength);
   setNumberUniform(uniforms, 'skyTintStrength', parameters.skyTintStrength);
   setNumberUniform(uniforms, 'spotLightStrength', parameters.spotLightStrength);
   setNumberUniform(uniforms, 'sunBoost', parameters.sunBoost);

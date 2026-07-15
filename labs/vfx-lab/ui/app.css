@@ -1,0 +1,121 @@
+/* VFX Lab layout — same grid idiom as Debris Lab: topbar / left rail /
+   free viewport center / inspector right / trigger bar bottom. The canvas
+   sits behind (#stage); every HUD region re-enables pointer events. */
+
+#app { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
+body[data-hide-hud='true'] #app { display: none; }
+
+.vl-root {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  grid-template-rows: var(--topbar-h, 48px) 1fr auto;
+  grid-template-columns: var(--rail-w, 84px) 1fr 320px;
+  grid-template-areas: 'topbar topbar topbar' 'rail viewport inspector' 'trigger trigger trigger';
+  color: var(--text-primary);
+  font: var(--type-body);
+  pointer-events: none;
+}
+
+.vl-topbar {
+  grid-area: topbar;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-3);
+  background: var(--bg-app);
+  border-bottom: 1px solid var(--border-subtle);
+  pointer-events: auto;
+}
+.vl-brand { font: var(--type-title); color: var(--text-secondary); padding-right: var(--space-3); border-right: 1px solid var(--border-subtle); }
+.vl-preset { width: 170px; }
+.vl-seed { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); }
+.vl-topbar-spacer { flex: 1; }
+.vl-scene-select { width: 170px; }
+
+.vl-rail {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-2);
+  background: var(--surface-1);
+  border-right: 1px solid var(--border-subtle);
+  pointer-events: auto;
+}
+.vl-rail-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--space-2) 0;
+  border: none;
+  border-radius: var(--radius-2);
+  background: none;
+  color: var(--text-secondary);
+  font: var(--type-caption);
+  cursor: pointer;
+}
+.vl-rail-item span { font-size: 18px; }
+.vl-rail-item:hover { background: var(--surface-3); color: var(--text-primary); }
+.vl-rail-item[data-active='true'] { background: var(--surface-3); color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--border-strong); }
+
+.vl-inspector {
+  grid-area: inspector;
+  overflow-y: auto;
+  padding: var(--space-3);
+  background: var(--surface-1);
+  border-left: 1px solid var(--border-subtle);
+  pointer-events: auto;
+}
+
+.vl-triggerbar {
+  grid-area: trigger;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  /* left padding clears the shared renderer switcher pill (fixed, bottom-left) */
+  padding: var(--space-2) var(--space-3) var(--space-2) 248px;
+  min-height: 44px;
+  background: var(--bg-app);
+  border-top: 1px solid var(--border-subtle);
+  pointer-events: auto;
+}
+.vl-weapon { width: 130px; }
+.vl-triggers { display: inline-flex; align-items: center; gap: var(--space-2); }
+.vl-trigger-divider { width: 1px; height: 20px; background: var(--border-subtle); margin: 0 var(--space-1); }
+.vl-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-2);
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font: var(--type-body);
+  cursor: pointer;
+}
+.vl-trigger:hover { background: var(--surface-3); }
+.vl-trigger:active { transform: translateY(1px); }
+.vl-status { flex: 1; color: var(--text-secondary); font: var(--type-caption); }
+.vl-stats { color: var(--text-secondary); font: var(--type-caption); font-variant-numeric: tabular-nums; }
+
+.vl-range { display: inline-flex; align-items: center; gap: var(--space-1); }
+.vl-range-sep { color: var(--text-secondary); }
+
+.vl-export-note { color: var(--text-secondary); margin-bottom: var(--space-3); }
+.vl-snippet {
+  max-height: 260px;
+  overflow: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-2);
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font: var(--type-mono, 12px/1.5 ui-monospace, monospace);
+  white-space: pre;
+  user-select: text;
+}
+.vl-export-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-3); }

@@ -22,6 +22,8 @@ export function createWorldMinimap({
   displaySize = 176,
   palette = {},
   onPick = null,
+  paths = null,
+  markers = [],
 } = {}) {
   if (typeof heightAt !== 'function') throw new Error('createWorldMinimap needs heightAt(x, z).');
   const colors = {
@@ -92,7 +94,59 @@ export function createWorldMinimap({
       }
     }
     base.getContext('2d').putImageData(image, 0, 0);
+    drawOverlays(base.getContext('2d'));
     ctx.drawImage(base, 0, 0);
+  }
+
+  // Path network + POI markers are baked into the base layer so the
+  // per-frame blit stays one drawImage. Pass the object from
+  // `createStylizedPaths` (or `world.paths`) and the network draws itself.
+  const pathColors = { dirt: '#8a6a43', planks: '#a3764a', stone: '#a0a098' };
+  let markerList = Array.isArray(markers) ? [...markers] : [];
+  function drawOverlays(context) {
+    const routes = paths?.routes;
+    if (Array.isArray(routes)) {
+      context.save();
+      context.lineCap = 'round';
+      context.lineJoin = 'round';
+      for (const route of routes) {
+        if (!Array.isArray(route.samples) || route.samples.length < 2) continue;
+        context.beginPath();
+        for (let index = 0; index < route.samples.length; index += 1) {
+          const point = worldToMap(route.samples[index].x, route.samples[index].z);
+          if (index === 0) context.moveTo(point.x, point.y);
+          else context.lineTo(point.x, point.y);
+        }
+        context.strokeStyle = pathColors[route.style] ?? pathColors.dirt;
+        context.lineWidth = Math.max(resolution / 128, 1.2);
+        context.globalAlpha = 0.9;
+        context.stroke();
+      }
+      context.restore();
+    }
+    if (markerList.length > 0) {
+      context.save();
+      for (const marker of markerList) {
+        const point = worldToMap(marker.x, marker.z);
+        context.beginPath();
+        context.arc(point.x, point.y, Math.max(resolution / 64, 2.4), 0, Math.PI * 2);
+        context.fillStyle = marker.color ?? '#f4e9c8';
+        context.strokeStyle = 'rgba(20, 32, 40, 0.9)';
+        context.lineWidth = 1.2;
+        context.fill();
+        context.stroke();
+        if (marker.label) {
+          context.font = `${Math.max(resolution / 24, 8)}px system-ui, sans-serif`;
+          context.textAlign = 'center';
+          context.fillStyle = 'rgba(255, 252, 240, 0.95)';
+          context.strokeStyle = 'rgba(20, 32, 40, 0.85)';
+          context.lineWidth = 2.5;
+          context.strokeText(marker.label, point.x, point.y - 5);
+          context.fillText(marker.label, point.x, point.y - 5);
+        }
+      }
+      context.restore();
+    }
   }
   refresh();
 
@@ -138,10 +192,18 @@ export function createWorldMinimap({
   };
   canvas.addEventListener('click', handleClick);
 
+  /** Replaces the POI marker list (`[{ x, z, color?, label? }]`) and repaints. */
+  function setMarkers(next = []) {
+    markerList = Array.isArray(next) ? [...next] : [];
+    refresh();
+    draw();
+  }
+
   return {
     canvas,
     mapToWorld,
     refresh,
+    setMarkers,
     setPlayer,
     worldToMap,
     dispose() {

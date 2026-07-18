@@ -185,6 +185,26 @@ export function parseLocalCharacterModelPath(sourcePath) {
   };
 }
 
+
+// OBJ models need their MTL passed explicitly to the loader. Find the
+// sibling material for a drop-in model: same directory, base name matching
+// the model file / character name / "model", else the directory's only MTL.
+export function findLocalCharacterMaterialUrl(modelUrl, characterName = '') {
+  const modelDirectory = directoryFromPath(modelUrl);
+  const modelBaseKey = normalizeNameKey(stripFileExtension(filenameFromPath(modelUrl)));
+  const characterKey = normalizeNameKey(characterName);
+  const materials = LOCAL_CHARACTER_ASSET_MANIFEST.materialPaths
+    .map(normalizeAssetUrlPath)
+    .filter((materialUrl) => directoryFromPath(materialUrl) === modelDirectory)
+    .sort((a, b) => a.localeCompare(b));
+  const preferred = materials.find((materialUrl) => {
+    const materialBaseKey = normalizeNameKey(stripFileExtension(filenameFromPath(materialUrl)));
+    return materialBaseKey === modelBaseKey || materialBaseKey === characterKey || materialBaseKey === 'model';
+  });
+  if (preferred) return preferred;
+  return materials.length === 1 ? materials[0] : null;
+}
+
 // Every discovered drop-in model, ready for a picker: sorted, labeled, with a
 // stable id derived from the model URL.
 export function buildLocalCharacterModelOptions() {
@@ -196,6 +216,9 @@ export function buildLocalCharacterModelOptions() {
       formatLabel: entry.formatLabel,
       id: `character-${slugifyAssetId(entry.modelUrl)}`,
       label: `${entry.name} (${entry.formatLabel})`,
+      materialUrl: entry.format === 'obj'
+        ? findLocalCharacterMaterialUrl(entry.modelUrl, entry.name)
+        : null,
       modelUrl: entry.modelUrl,
       name: entry.name,
     }))

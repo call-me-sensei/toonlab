@@ -10,8 +10,8 @@ settings, preset documents, material-role handling, outlines, hair highlights,
 rim light, shadows, stickers, glitter, fur, or debug views in their app.
 
 Public imports:
-- `toonlab/toon`
-- `toonlab/toon-settings`
+- `@call-me-sensei/toonlab/toon`
+- `@call-me-sensei/toonlab/toon-settings`
 
 Read first:
 - `docs/toon-shading.md`

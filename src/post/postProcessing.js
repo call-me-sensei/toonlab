@@ -1003,6 +1003,25 @@ export function createPostProcessingPipeline({
   const currentViewProjection = new THREE.Matrix4();
   const previousViewProjection = new THREE.Matrix4();
   let hasPreviousViewProjection = false;
+  let disposed = false;
+
+  function stats() {
+    const fullWidth = Math.max(1, Math.round(currentWidth * currentPixelRatio));
+    const fullHeight = Math.max(1, Math.round(currentHeight * currentPixelRatio));
+    const bloomTargets = bloomDownChain.length + bloomUpChain.length;
+    return {
+      bloomTargets,
+      disposed,
+      enabled,
+      fullResolutionTargets: 2,
+      height: fullHeight,
+      // Approximation for authoring diagnostics: two RGBA16F full-res targets
+      // plus allocated bloom-chain targets. Driver-specific overhead excluded.
+      renderTargetBytesApprox: fullWidth * fullHeight * 8 * (2 + bloomTargets),
+      scenePasses: enabled ? 1 + (needsScenePostDepth(settings) ? 1 : 0) : 1,
+      width: fullWidth,
+    };
+  }
 
   return {
     compositeMaterial,
@@ -1013,8 +1032,26 @@ export function createPostProcessingPipeline({
     get settings() {
       return settings;
     },
+    dispose() {
+      if (disposed) return;
+      disposed = true;
+      target.dispose();
+      sceneDepthColorTarget.dispose();
+      disposeBloomChain();
+      for (const material of [
+        compositeMaterial,
+        sceneDepthColorMaterial,
+        bloomPrefilterMaterial,
+        bloomDownsampleMaterial,
+        bloomUpsampleMaterial,
+      ]) material?.dispose?.();
+    },
+    resetHistory() {
+      hasPreviousViewProjection = false;
+    },
     render(delta) {
       void delta;
+      if (disposed) return;
       if (!enabled) {
         renderer.render(scene, camera);
         return;
@@ -1070,6 +1107,7 @@ export function createPostProcessingPipeline({
       renderer.setRenderTarget(previousRenderTarget);
     },
     setSize(nextWidth, nextHeight, nextPixelRatio = pixelRatio) {
+      if (disposed) return;
       currentWidth = nextWidth;
       currentHeight = nextHeight;
       currentPixelRatio = nextPixelRatio;
@@ -1091,6 +1129,7 @@ export function createPostProcessingPipeline({
       );
     },
     setCharacterMask(texture) {
+      if (disposed) return;
       // See applyCompositeSettings' tLut comment: the node backends need a
       // real bound texture at all times, never `null`; harmless on classic
       // since tCharacterMask is only read behind the useCharacterMask guard.
@@ -1098,6 +1137,7 @@ export function createPostProcessingPipeline({
       compositeMaterial.uniforms.useCharacterMask.value = texture ? 1.0 : 0.0;
     },
     setSettings(nextSettingsInput = {}) {
+      if (disposed) return;
       settings = createPostProcessingSettings(nextSettingsInput);
       enabled = isPostProcessingEnabled(settings);
       applyCompositeSettings(
@@ -1110,6 +1150,7 @@ export function createPostProcessingPipeline({
         currentPixelRatio,
       );
     },
+    stats,
     target,
   };
 }

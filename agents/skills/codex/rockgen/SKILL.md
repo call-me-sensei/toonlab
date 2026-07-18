@@ -10,7 +10,7 @@ generation; stylized erosion; SDF composition; surface-nets meshing; rock
 presets; sculpt edits; or GLB export.
 
 Public imports:
-- `toonlab/rockgen`
+- `@call-me-sensei/toonlab/rockgen`
 
 Read first:
 - `README.md` feature table for the exported rockgen surface.

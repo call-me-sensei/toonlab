@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { chromium } from 'playwright';
 
 const projectRoot = process.cwd();
-const appUrl = process.env.VISUAL_BASELINE_URL || 'http://127.0.0.1:5175/';
+const appUrl = process.env.VISUAL_BASELINE_URL || 'http://127.0.0.1:5175/shader-lab/legacy/';
 
 // `?renderer=` matrix: webgpu (default; no param appended) | webgl (TSL
 // WebGL2 fallback) | webgpu-forced-gl (compatibility alias of webgl). Every kind gets

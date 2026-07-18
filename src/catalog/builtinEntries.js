@@ -11,6 +11,7 @@ import { BUILT_IN_DEBRIS_PRESETS } from '../debrisgen/debrisPresets.js';
 import { getRockgenPresetOptions } from '../rockgen/rockgenPresets.js';
 import { getWaterPresetOptions } from '../water/waterSettings.js';
 import { getSkyPresetOptions } from '../sky/stylizedSky.js';
+import { getLightingPresetOptions } from '../lighting/lightingPresets.js';
 import { POST_PROCESSING_PRESETS } from '../post/postProcessing.js';
 import { getToonPresetOptions } from '../toon/toonSettings.js';
 
@@ -189,6 +190,30 @@ export function builtinCatalogEntries() {
       recipe: { preset: option.id, schema: 'skyPresetRef', version: 1 },
       spawn: `new StylizedSky({ preset: '${option.id}' })`,
       tags: ['sky', 'settings'],
+    }));
+  }
+  for (const option of getLightingPresetOptions()) {
+    const resolverByKind = {
+      look: 'resolveLightingLookPreset',
+      luminaire: 'resolveLuminairePreset',
+      quality: 'resolveLightingQualityPreset',
+      rig: 'resolveLightingRigPreset',
+    };
+    const resolver = resolverByKind[option.kind];
+    entries.push(createCatalogEntry({
+      cluster: 'lighting',
+      description: option.description,
+      id: `lighting/${option.kind}/${slug(option.id)}`,
+      kind: 'preset',
+      label: option.label,
+      recipe: {
+        kind: option.kind,
+        preset: option.id,
+        schema: 'lightingPresetRef',
+        version: 1,
+      },
+      spawn: `${resolver}('${option.id}')`,
+      tags: ['lighting', option.kind, 'settings'],
     }));
   }
   for (const id of Object.keys(POST_PROCESSING_PRESETS)) {

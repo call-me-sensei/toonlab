@@ -45,7 +45,9 @@ import {
   mix,
   modelWorldMatrix,
   normalize,
+  pow,
   positionGeometry,
+  refract,
   screenUV,
   select,
   sin,
@@ -223,6 +225,9 @@ export function createWaterNodeMaterial({
     uDeepFadeDistance: uniform(3),
     uOpacity: uniform(0.9),
     uRefractionStrength: uniform(0.6),
+    uIndexOfRefraction: uniform(1.333),
+    uUnderwaterTransmission: uniform(1.0),
+    uUnderwaterTintStrength: uniform(0.35),
     uCausticsStrength: uniform(0.6),
     uCausticsScale: uniform(1),
     uCausticsSpeed: uniform(1),
@@ -578,18 +583,122 @@ export function createWaterNodeMaterial({
     const output = vec4(0.0).toVar();
     If(u.uCameraBelow.greaterThan(0.5), () => {
       // --- underside: camera below the surface looking up ---
-      // A stylized Snell-window: bright sky punches through overhead, the
-      // surface darkens to the deep tint toward grazing angles.
-      const throughDir = normalize(
-        viewDir.negate().add(vec3(surfaceNormal.x, 0.0, surfaceNormal.z).mul(0.7)),
+      // Trace the view ray from water into air. The grab pass uses a clipped
+      // same-pose camera while submerged, so this lookup contains the actual
+      // sky, clouds, and above-water silhouettes rather than a sky-color
+      // approximation. The physical critical angle anchors the composition;
+      // color and edge shaping stay deliberately stylized.
+      const incident = viewDir.negate().toVar();
+      const eta = clamp(u.uIndexOfRefraction, 1.0001, 1.8).toVar();
+      const cosIncident = clamp(dot(incident, surfaceNormal), 0.0, 1.0).toVar();
+      const criticalCos = max(
+        float(1.0).sub(float(1.0).div(eta.mul(eta))),
+        0.0,
+      ).sqrt().toVar();
+      const snellWindow = smoothstep(
+        criticalCos.sub(0.04),
+        criticalCos.add(0.045),
+        cosIncident,
       ).toVar();
-      const skyThrough = lighting.proceduralSky(throughDir);
-      const window = smoothstep(0.15, 0.8, throughDir.y).toVar();
-      const underColor = mix(u.uDeepColor.mul(0.55), skyThrough.mul(1.15), window).toVar();
+      const refractedDirection = refract(
+        incident,
+        surfaceNormal.negate(),
+        eta,
+      ).toVar();
+      // refract() returns zero under total internal reflection. Blend toward
+      // the incident ray there to keep the projection numerically stable;
+      // snellWindow prevents that fallback ray from becoming transmission.
+      const transmissionDirection = normalize(mix(
+        incident,
+        refractedDirection,
+        max(snellWindow, 0.001),
+      )).toVar();
+      const transmissionWorld = vWorldPosition.add(
+        transmissionDirection.mul(min(u.uCameraFar.mul(0.75), 400.0)),
+      );
+      const transmissionClip = cameraProjectionMatrix
+        .mul(cameraViewMatrix)
+        .mul(vec4(transmissionWorld, 1.0)).toVar();
+      const transmissionUv = transmissionClip.xy
+        .div(max(abs(transmissionClip.w), 1e-5))
+        .mul(vec2(0.5, -0.5))
+        .add(0.5)
+        .add(refractionNormal.xz.mul(u.uRefractionStrength).mul(0.012))
+        .toVar();
+      const insideCapture = smoothstep(-0.01, 0.01, transmissionUv.x)
+        .mul(smoothstep(0.99, 1.01, transmissionUv.x).oneMinus())
+        .mul(smoothstep(-0.01, 0.01, transmissionUv.y))
+        .mul(smoothstep(0.99, 1.01, transmissionUv.y).oneMinus())
+        .mul(smoothstep(0.001, 0.03, transmissionClip.w));
+      const capturedAir = u.uSceneColor
+        .sample(clamp(transmissionUv, vec2(0.0), vec2(1.0)))
+        .level(0).rgb;
+      const transmitted = mix(
+        lighting.proceduralSky(transmissionDirection),
+        capturedAir,
+        clamp(insideCapture.mul(u.uUseSceneColor), 0.0, 1.0),
+      ).toVar();
+
+      // Compact Beer-Lambert-inspired attenuation through the camera's water
+      // column. This uses ToonLab's authored palette, keeping the result
+      // graphic and readable instead of pursuing the reference's realism.
+      const cameraDepth = max(vWorldPosition.y.sub(cameraPosition.y), 0.0).toVar();
+      const volumeAbsorb = exp(
+        cameraDepth.div(max(
+          u.uDepthFadeDistance.add(u.uDeepFadeDistance.mul(0.5)),
+          0.1,
+        )).negate(),
+      ).oneMinus().toVar();
+      const waterTint = mix(
+        u.uShallowColor,
+        u.uMidColor,
+        clamp(volumeAbsorb.mul(1.35), 0.0, 1.0),
+      ).toVar();
+      transmitted.mulAssign(mix(
+        vec3(1.0),
+        waterTint.mul(1.12),
+        volumeAbsorb.mul(0.3),
+      ));
+      transmitted.assign(mix(
+        transmitted,
+        waterTint,
+        volumeAbsorb.mul(u.uUnderwaterTintStrength),
+      ));
+
+      const f0 = eta.sub(1.0).div(eta.add(1.0)).pow2().toVar();
+      const fresnel = f0.add(
+        f0.oneMinus().mul(pow(cosIncident.oneMinus(), 5.0)),
+      ).toVar();
+      const transmissionWeight = fresnel.oneMinus()
+        .mul(snellWindow)
+        .mul(u.uUnderwaterTransmission)
+        .toVar();
+      const tirColor = mix(
+        u.uDeepColor.mul(0.48),
+        u.uMidColor.mul(0.72),
+        cosIncident.mul(0.3),
+      );
+      const underColor = mix(
+        tirColor,
+        transmitted,
+        clamp(transmissionWeight, 0.0, 1.0),
+      ).toVar();
+      const criticalRim = smoothstep(
+        criticalCos.sub(0.085),
+        criticalCos,
+        cosIncident,
+      ).mul(smoothstep(
+        criticalCos,
+        criticalCos.add(0.1),
+        cosIncident,
+      ).oneMinus());
+      underColor.addAssign(u.uFresnelColor.mul(criticalRim).mul(0.12));
       underColor.addAssign(
         lighting.sparkles(vRestWorldXZ, surfaceNormal, viewDir, viewDistance, u.uTime).mul(0.5),
       );
-      output.assign(vec4(underColor, mix(0.95, 0.62, window)));
+      // The captured air-side scene is already composited; render the
+      // underside opaque to avoid double-blending the main scene behind it.
+      output.assign(vec4(underColor, 1.0));
     }).Else(() => {
       // --- scene depth, refraction, and the water body color ---
       const waterViewDistance = cameraViewMatrix.mul(vec4(vWorldPosition, 1.0)).z.negate().toVar();

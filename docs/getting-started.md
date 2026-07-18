@@ -8,7 +8,8 @@ npm install
 npm run dev
 ```
 
-Vite opens `http://localhost:5175` with the Shader Lab and the bundled CC0
+Vite opens `http://localhost:5175` on the Labs home — a card for every lab
+and demo. Pick **Shader Lab** (`/shader-lab/`) to see the bundled CC0
 mannequin already toon-shaded. Everything you see out of the box — water,
 sky, grass, trees, flowers, splashes — is procedural; the mannequin is the
 only bundled model.
@@ -25,9 +26,12 @@ HUD **Scene** select switches between them; these are the direct URLs:
 
 | Lab | URL | What it shows |
 |---|---|---|
-| Shader Lab | `/` | Character + environment shader tuning. Every toon setting (23 groups) and environment setting as live controls, preset selection/export/import, debug views, animation playback. Exercises `@call-me-sensei/toonlab/toon`, `@call-me-sensei/toonlab/environment`, `@call-me-sensei/toonlab/debug`. |
+| Labs home | `/` | The landing page — a linked card for every lab and demo below. |
+| Shader Lab | `/shader-lab/` | Character + environment shader tuning. Every toon setting (23 groups) and environment setting as live controls, preset selection/export/import, debug views, animation playback. Exercises `@call-me-sensei/toonlab/toon`, `@call-me-sensei/toonlab/environment`, `@call-me-sensei/toonlab/debug`. |
 | Playground: Controller Test | `/playground/` | Third-person character controller (WASD + mouse, Space to jump, Shift to sprint) on a vegetated stage. Exercises `@call-me-sensei/toonlab/character` retargeting + the vegetation systems. |
 | Environment Lab (Indoor) | `/playground/?scene=indoor` | Walkable indoor environment scene with a live Environment Settings panel (every environment shader feature and parameter from the field schema). Loads the first environment from your gitignored `assets-local/environments/` drop-in (bring your own scene — a load banner appears without one). Exercises `@call-me-sensei/toonlab/environment` + `@call-me-sensei/toonlab/debug`. |
+| Lighting Lab | `/lighting-lab/` | A focused lighting authoring and diagnostics surface with editable light outliner, transforms, physical/artistic intensity, shadow and quality budgets, five test stages, many-light stress testing, reusable JSON presets, and Unreal Engine 5.8 MegaLights/Lumen intent export. Exercises `@call-me-sensei/toonlab/lighting`. |
+| Weather Lab | `/weather-lab/` | The standalone weather editor: 22 shared conditions, smooth transitions, live atmosphere/wind/precipitation/lightning/surface controls, a lightning test, and portable preset import/save/export. Exercises `@call-me-sensei/toonlab/weather` across sky, light, fog, vegetation, water, and GPU precipitation. |
 | Water Lab | `/water-lab/` | The standalone water editor: every parameter of the water system (waves, surface color, foam, lighting/reflections, ripples, splashes, quality — the full field schema), preset save/load/export, debug views, and interactor toys (splashes, buoyant balls, rain). Three stage grounds follow the preset — a gentle beach where the swash runs up and down the sand, a beach-to-deep basin with depth-test rocks/fish/kelp, and open water with a small island and a floating CC0 ship (PolyHaven `dutch_ship_medium` from `assets-local/`, toon boat fallback). **Preview in scene** carries your settings into the walkable Water Playground. Exercises the full `@call-me-sensei/toonlab/water` system. |
 | Water Playground | `/playground/?scene=water` | The walkable beach diorama — wadeable lake (ripples, wakes, buoyancy), flowing river with current, and ocean beach with shoaling swell, plunging breakers, and swash. Walk in past chest depth and the character swims; C/Ctrl dives, Space swims up. **Edit in Water Lab** round-trips the live settings back to the editor. |
 | Rock Lab | `/rock-lab/` | Procedural stylized rocks, cliffs, heightfields, sculpt edits, and GLB export from `@call-me-sensei/toonlab/rockgen`. |
@@ -118,6 +122,8 @@ already running.
 
 - [Toon character shading](toon-shading.md)
 - [Environment shading](environment.md)
+- [Lighting](lighting.md)
+- [Generative style labs](style-labs.md)
 - [Water](water.md)
 - [Vegetation and sky](vegetation-sky.md)
 - [Post-processing](post-processing.md)

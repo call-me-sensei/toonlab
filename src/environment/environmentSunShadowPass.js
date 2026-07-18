@@ -249,6 +249,13 @@ export function createEnvironmentSunShadowPass({ renderer, scene } = {}) {
     environmentSunShadow.ready.value = true;
   }
 
+  // The static-scene signature only tracks the sun pose and child count —
+  // swapping a subject for another with the same bounds (or retexturing a
+  // cutout material) changes the casters without changing the signature.
+  function invalidate() {
+    lastRenderSignature = '';
+  }
+
   function dispose() {
     shadowTarget?.dispose();
     shadowTarget = null;
@@ -263,6 +270,7 @@ export function createEnvironmentSunShadowPass({ renderer, scene } = {}) {
       return shadowMatrix;
     },
     dispose,
+    invalidate,
     update,
   };
 }

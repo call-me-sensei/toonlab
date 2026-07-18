@@ -98,8 +98,8 @@ export function GalleryScreen({ actions, state }) {
           <Button
             icon="download"
             kind="secondary"
-            title="Browse CC0 texture sets (Poly Haven, ambientCG) in the Asset Browser — its “Toonify in Texture Lab” sends the diffuse here as an image base."
-            onClick={() => { window.location.href = '/asset-lab/?kind=texture'; }}
+            title="Browse CC0 texture sets (Poly Haven, ambientCG) in the Gallery."
+            onClick={() => { window.location.href = window.location.pathname.startsWith('/labs') ? '/gallery?type=texture' : '/gallery/?type=texture'; }}
           >
             Browse CC0 assets
           </Button>

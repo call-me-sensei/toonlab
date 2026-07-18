@@ -4,7 +4,6 @@ import '../../shared/ui/tokens.css';
 import '../../shared/ui/kit.css';
 import './app.css';
 
-import { installRendererSwitcher } from '../../shared/rendererSwitcher.js';
 import { createDebrisEngine } from '../engine/debrisEngine.js';
 import { createDebrisStore } from '../store/debrisStore.js';
 import { App } from './App.jsx';
@@ -44,7 +43,7 @@ if (!window.__debrisLabBooted) {
   if (hudHidden) {
     document.body.dataset.hideHud = 'true';
   } else {
-    installRendererSwitcher();
+    // Renderer switching lives in the top bar (RendererToggle) — no floating pill.
     createRoot(document.getElementById('app')).render(<App engine={engine} store={store} />);
     requestAnimationFrame(() => { document.body.dataset.uiReady = 'true'; });
   }

@@ -561,7 +561,7 @@ function EnvironmentMenu({ actions, anchor, onClose, state }) {
         </div>
         <div style={{ display: 'grid', gap: 6 }}>
           <span className="tk-field-label"><span className="tk-field-label-text">Weather</span></span>
-          <SegmentedControl
+          <Select
             onChange={(weather) => actions.setSky({ weather })}
             options={Object.entries(WEATHER_PRESETS)
               .map(([value, preset]) => ({ label: preset.label, value }))}

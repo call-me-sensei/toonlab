@@ -14,13 +14,15 @@
 
 import { RENDERER_SWITCHER_KINDS, resolveRendererKind } from './rendererKind.js';
 
-const KIND_LABELS = Object.freeze({
+// Shared with the top-bar renderer control (labs/shared/ui/components/
+// LabChrome.jsx), which replaces this floating pill on redesigned labs.
+export const KIND_LABELS = Object.freeze({
   webgl: 'TSL WebGL',
   webgpu: 'WebGPU',
   'webgpu-forced-gl': 'TSL WebGL',
 });
 
-const BACKEND_LABELS = Object.freeze({
+export const BACKEND_LABELS = Object.freeze({
   webgpu: 'WebGPU',
   'webgl2-fallback': 'TSL WebGL2',
 });
@@ -28,13 +30,13 @@ const BACKEND_LABELS = Object.freeze({
 // The backend the factory is expected to report for each requested kind; a
 // mismatch (e.g. webgpu requested, webgl2-fallback delivered) turns the badge
 // amber so an unintended fallback is impossible to miss.
-const EXPECTED_BACKEND = Object.freeze({
+export const EXPECTED_BACKEND = Object.freeze({
   webgl: 'webgl2-fallback',
   webgpu: 'webgpu',
   'webgpu-forced-gl': 'webgl2-fallback',
 });
 
-function urlForKind(kind) {
+export function urlForKind(kind) {
   const url = new URL(window.location.href);
   if (kind === 'webgpu') {
     url.searchParams.delete('renderer'); // default stays a clean URL

@@ -28,6 +28,7 @@ import { createStylizedVillage } from './villagegen/stylizedVillage.js';
 import { pickPoiSites } from './villagegen/villageSites.js';
 import { createFauna } from './fauna/index.js';
 import { createAmbientFx } from './ambientfx/index.js';
+import { createWeatherSystem } from './weather/index.js';
 
 // The composed golden path: one call assembles a complete stylized outdoor
 // world — environment-shaded terrain, sun rig, sky dome, interactive water,
@@ -88,7 +89,10 @@ function cleanObject(value) {
  * @param {Object3D} [options.followTarget] Character root: water ripple
  *   window + interactor splashes/wakes, grass push-away.
  * @param {Object|false} [options.cloudShadows] `{ strength, coverage, scale,
- *   velocity }` shared across terrain, water, grass, and trees.
+ *   velocity }` legacy override merged into the weather cloud field.
+ * @param {Object|false} [options.weather] `{ preset, settings, seed }` builds
+ *   the shared weather coordinator. `false` keeps the legacy static cloud
+ *   shadow path. Defaults to the world preset's Call Me Sensei weather.
  * @param {boolean} [options.sun] Build the environment sun rig (default true).
  * @param {boolean} [options.applyCamera] Apply preset camera planes (default true).
  * @param {Object} [options.environment] Extra `applyEnvironmentShader`
@@ -107,6 +111,7 @@ export async function createStylizedWorld({
   pois = false,
   fauna = false,
   ambientfx = false,
+  weather = {},
   sky: skyOptions = {},
   fog = {},
   shadows = {},
@@ -114,7 +119,7 @@ export async function createStylizedWorld({
   grass = {},
   flowers = false,
   followTarget = null,
-  cloudShadows = { strength: 0.35 },
+  cloudShadows = null,
   sun = true,
   applyCamera = true,
   environment = {},
@@ -390,12 +395,23 @@ export async function createStylizedWorld({
   let waterSurface = null;
   if (water !== false) {
     const waterOptions = cleanObject(water);
+    const {
+      depth: configuredDepth,
+      level: _waterLevel,
+      settings: configuredWaterSettings,
+      width: configuredWidth,
+      ...waterRuntimeOptions
+    } = waterOptions;
     waterSurface = new WaterSurface({
       preset: worldPreset.water?.preset,
-      width: Number(waterOptions.width) || width,
-      depth: Number(waterOptions.depth) || depth,
+      width: Number(configuredWidth) || width,
+      depth: Number(configuredDepth) || depth,
       ...(heightAt ? { bedHeight: heightAt } : {}),
-      ...cleanObject(waterOptions.settings),
+      // Runtime stages (passes/simulation/splashes/currentField/etc.) are
+      // valid composed-world options too; previously only material settings
+      // made it through this wrapper.
+      ...waterRuntimeOptions,
+      ...cleanObject(configuredWaterSettings),
     });
     waterSurface.position.y = waterLevel;
     // Match the environment's height fog so far-shore water hazes exactly
@@ -511,6 +527,7 @@ export async function createStylizedWorld({
   // the window edge. Far grass simply doesn't exist — same as the anime
   // games this emulates.
   let grassField = null;
+  let weatherSystem = null;
   const grassState = { center: null, options: cleanObject(grass), radius: 0 };
   const buildGrassAt = (center) => {
     const grassOptions = grassState.options;
@@ -556,6 +573,7 @@ export async function createStylizedWorld({
     if (previous && grassField !== previous) {
       scene.remove(previous);
       previous.dispose();
+      weatherSystem?.refresh();
     }
   };
 
@@ -665,7 +683,55 @@ export async function createStylizedWorld({
     forest?.setCloudShadow(field);
     faunaSystem?.setCloudShadow?.(field);
   };
-  if (cloudShadows !== false) applyCloudShadow(cleanObject(cloudShadows));
+  if (weather === false) {
+    if (cloudShadows !== false) applyCloudShadow(
+      cloudShadows === null ? { strength: 0.35 } : cleanObject(cloudShadows),
+    );
+  } else {
+    const weatherOptions = cleanObject(weather);
+    const presetWeatherSettings = cleanObject(worldPreset.weather?.settings);
+    const optionWeatherSettings = cleanObject(weatherOptions.settings);
+    const weatherSettings = {
+      ...presetWeatherSettings,
+      ...optionWeatherSettings,
+      atmosphere: {
+        ...cleanObject(presetWeatherSettings.atmosphere),
+        ...cleanObject(optionWeatherSettings.atmosphere),
+      },
+    };
+    const legacyCloud = cloudShadows === false
+      ? { strength: 0 }
+      : (cloudShadows === null ? {} : cleanObject(cloudShadows));
+    weatherSystem = createWeatherSystem({
+      ambientFx,
+      camera,
+      environmentRoot: terrainRoot,
+      fauna: faunaSystem,
+      flowers: flowerField,
+      followTarget,
+      forest: () => forest,
+      grass: () => grassField,
+      groundHeightAt: heightAt,
+      precipitationFloorY: environmentBox.min.y,
+      preset: weatherOptions.preset ?? worldPreset.weather?.preset ?? 'call_me_sensei',
+      renderer,
+      scene,
+      seed: Number(weatherOptions.seed) || 1,
+      setCloudShadow: applyCloudShadow,
+      settings: {
+        ...weatherSettings,
+        atmosphere: {
+          ...cleanObject(weatherSettings.atmosphere),
+          ...(Number.isFinite(legacyCloud.strength) ? { cloudShadowStrength: legacyCloud.strength } : {}),
+          ...(Number.isFinite(legacyCloud.coverage) ? { cloudShadowCoverage: legacyCloud.coverage } : {}),
+          ...(Number.isFinite(legacyCloud.scale) ? { cloudShadowScale: legacyCloud.scale } : {}),
+        },
+      },
+      sky,
+      sunRig,
+      water: waterSurface,
+    });
+  }
 
   let disposed = false;
   return {
@@ -680,6 +746,7 @@ export async function createStylizedWorld({
       for (const poi of poiList) poi.dispose();
       faunaSystem?.dispose();
       ambientFx?.dispose();
+      weatherSystem?.dispose();
       for (const object of [sky, waterSurface, forest, grassField, flowerField,
         faunaSystem?.root, ambientFx?.root, sunRig?.group ?? sunRig]) {
         if (object?.parent) object.parent.remove(object);
@@ -695,8 +762,12 @@ export async function createStylizedWorld({
     paths: pathsSystem,
     pois: poiList,
     setCloudShadow: applyCloudShadow,
+    setWeather(presetOrSettings, options) {
+      return weatherSystem?.transitionTo(presetOrSettings, options) ?? null;
+    },
     sky,
     sunRig,
+    weather: weatherSystem,
     /** Call once per frame before rendering. */
     update(delta = 0.016) {
       if (disposed) return;
@@ -708,6 +779,7 @@ export async function createStylizedWorld({
       shadowFrame += 1;
       if (sunShadowPass && shadowFrame % shadowInterval === 0) sunShadowPass.update();
       refreshGrassWindow();
+      weatherSystem?.update(delta);
       for (const poi of poiList) poi.update(delta, camera);
       faunaSystem?.update(delta);
       ambientFx?.update(delta, camera);

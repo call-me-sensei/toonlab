@@ -11,8 +11,8 @@ breakers, wakes, splashes, rain, kelp, underwater view, or water preset
 documents.
 
 Public imports:
-- `toonlab/water`
-- `toonlab/water-settings`
+- `@call-me-sensei/toonlab/water`
+- `@call-me-sensei/toonlab/water-settings`
 
 Read first:
 - `docs/water.md`

@@ -41,7 +41,11 @@
 .td-topbar-title:hover { background: var(--surface-3); }
 .td-dirty-dot { color: var(--accent-400); font-size: 10px; }
 .td-topbar-spacer { flex: 1; }
-.td-scene-select { width: 170px; }
+/* Brand lockup + lab name come from the kit (.tk-brand, LabChrome.jsx). */
+.td-topbar .tk-brand {
+  padding-right: var(--space-2);
+  margin-right: var(--space-1);
+}
 
 .td-rail {
   grid-area: rail;
@@ -257,13 +261,6 @@
   justify-content: space-between;
   margin-bottom: var(--space-7);
 }
-.td-gallery-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  font: var(--type-label);
-  color: var(--text-secondary);
-}
 .td-gallery-title { font: var(--type-display); font-size: 28px; line-height: 36px; }
 .td-gallery-sub { color: var(--text-secondary); margin: var(--space-1) 0 var(--space-5); }
 .td-gallery-section {
@@ -387,3 +384,6 @@
   height: 44px;
   font-size: 22px;
 }
+
+.td-sublab { margin-left: var(--space-2); }
+.td-previewbar-select { width: 150px; }

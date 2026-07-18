@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+import { updateProjectedWaterCaustics } from '../shaders-tsl/chunks/projected-water-caustics.js';
+
 import {
   applyWaterSettingsToMaterial,
   createWaterMaterial,
@@ -1068,8 +1070,27 @@ export class WaterSurface extends THREE.Mesh {
     }
     updateWaterMaterialCamera(this.material, renderer, camera);
     this.getWorldPosition(worldPositionScratch);
-    uniforms.uCameraBelow.value =
-      camera.getWorldPosition(followScratch).y < worldPositionScratch.y ? 1 : 0;
+    const cameraBelow = camera.getWorldPosition(followScratch).y < worldPositionScratch.y;
+    uniforms.uCameraBelow.value = cameraBelow ? 1 : 0;
+    updateProjectedWaterCaustics({
+      enabled: cameraBelow && this.settings.causticsStrength > 0.001,
+      time: this.time,
+      waterLevel: worldPositionScratch.y,
+      centerX: worldPositionScratch.x,
+      centerZ: worldPositionScratch.z,
+      halfWidth: this.width * 0.5,
+      halfDepth: this.depth * 0.5,
+      color: this.settings.sunColor,
+      intensity: this.settings.causticsStrength * 0.65,
+      scale: this.settings.causticsScale,
+      speed: this.settings.causticsSpeed,
+      flowDirection: this.settings.flowDirection,
+      waveDistortion: 0.035 + this.settings.detailNormalStrength * 0.08,
+      depthAttenuation: 1 / Math.max(
+        this.settings.depthFadeDistance + this.settings.deepFadeDistance,
+        0.25,
+      ),
+    });
     if (this.ripples) {
       uniforms.uRippleMap.value = this.ripples.texture;
       uniforms.uUseRippleMap.value = 1;

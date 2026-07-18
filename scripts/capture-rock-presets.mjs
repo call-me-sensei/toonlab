@@ -32,7 +32,7 @@ for (const preset of presets) {
     rockSeed: seed,
     scene: 'rock',
   });
-  const url = `${baseUrl}/?${params.toString()}`;
+  const url = `${baseUrl}/rock-lab/?${params.toString()}`;
   await page.goto(url, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => document.body.dataset.modelReady === 'true', { timeout: 30000 });
   await page.waitForFunction(() => document.body.dataset.rockAoState === 'baked', { timeout: 30000 })

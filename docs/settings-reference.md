@@ -579,7 +579,7 @@ Overrides numeric environment shader uniforms. Auto values preserve material def
 
 ## Water
 
-Module: `toonlab/water` — 7 groups, 79 fields.
+Module: `toonlab/water` — 7 groups, 82 fields.
 
 Settings are flat: `createWaterSettings({ preset: "ocean", waveIntensity: 0.6 })`. Groups exist for UI organization only.
 
@@ -627,6 +627,9 @@ Water body color, refraction, and caustics.
 | `deepFadeDistance` | number | `2.2` | 0.05 – 24 | Additional depth where mid fades to the deep tint. |
 | `opacity` | number | `0.8` | 0 – 1 | Base transparency when no scene color grab pass is bound. |
 | `refractionStrength` | number | `0.35` | 0 – 2 | Screen-space distortion of the underwater scene. |
+| `indexOfRefraction` | number | `1.333` | 1.0001 – 1.8 | Index of refraction used by the underwater Snell window and total internal reflection. |
+| `underwaterTransmission` | number | `1` | 0 – 1 | Visibility of the real above-water scene through the surface from below. |
+| `underwaterTintStrength` | number | `0.35` | 0 – 1 | Stylized water-color tint applied to the view through the surface. |
 | `causticsStrength` | number | `0.55` | 0 – 3 | Brightness of the procedural voronoi caustics on the bottom. |
 | `causticsScale` | number | `0.8` | 0.05 – 8 | Spatial frequency of the caustic web. |
 | `causticsSpeed` | number | `0.6` | 0 – 4 | Animation speed of the caustic web. |

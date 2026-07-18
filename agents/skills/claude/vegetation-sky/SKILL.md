@@ -10,9 +10,9 @@ trees, foliage cards, tree recipes, GLB export, wind, cloud shadows, sky
 gradients, sun, clouds, or stars.
 
 Public imports:
-- `toonlab/vegetation`
-- `toonlab/sky`
-- `toonlab/grass`
+- `@call-me-sensei/toonlab/vegetation`
+- `@call-me-sensei/toonlab/sky`
+- `@call-me-sensei/toonlab/grass`
 
 Read first:
 - `docs/vegetation-sky.md`

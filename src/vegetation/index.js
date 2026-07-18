@@ -10,3 +10,4 @@ export * from './treeRecipe.js';
 export * from './treeExport.js';
 export * from './scatter.js';
 export * from './stylizedForest.js';
+export * from './vegetationShaders.js';

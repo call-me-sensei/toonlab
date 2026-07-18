@@ -7,6 +7,7 @@ node_modules/
 dist/
 dist-ssr/
 build/
+.toonlab/
 
 # Private test assets — licensed content that must never enter the public
 # repo. The labs discover models/environments dropped in here (see

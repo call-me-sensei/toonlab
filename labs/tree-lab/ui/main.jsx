@@ -17,7 +17,6 @@ import { createFlowerPatch } from '../engine/flowerPatch.js';
 import { createSceneDressing } from '../engine/sceneDressing.js';
 import { createSkyWeather } from '../engine/skyWeather.js';
 import { installTestHooks } from '../compat/testHooks.js';
-import { installRendererSwitcher } from '../../shared/rendererSwitcher.js';
 import { isWalkPreviewInputCode } from '../../shared/walkPreview.js';
 import { App } from './App.jsx';
 
@@ -112,9 +111,9 @@ if (!window.__treeDesignerBooted) {
   if (hudHidden) {
     document.body.dataset.hideHud = 'true';
   } else {
-    installRendererSwitcher();
+    // Renderer switching lives in the top bar (RendererToggle) — no floating pill.
     const root = createRoot(document.getElementById('app'));
-    root.render(<App engine={engine} sketchBindings={sketchBindings} store={store} />);
+    root.render(<App dressing={dressing} engine={engine} sketchBindings={sketchBindings} store={store} />);
     // Screenshot gate for UI-track baselines.
     requestAnimationFrame(() => {
       document.body.dataset.uiReady = 'true';

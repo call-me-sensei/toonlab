@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Button, Icon, Modal, toast,
+  BrandLockup, Button, Icon, Modal, toast,
 } from '../../../shared/ui/index.js';
 import {
   BUILT_IN_TREE_PRESETS, deleteLocalTreePreset, loadLocalTreePresets,
@@ -84,7 +84,7 @@ export function GalleryScreen({ actions, state }) {
   return (
     <div className="td-gallery" data-testid="gallery">
       <header className="td-gallery-header">
-        <span className="td-gallery-brand"><Icon name="logo-toonlab" /> toonlab / Tree Lab</span>
+        <BrandLockup labName="Vegetation Lab" />
         <Button icon="download" kind="ghost" onClick={() => setImportOpen(true)} testId="gallery-import">
           Import recipe…
         </Button>

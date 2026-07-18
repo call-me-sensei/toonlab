@@ -96,6 +96,12 @@
   display: none;
 }
 .tk-field[data-disabled='true'] { opacity: 0.4; }
+/* Fixed-size controls (toggles, small color wells) sit flush with the row's
+   right edge instead of floating mid-row after variable-width labels. */
+.tk-field > .tk-toggle,
+.tk-field > .tk-color-well:not([data-size='large']) {
+  justify-self: end;
+}
 .tk-field-label {
   display: inline-flex;
   align-items: center;
@@ -449,3 +455,112 @@
   padding: 0;
 }
 .tk-advanced-toggle:hover { color: var(--text-secondary); }
+
+/* ---- Lab chrome: brand lockup · renderer toggle (LabChrome.jsx) -------------------------- */
+
+.tk-brand { display: inline-flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.tk-brand-home {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-primary);
+  text-decoration: none;
+  transition: opacity var(--motion-fast);
+}
+.tk-brand-home:hover { opacity: 0.85; }
+.tk-brand-mark {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--brand-accent);
+  color: #fff;
+  font-family: var(--font-brand-jp);
+  font-weight: 900;
+  font-size: 12px;
+  /* same notched corner as the site header mark */
+  clip-path: polygon(0 0, 100% 0, 100% 78%, 78% 100%, 0 100%);
+}
+.tk-brand-word {
+  font-family: var(--font-brand);
+  font-weight: 900;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+}
+.tk-brand-lab {
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--border-subtle);
+  font: var(--type-title);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.tk-renderer { display: inline-flex; align-items: center; gap: var(--space-2); }
+.tk-renderer .tk-segmented { grid-auto-columns: auto; }
+.tk-renderer-backend {
+  font: var(--type-value);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+.tk-renderer-backend[data-state='ok'] { color: var(--success); }
+.tk-renderer-backend[data-state='fallback'] { color: var(--warning); }
+
+/* ---- PreviewBar / PresetRow (LabChrome.jsx) — the ONE product-vs-preview
+   language: blue inspector = the saved document; the amber bottom bar =
+   scene preview, never saved. Identical in every lab. ---------------------- */
+
+.tk-previewbar {
+  position: fixed;
+  bottom: calc(var(--statusbar-h) + var(--space-3));
+  left: calc((100vw + var(--rail-w) - var(--inspector-w)) / 2);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--preview-border);
+  border-radius: var(--radius-3);
+  background: var(--surface-overlay);
+  backdrop-filter: var(--blur-overlay);
+  box-shadow: var(--shadow-2);
+  pointer-events: auto;
+  z-index: var(--z-hud);
+}
+.tk-previewbar-chip {
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--preview-subtle);
+  color: var(--preview-300);
+  font: var(--type-caption);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.tk-previewbar-hint { padding: 0 var(--space-2); color: var(--text-tertiary); font: var(--type-caption); white-space: nowrap; }
+.tk-previewbar-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--preview-300);
+  font: var(--type-caption);
+}
+.tk-previewbar .tk-segmented { grid-auto-columns: max-content; }
+.tk-previewbar .tk-segmented button { white-space: nowrap; }
+.tk-previewbar-slider {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-secondary);
+  font: var(--type-caption);
+}
+.tk-previewbar-slider .tk-slider { width: 84px; }
+
+.tk-preset-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-1) var(--space-1) var(--space-3);
+}
+.tk-preset-row .tk-select { flex: 1; }
+.tk-preset-label { flex: none; font: var(--type-label); color: var(--text-secondary); }

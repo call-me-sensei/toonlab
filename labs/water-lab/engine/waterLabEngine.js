@@ -29,6 +29,14 @@ import { createLabRenderer, whenRendererReady } from '../../shared/rendererFacto
 const WATER_SIZE = 180;
 const BALL_LIMIT = 10;
 const SHIP_URL = '/assets-local/props/dutch_ship_medium/dutch_ship_medium_1k.gltf';
+const FERN_URL = '/water-lab/cc0/quaternius/fern-1.glb';
+const SAND_TEXTURE_URLS = Object.freeze({
+  albedo: '/water-lab/cc0/polyhaven/coast-sand-01-diff-1k.jpg',
+  arm: '/water-lab/cc0/polyhaven/coast-sand-01-arm-1k.jpg',
+  normal: '/water-lab/cc0/polyhaven/coast-sand-01-nor-gl-1k.jpg',
+});
+// The ground plane spans 220 m; 64 repeats makes each scan tile about 3.4 m.
+const SAND_TEXTURE_REPEAT = 64;
 const CAMERA_MOUSE_BUTTONS = Object.freeze({
   pan: THREE.MOUSE.PAN,
   rotate: THREE.MOUSE.ROTATE,
@@ -110,6 +118,10 @@ const STAGE_DEFINITIONS = {
     // Keep vegetation behind the breaker so it cannot visually split the
     // surf transition into a second system.
     kelpBand: [-26, -13],
+    fernPatches: [
+      { count: 5, radius: 3.2, scale: 0.9, seed: 181, x: -7.5, z: -18 },
+      { count: 5, radius: 3.6, scale: 1.0, seed: 182, x: 6.5, z: -21 },
+    ],
     rockSpots: [
       { scale: 1.15, seed: 81, x: -4.5, z: 6.5 },
       { scale: 0.9, seed: 82, x: 6.2, z: 3.2 },
@@ -121,6 +133,11 @@ const STAGE_DEFINITIONS = {
     boat: false,
     camera: { position: [12, 6.5, 19], target: [-1, 0.3, -5] },
     kelpBand: [-14, -2],
+    fernPatches: [
+      { count: 5, radius: 2.8, scale: 0.9, seed: 171, x: -7.5, z: -5.5 },
+      { count: 6, radius: 3.5, scale: 1.05, seed: 172, x: 5.5, z: -9.5 },
+      { count: 4, radius: 2.6, scale: 0.8, seed: 173, x: -2.5, z: -14 },
+    ],
     rockSpots: [
       { scale: 1.6, seed: 71, x: 5.5, z: 4.8 },
       { scale: 1.3, seed: 72, x: -3.2, z: -0.8 },
@@ -134,6 +151,11 @@ const STAGE_DEFINITIONS = {
     // Zoomed out: the swell should read as a body of water, not a pond.
     camera: { position: [20, 11, 30], target: [0, 0.5, -4] },
     kelpBand: null,
+    fernPatches: [
+      { count: 5, radius: 2.8, scale: 1.0, seed: 191, x: -3.5, z: -13 },
+      { count: 5, radius: 2.8, scale: 0.9, seed: 192, x: -18.5, z: -12.5 },
+      { count: 4, radius: 3.2, scale: 1.1, seed: 193, x: 4.5, z: -4 },
+    ],
     // Dress the islet's shore so it reads as land, not a sand blob.
     rockSpots: [
       { scale: 1.5, seed: 91, x: -8.2, z: -10.8 },
@@ -218,25 +240,102 @@ function buildRocks(spots, bed) {
 }
 
 // Flow-reactive kelp bed — the visible readout for flowDirection/flowSpeed.
-function buildKelp(count, band, bed, waterLevel) {
+function buildKelp(count, band, bed, waterLevel, fernPatches = []) {
   if (count <= 0 || !band) return null;
   const placements = [];
   for (let i = 0; i < count; i += 1) {
     const x = (hash01(i * 3 + 1) - 0.5) * 30;
     const z = THREE.MathUtils.lerp(band[0], band[1], hash01(i * 3 + 2));
+    const overlapsHeroPatch = fernPatches.some((patch) => (
+      Math.hypot(x - patch.x, z - patch.z) < patch.radius * 1.15
+    ));
+    if (overlapsHeroPatch) continue;
     const bedY = bed(x, z);
     const depth = waterLevel - bedY;
     if (depth < 0.35) continue; // no blades on dry sand
     placements.push({
       // Blades stay submerged: cap the height by the local water column.
-      height: Math.min(0.7 + hash01(i * 3 + 3) * 1.3, depth * 0.85),
+      height: Math.min(0.55 + hash01(i * 3 + 3) * 0.85, depth * 0.85),
+      width: 0.06 + hash01(i * 3 + 4) * 0.07,
       x,
       y: bedY,
       z,
     });
   }
   if (placements.length === 0) return null;
-  return new WaterKelpField({ placements });
+  return new WaterKelpField({
+    kelpColor: [0.24, 0.58, 0.38],
+    kelpShadeColor: [0.07, 0.24, 0.22],
+    placements,
+    swayAmplitude: 0.18,
+  });
+}
+
+// The ToonLab catalog's Quaternius Fern 1 is deliberately treated as a
+// stylized sea fern, not a botanical claim. Sparse hero clusters add readable
+// silhouette/scale while the procedural kelp remains the dense flow readout.
+function buildSeaFerns(template, patches, plantCount, bed, waterLevel) {
+  if (!template || plantCount <= 0 || !patches?.length) return null;
+  const group = new THREE.Group();
+  group.name = 'WaterLabSeaFerns';
+  const density = THREE.MathUtils.clamp(plantCount / 60, 0, 2);
+  const sourceMinY = template.userData.sourceMinY ?? 0;
+  const sourceHeight = Math.max(template.userData.sourceHeight ?? 0.84, 1e-3);
+
+  patches.forEach((patch) => {
+    const count = Math.max(0, Math.round(patch.count * density));
+    for (let i = 0; i < count; i += 1) {
+      const seed = patch.seed + i * 19.37;
+      const angle = hash01(seed + 0.17) * Math.PI * 2;
+      const radius = Math.sqrt(hash01(seed + 1.31)) * patch.radius;
+      const x = patch.x + Math.cos(angle) * radius;
+      const z = patch.z + Math.sin(angle) * radius;
+      const bedY = bed(x, z);
+      const depth = waterLevel - bedY;
+      if (depth < 0.48) continue;
+
+      const desiredScale = patch.scale * THREE.MathUtils.lerp(
+        0.72,
+        1.28,
+        hash01(seed + 2.63),
+      );
+      const scale = Math.min(desiredScale, depth * 0.78 / sourceHeight);
+      if (scale < 0.22) continue;
+
+      const pivot = new THREE.Group();
+      const fern = template.clone(true);
+      fern.scale.setScalar(scale);
+      fern.position.y = -sourceMinY * scale - 0.025;
+      pivot.position.set(x, bedY, z);
+      pivot.rotation.y = hash01(seed + 4.11) * Math.PI * 2;
+      pivot.userData.baseYaw = pivot.rotation.y;
+      pivot.userData.phase = hash01(seed + 5.37) * Math.PI * 2;
+      pivot.userData.swayScale = THREE.MathUtils.lerp(0.7, 1.2, hash01(seed + 7.03));
+      pivot.add(fern);
+      group.add(pivot);
+    }
+  });
+
+  return group.children.length ? group : null;
+}
+
+function updateSeaFerns(group, time, settings) {
+  if (!group) return;
+  const flow = settings.flowDirection ?? [1, 0];
+  const length = Math.hypot(flow[0] ?? 0, flow[1] ?? 0) || 1;
+  const flowX = (flow[0] ?? 0) / length;
+  const flowZ = (flow[1] ?? 0) / length;
+  const speed = 0.48 + Math.min(settings.flowSpeed ?? 0, 4) * 0.34;
+  const amplitude = 0.035 + Math.min(settings.flowSpeed ?? 0, 4) * 0.018;
+  group.children.forEach((pivot) => {
+    const sway = Math.sin(time * speed + pivot.userData.phase)
+      * amplitude * pivot.userData.swayScale;
+    pivot.rotation.set(
+      sway * flowZ,
+      pivot.userData.baseYaw,
+      -sway * flowX,
+    );
+  });
 }
 
 // Low-poly toon boat stand-in for fresh clones without assets-local/ (the
@@ -331,6 +430,7 @@ export function createWaterLabEngine({ mount, store }) {
   controls.maxTargetRadius = 34;
   controls.screenSpacePanning = true;
   controls.zoomToCursor = true;
+  let cameraInspectionMode = 'stage';
   function setCameraMode(mode) {
     const next = CAMERA_MOUSE_BUTTONS[mode] === undefined ? 'rotate' : mode;
     controls.mouseButtons.LEFT = CAMERA_MOUSE_BUTTONS[next];
@@ -338,6 +438,7 @@ export function createWaterLabEngine({ mount, store }) {
   }
   setCameraMode('rotate');
   function resetCamera() {
+    cameraInspectionMode = 'stage';
     const framing = stage().camera;
     camera.position.set(...framing.position);
     controls.target.set(...framing.target);
@@ -346,6 +447,55 @@ export function createWaterLabEngine({ mount, store }) {
     // 68 m pan diameter without ever reaching the simulation boundary.
     controls.cursor.copy(controls.target);
     controls.update();
+  }
+  function setCameraView(view) {
+    if (view !== 'underwater-up' && view !== 'underwater-floor') {
+      resetCamera();
+      return 'stage';
+    }
+    const waterY = store.getState().settings.waterLevel;
+    cameraInspectionMode = view;
+    if (view === 'underwater-up') {
+      // Look decisively upward: the whole viewport intersects the nearby
+      // surface, exposing the Snell window without grazing rays running all
+      // the way to the finite lab tile's far edge. Anchor offshore so the
+      // signed shoreline clipping cannot masquerade as a missing water tile.
+      const patch = stage().fernPatches?.[stageId === 'open' ? 2 : 1]
+        ?? stage().fernPatches?.[0]
+        ?? { x: 0, z: -10 };
+      camera.position.set(patch.x + 2.5, waterY - 1.2, patch.z + 3.5);
+      controls.target.set(patch.x, waterY + 1.4, patch.z);
+    } else {
+      // Frame a planted patch across the bottom instead of pointing almost
+      // straight down at one flat square metre. This makes albedo, normals,
+      // caustics, rocks, and plant scale readable in the same inspection view.
+      const patch = stage().fernPatches?.[stageId === 'open' ? 2 : 1]
+        ?? stage().fernPatches?.[0]
+        ?? { x: 0, z: -8 };
+      const cameraX = patch.x + 4.2;
+      let cameraZ = patch.z + 6;
+      // Grounds have different profiles. Walk offshore until there is enough
+      // room for an eye-height camera without placing it inside the terrain.
+      for (let z = patch.z + 6; z >= patch.z - 6; z -= 0.5) {
+        if (waterY - stage().bed(cameraX, z) >= 1.8) {
+          cameraZ = z;
+          break;
+        }
+      }
+      const targetX = patch.x - 1.2;
+      const targetZ = patch.z;
+      const cameraFloorY = stage().bed(cameraX, cameraZ);
+      const floorY = stage().bed(targetX, targetZ);
+      camera.position.set(
+        cameraX,
+        Math.min(waterY - 0.24, cameraFloorY + 1.35),
+        cameraZ,
+      );
+      controls.target.set(targetX, Math.min(waterY - 0.8, floorY + 0.45), targetZ);
+    }
+    controls.cursor.copy(controls.target);
+    controls.update();
+    return view;
   }
   resetCamera();
 
@@ -359,11 +509,41 @@ export function createWaterLabEngine({ mount, store }) {
   let bedMesh = null;
   let rocks = null;
   let kelp = null;
+  let seaFerns = null;
+  let fernTemplate = null;
   let water = null;
+  document.body.dataset.sandReady = 'loading';
+  document.body.dataset.fernReady = 'loading';
+  const sandLoadingManager = new THREE.LoadingManager();
+  sandLoadingManager.onLoad = () => { document.body.dataset.sandReady = 'true'; };
+  sandLoadingManager.onError = () => { document.body.dataset.sandReady = 'false'; };
+  const sandTextureLoader = new THREE.TextureLoader(sandLoadingManager);
+  function loadSandTexture(url, { colorSpace = THREE.NoColorSpace, name } = {}) {
+    const map = sandTextureLoader.load(url);
+    map.name = name ?? url;
+    map.colorSpace = colorSpace;
+    map.wrapS = THREE.RepeatWrapping;
+    map.wrapT = THREE.RepeatWrapping;
+    map.anisotropy = 4;
+    return map;
+  }
+  const sandMaps = {
+    albedo: loadSandTexture(SAND_TEXTURE_URLS.albedo, {
+      colorSpace: THREE.SRGBColorSpace,
+      name: 'CoastSand01Albedo',
+    }),
+    arm: loadSandTexture(SAND_TEXTURE_URLS.arm, { name: 'CoastSand01ARM' }),
+    normal: loadSandTexture(SAND_TEXTURE_URLS.normal, { name: 'CoastSand01NormalGL' }),
+  };
   // One material survives every Ground switch. Reusing its compiled graph is
   // essential on WebGPU, and its texture node simply follows the shore-state
   // ping-pong target each update.
-  const shoreMaterial = createWaterShoreMaterial();
+  const shoreMaterial = createWaterShoreMaterial({
+    albedoMap: sandMaps.albedo,
+    armMap: sandMaps.arm,
+    normalMap: sandMaps.normal,
+    textureRepeat: SAND_TEXTURE_REPEAT,
+  });
 
   // WebGPU encodes and submits work at the end of the render frame. Ground
   // controls can fire between the scene update and that submit, so disposing
@@ -380,10 +560,10 @@ export function createWaterLabEngine({ mount, store }) {
     });
   }
 
-  // A flat far-water plane under the fog so the sea reads as continuing to
-  // the horizon instead of ending at the animated tile. Every stage: it sits
-  // below the deepest trough, so above the waterline it's buried under the
-  // sand and offshore it hides the bare bed beyond the tile edge.
+  // An above-water-only horizon safety net. It sits below the deepest trough
+  // so surface views read as continuing past the animated tile. Never show it
+  // to a submerged camera: this full plane has no physical place inside the
+  // water volume and otherwise appears as a flat blue ceiling over the bed.
   const skirtMaterial = new THREE.MeshBasicMaterial({ color: 0x2a5f80 });
   const skirt = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), skirtMaterial);
   skirt.rotation.x = -Math.PI / 2;
@@ -502,6 +682,18 @@ export function createWaterLabEngine({ mount, store }) {
     scene.add(boatVisual);
   }
 
+  function syncSeaFerns(state = store.getState()) {
+    if (seaFerns) scene.remove(seaFerns);
+    seaFerns = buildSeaFerns(
+      fernTemplate,
+      stage().fernPatches,
+      state.view.kelp,
+      stage().bed,
+      state.settings.waterLevel,
+    );
+    if (seaFerns) scene.add(seaFerns);
+  }
+
   new GLTFLoader().loadAsync(SHIP_URL).then((gltf) => {
     const ship = gltf.scene;
     const box = new THREE.Box3().setFromObject(ship);
@@ -526,6 +718,42 @@ export function createWaterLabEngine({ mount, store }) {
     fallback.name = 'FallbackBoat';
     mountBoatModel(fallback);
     boat = fallback;
+  });
+
+  new GLTFLoader().loadAsync(FERN_URL).then((gltf) => {
+    fernTemplate = gltf.scene;
+    const bounds = new THREE.Box3().setFromObject(fernTemplate);
+    fernTemplate.userData.sourceMinY = bounds.min.y;
+    fernTemplate.userData.sourceHeight = bounds.max.y - bounds.min.y;
+    const materials = new Map();
+    fernTemplate.traverse((object) => {
+      if (!object.isMesh) return;
+      object.castShadow = false;
+      object.receiveShadow = true;
+      const sourceMaterials = Array.isArray(object.material)
+        ? object.material
+        : [object.material];
+      const tunedMaterials = sourceMaterials.map((source) => {
+        if (!materials.has(source)) {
+          const material = source.clone();
+          material.name = `${source.name || 'FernLeaves'}_Underwater`;
+          material.side = THREE.DoubleSide;
+          material.roughness = 0.9;
+          material.metalness = 0;
+          material.emissive.set(0x173b29);
+          material.emissiveMap = material.map;
+          material.emissiveIntensity = 0.32;
+          materials.set(source, material);
+        }
+        return materials.get(source);
+      });
+      object.material = Array.isArray(object.material) ? tunedMaterials : tunedMaterials[0];
+    });
+    document.body.dataset.fernReady = 'true';
+    syncSeaFerns();
+  }).catch(() => {
+    // Procedural kelp still keeps the stage useful if an asset is removed.
+    document.body.dataset.fernReady = 'false';
   });
 
   function updateBoat() {
@@ -617,11 +845,18 @@ export function createWaterLabEngine({ mount, store }) {
       scene.remove(staleKelp);
       disposeAfterRenderBoundary(() => staleKelp.dispose());
     }
-    kelp = buildKelp(state.view.kelp, stage().kelpBand, stage().bed, state.settings.waterLevel);
+    kelp = buildKelp(
+      state.view.kelp,
+      stage().kelpBand,
+      stage().bed,
+      state.settings.waterLevel,
+      stage().fernPatches,
+    );
     if (kelp) {
       kelp.setFlow(state.settings.flowDirection, state.settings.flowSpeed);
       scene.add(kelp);
     }
+    syncSeaFerns(state);
 
     // Preserve the material, render passes, ripple state, and animation clock.
     // Recreating them here made the new scene appear and then block input
@@ -753,11 +988,13 @@ export function createWaterLabEngine({ mount, store }) {
   let lastRevision = store.getState().docRevision;
   let lastDebug = store.getState().view.debug;
   let lastKelpCount = store.getState().view.kelp;
+  let lastPlantWaterLevel = store.getState().settings.waterLevel;
   store.subscribe(() => {
     const state = store.getState();
     if (state.view.stage !== stageId) {
       stageId = state.view.stage;
       lastRevision = state.docRevision;
+      lastPlantWaterLevel = state.settings.waterLevel;
       rebuildStage();
       return;
     }
@@ -765,6 +1002,10 @@ export function createWaterLabEngine({ mount, store }) {
       lastRevision = state.docRevision;
       applySettings(state.settings);
       kelp?.setFlow(state.settings.flowDirection, state.settings.flowSpeed);
+      if (Math.abs(state.settings.waterLevel - lastPlantWaterLevel) > 0.05) {
+        lastPlantWaterLevel = state.settings.waterLevel;
+        syncSeaFerns(state);
+      }
     }
     if (state.view.debug !== lastDebug) {
       lastDebug = state.view.debug;
@@ -778,11 +1019,18 @@ export function createWaterLabEngine({ mount, store }) {
         scene.remove(kelp);
         kelp.dispose();
       }
-      kelp = buildKelp(state.view.kelp, stage().kelpBand, stage().bed, state.settings.waterLevel);
+      kelp = buildKelp(
+        state.view.kelp,
+        stage().kelpBand,
+        stage().bed,
+        state.settings.waterLevel,
+        stage().fernPatches,
+      );
       if (kelp) {
         kelp.setFlow(state.settings.flowDirection, state.settings.flowSpeed);
         scene.add(kelp);
       }
+      syncSeaFerns(state);
     }
     syncFauna(state.view.fish, state.settings.waterLevel);
   });
@@ -798,7 +1046,9 @@ export function createWaterLabEngine({ mount, store }) {
   // playground's UnderwaterAtmosphere) so depth fade/caustics read in situ.
   function syncUnderwaterAtmosphere() {
     const settings = store.getState().settings;
-    if (camera.position.y < water.position.y) {
+    const submerged = camera.position.y < water.position.y;
+    skirt.visible = !submerged;
+    if (submerged) {
       underwaterColor.setRGB(
         settings.midColor[0] * 0.8,
         settings.midColor[1] * 0.85,
@@ -831,6 +1081,8 @@ export function createWaterLabEngine({ mount, store }) {
       updateBoat();
       fauna?.update(delta);
       kelp?.update(delta);
+      if (kelp) kelp.visible = cameraInspectionMode !== 'underwater-floor';
+      updateSeaFerns(seaFerns, clock.elapsedTime, store.getState().settings);
       if (rain.visible) {
         rain.update(delta, camera, renderer, water.position.y);
         // Rain-pocked water: a few dimples per frame around the view center.
@@ -858,6 +1110,7 @@ export function createWaterLabEngine({ mount, store }) {
     resetCamera,
     scene,
     setCameraMode,
+    setCameraView,
     start,
   };
 }

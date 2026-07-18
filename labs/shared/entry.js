@@ -56,5 +56,7 @@ if (isRockLabPath || (params.get('scene') || '').toLowerCase() === 'rock') {
   initializeHudTabs(params.get('hudTab') || 'character');
   import('../playground/ecctrlMain.jsx');
 } else {
+  // /shader-lab/ (the Shader Lab page; the root path is the Labs home and
+  // does not load this bootstrap).
   import('../shader-lab/main.js');
 }

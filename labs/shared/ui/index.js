@@ -3,6 +3,7 @@
 export { createStore } from './createStore.js';
 export { useStoreState } from './hooks/useStore.js';
 export { Icon } from './components/Icon.jsx';
+export { BrandLockup, PresetRowShell, PreviewBar, PreviewToggle, RendererToggle } from './components/LabChrome.jsx';
 export {
   Badge, Button, ColorWell, IconButton, Kbd, SegmentedControl, Select, TextField, Toggle,
 } from './components/primitives.jsx';

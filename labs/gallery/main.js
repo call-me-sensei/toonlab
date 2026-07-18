@@ -1,0 +1,282 @@
+// Gallery — the same UI as toonlab.io/gallery (toolbar, showcase grid,
+// sticky pager), but backed exclusively by THIRD-PARTY public APIs queried
+// live from the browser. That is the OSS/Pro split: Pro searches ToonLab's
+// own index (community creations + curated CC0 mirror, downloads behind an
+// account); this page never talks to ToonLab at all — every card comes
+// straight from the source's own API and links to the source's site.
+//
+// A source qualifies only if its API needs no key and answers cross-origin
+// (CORS). That currently means Poly Haven. ambientCG has an API but sends no
+// CORS headers; Smithsonian requires an api.data.gov key; Kenney, Quaternius,
+// Mantissa, 3DTextures.me and Open Source 3D have no search API. Add new
+// entries to SOURCES (and the source <select>) only when both conditions hold.
+
+import { downloadPolyhavenAsset } from '../shared/polyhavenDownload.js';
+
+const PAGE_SIZE = 36;
+
+const PH_ENDPOINT = Object.freeze({ texture: 'textures', model: 'models', hdri: 'hdris' });
+
+const SOURCES = Object.freeze({
+  polyhaven: {
+    label: 'Poly Haven',
+    kinds: Object.keys(PH_ENDPOINT),
+    cache: new Map(),
+    list(kind) {
+      // One fetch per kind per session; the full per-kind index is small
+      // (~1–2k entries) so search/sort/pagination happen client-side.
+      if (!this.cache.has(kind)) {
+        const load = (async () => {
+          const res = await fetch(`https://api.polyhaven.com/assets?type=${PH_ENDPOINT[kind]}`);
+          if (!res.ok) throw new Error(`polyhaven/${kind} → HTTP ${res.status}`);
+          const data = await res.json();
+          return Object.entries(data).map(([id, a]) => ({
+            id: `polyhaven:${id}`,
+            sourceId: id,
+            kind,
+            label: a.name ?? id,
+            badge: 'Poly Haven · CC0',
+            href: `/asset/?id=${encodeURIComponent(id)}&kind=${kind}`,
+            sourceHref: `https://polyhaven.com/a/${id}`,
+            thumbUrl: `${(a.thumbnail_url ?? `https://cdn.polyhaven.com/asset_img/thumbs/${id}.png`).split('?')[0]}?width=640&height=480`,
+            popularity: a.download_count ?? 0,
+            haystack: [a.name ?? '', id, ...(a.tags ?? []), ...(a.categories ?? [])].join(' ').toLowerCase(),
+          }));
+        })();
+        // Failed loads must not poison the cache — allow a retry.
+        load.catch(() => this.cache.delete(kind));
+        this.cache.set(kind, load);
+      }
+      return this.cache.get(kind);
+    },
+  },
+});
+
+const els = {
+  grid: document.getElementById('galGrid'),
+  empty: document.getElementById('galEmpty'),
+  emptyTitle: document.getElementById('galEmptyTitle'),
+  emptyHint: document.getElementById('galEmptyHint'),
+  status: document.getElementById('galStatus'),
+  pager: document.getElementById('galPager'),
+  pagerStatus: document.getElementById('galPagerStatus'),
+  prev: document.getElementById('galPrev'),
+  next: document.getElementById('galNext'),
+  form: document.getElementById('galFilters'),
+  search: document.getElementById('galSearch'),
+  source: document.getElementById('galSource'),
+  type: document.getElementById('galType'),
+};
+
+const state = { q: '', src: '', type: '', page: 1 };
+
+function readUrl() {
+  const params = new URLSearchParams(window.location.search);
+  state.q = params.get('q') ?? '';
+  state.src = params.get('src') in SOURCES ? params.get('src') : '';
+  state.type = ['texture', 'model', 'hdri'].includes(params.get('type')) ? params.get('type') : '';
+  state.page = Math.max(1, Number(params.get('page')) || 1);
+}
+
+function urlFor(overrides = {}) {
+  const merged = { ...state, ...overrides };
+  const params = new URLSearchParams();
+  if (merged.q) params.set('q', merged.q);
+  if (merged.src) params.set('src', merged.src);
+  if (merged.type) params.set('type', merged.type);
+  if (merged.page > 1) params.set('page', String(merged.page));
+  const qs = params.toString();
+  return `${window.location.pathname}${qs ? `?${qs}` : ''}`;
+}
+
+function syncControls() {
+  els.search.value = state.q;
+  els.source.value = state.src;
+  els.type.value = state.type;
+}
+
+async function collect() {
+  const loads = [];
+  for (const [key, source] of Object.entries(SOURCES)) {
+    if (state.src && state.src !== key) continue;
+    for (const kind of source.kinds) {
+      if (state.type && state.type !== kind) continue;
+      loads.push(source.list(kind));
+    }
+  }
+  let items = (await Promise.all(loads)).flat();
+  const terms = state.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length) items = items.filter((item) => terms.every((t) => item.haystack.includes(t)));
+  // Same ordering as Pro's CC0 half of the feed: popularity, descending.
+  items.sort((a, b) => b.popularity - a.popularity);
+  return items;
+}
+
+function card(item) {
+  // Cards open OUR asset page (same-tab, like Pro); only the explicit
+  // download affordance goes out to the source site.
+  const el = document.createElement('a');
+  el.className = 'gal-card';
+  el.href = item.href;
+  el.title = item.label;
+
+  const media = document.createElement('div');
+  media.className = 'gal-card-media';
+  if (item.thumbUrl) media.style.backgroundImage = `url("${item.thumbUrl.replace(/"/g, '%22')}")`;
+  else {
+    media.classList.add('gal-card-media--empty');
+    media.textContent = '🧱';
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'gal-card-overlay';
+  const title = document.createElement('div');
+  title.className = 'gal-card-title';
+  title.textContent = item.label;
+  const meta = document.createElement('div');
+  meta.className = 'gal-card-meta';
+  const badge = document.createElement('span');
+  badge.className = 'gal-badge gal-badge--src';
+  badge.textContent = item.badge;
+  const download = document.createElement('span');
+  download.className = 'author';
+  download.style.textDecoration = 'underline';
+  download.style.cursor = 'pointer';
+  download.textContent = 'Download ↓';
+  download.setAttribute('role', 'link');
+  download.tabIndex = 0;
+  let busy = false;
+  download.addEventListener('click', async (e) => {
+    // Direct download in place — assembled off the source CDN, no account.
+    e.preventDefault();
+    e.stopPropagation();
+    if (busy) return;
+    busy = true;
+    try {
+      await downloadPolyhavenAsset({
+        id: item.sourceId,
+        kind: item.kind,
+        onProgress: (done, total, phase) => {
+          download.textContent = phase === 'pack' ? 'Packing…' : `${done}/${total}…`;
+        },
+      });
+    } catch (error) {
+      console.error('Direct download failed:', error);
+      window.open(item.sourceHref, '_blank', 'noopener'); // fallback: source page
+    }
+    download.textContent = 'Download ↓';
+    busy = false;
+  });
+  meta.append(badge, download);
+  overlay.append(title, meta);
+  el.append(media, overlay);
+  return el;
+}
+
+function setSearching(on) {
+  els.grid.classList.toggle('gal-grid--loading', on);
+  if (!on) return;
+  const wrap = document.createElement('span');
+  wrap.className = 'gal-searching';
+  const spinner = document.createElement('span');
+  spinner.className = 'gal-spinner';
+  spinner.setAttribute('aria-hidden', 'true');
+  wrap.append(spinner, ' Searching…');
+  els.status.replaceChildren(wrap);
+}
+
+let renderId = 0;
+async function render() {
+  const id = ++renderId;
+  setSearching(true);
+
+  let items;
+  try {
+    items = await collect();
+  } catch (error) {
+    if (id !== renderId) return;
+    console.error('Gallery fetch failed:', error);
+    els.grid.replaceChildren();
+    els.status.textContent = 'Could not reach asset sources.';
+    els.emptyTitle.textContent = 'Asset sources unreachable';
+    els.emptyHint.textContent = 'Check your connection and try again.';
+    els.empty.hidden = false;
+    els.pager.hidden = true;
+    setSearching(false);
+    return;
+  }
+  if (id !== renderId) return;
+
+  const total = items.length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (state.page > totalPages) {
+    state.page = totalPages;
+    history.replaceState(null, '', urlFor());
+  }
+  const start = (state.page - 1) * PAGE_SIZE;
+  const pageItems = items.slice(start, start + PAGE_SIZE);
+
+  els.grid.replaceChildren(...pageItems.map(card));
+  els.status.textContent = `${total.toLocaleString()} assets`;
+
+  const q = state.q.trim();
+  els.emptyTitle.textContent = q ? `Nothing matches “${q}”` : 'Nothing matches';
+  els.emptyHint.textContent = 'Try different filters or a broader search.';
+  els.empty.hidden = total > 0;
+
+  els.pager.hidden = totalPages <= 1;
+  els.pagerStatus.textContent = `Page ${state.page} / ${totalPages}`;
+  els.prev.href = urlFor({ page: state.page - 1 });
+  els.next.href = urlFor({ page: state.page + 1 });
+  els.prev.style.visibility = state.page > 1 ? 'visible' : 'hidden';
+  els.next.style.visibility = state.page < totalPages ? 'visible' : 'hidden';
+
+  setSearching(false);
+}
+
+function apply({ resetPage = true } = {}) {
+  state.q = els.search.value;
+  state.src = els.source.value;
+  state.type = els.type.value;
+  if (resetPage) state.page = 1;
+  history.pushState(null, '', urlFor());
+  render();
+}
+
+// Filters apply themselves: selects on change, search debounced while typing
+// (changing any filter resets to page 1) — same behavior as Pro.
+let searchTimer = null;
+els.search.addEventListener('input', () => {
+  if (searchTimer) clearTimeout(searchTimer);
+  searchTimer = setTimeout(apply, 350);
+});
+els.form.addEventListener('submit', (e) => {
+  e.preventDefault();
+  if (searchTimer) clearTimeout(searchTimer);
+  apply();
+});
+els.source.addEventListener('change', () => apply());
+els.type.addEventListener('change', () => apply());
+
+for (const [el, delta] of [[els.prev, -1], [els.next, 1]]) {
+  el.addEventListener('click', (e) => {
+    // Plain click paginates in place; the real href stays for middle-click.
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+    e.preventDefault();
+    state.page += delta;
+    history.pushState(null, '', urlFor());
+    window.scrollTo({ top: 0 });
+    render();
+  });
+}
+
+window.addEventListener('popstate', () => {
+  readUrl();
+  syncControls();
+  render();
+});
+
+// Deep links still work: /gallery/?type=texture (Texture Lab button), ?q=, ?src=.
+readUrl();
+syncControls();
+render();

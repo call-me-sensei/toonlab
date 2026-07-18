@@ -196,6 +196,11 @@ export const DEFAULT_WATER_SETTINGS = Object.freeze({
   deepFadeDistance: 2.2,
   opacity: 0.8,
   refractionStrength: 0.35,
+  // Physical anchor for the stylized underside. 1.333 produces the familiar
+  // water-to-air Snell window and total-internal-reflection cutoff.
+  indexOfRefraction: 1.333,
+  underwaterTransmission: 1.0,
+  underwaterTintStrength: 0.35,
   causticsStrength: 0.55,
   causticsScale: 0.8,
   causticsSpeed: 0.6,
@@ -589,6 +594,15 @@ export function createWaterSettings(options = {}) {
     deepFadeDistance: clampedNumber(tone.deepFadeDistance ?? source.deepFadeDistance, base.deepFadeDistance, 0.01, 120),
     opacity: clampedNumber(source.opacity, base.opacity, 0, 1),
     refractionStrength: clampedNumber(source.refractionStrength, base.refractionStrength, 0, 3),
+    indexOfRefraction: clampedNumber(
+      source.indexOfRefraction, base.indexOfRefraction, 1.0001, 1.8,
+    ),
+    underwaterTransmission: clampedNumber(
+      source.underwaterTransmission, base.underwaterTransmission, 0, 1,
+    ),
+    underwaterTintStrength: clampedNumber(
+      source.underwaterTintStrength, base.underwaterTintStrength, 0, 1,
+    ),
     causticsStrength: clampedNumber(tone.causticsStrength ?? source.causticsStrength, base.causticsStrength, 0, 4),
     causticsScale: clampedNumber(source.causticsScale, base.causticsScale, 0.02, 12),
     causticsSpeed: clampedNumber(source.causticsSpeed, base.causticsSpeed, 0, 8),
@@ -1059,6 +1073,9 @@ const FIELD_METADATA = {
   deepFadeDistance: { group: 'surface', label: 'Deep Fade', min: 0.05, max: 24, step: 0.05, description: 'Additional depth where mid fades to the deep tint.' },
   opacity: { group: 'surface', label: 'Opacity', min: 0, max: 1, step: 0.01, description: 'Base transparency when no scene color grab pass is bound.' },
   refractionStrength: { group: 'surface', label: 'Refraction', min: 0, max: 2, step: 0.01, description: 'Screen-space distortion of the underwater scene.' },
+  indexOfRefraction: { group: 'surface', label: 'Water IOR', min: 1.0001, max: 1.8, step: 0.001, description: 'Index of refraction used by the underwater Snell window and total internal reflection.' },
+  underwaterTransmission: { group: 'surface', label: 'Underwater View', min: 0, max: 1, step: 0.01, description: 'Visibility of the real above-water scene through the surface from below.' },
+  underwaterTintStrength: { group: 'surface', label: 'Underwater Tint', min: 0, max: 1, step: 0.01, description: 'Stylized water-color tint applied to the view through the surface.' },
   causticsStrength: { group: 'surface', label: 'Caustics', min: 0, max: 3, step: 0.01, description: 'Brightness of the procedural voronoi caustics on the bottom.' },
   causticsScale: { group: 'surface', label: 'Caustics Scale', min: 0.05, max: 8, step: 0.05, description: 'Spatial frequency of the caustic web.' },
   causticsSpeed: { group: 'surface', label: 'Caustics Speed', min: 0, max: 4, step: 0.01, description: 'Animation speed of the caustic web.' },

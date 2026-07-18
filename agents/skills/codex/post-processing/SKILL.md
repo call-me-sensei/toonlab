@@ -10,11 +10,22 @@ pipeline, settings, preset documents, bloom, color grading, LUTs, vignette,
 screen outlines, depth cue, motion blur, or character-aware bloom.
 
 Public imports:
-- `toonlab/post`
-- `toonlab/post-processing`
+- `@call-me-sensei/toonlab/post`
+- `@call-me-sensei/toonlab/post-processing`
 
 Read first:
 - `docs/post-processing.md`
+
+Generating looks (no lab UI required):
+- `createPostGeneratorRecipe(id, { seed, locks, configuration })` defines an
+  editable domain; `createGeneratedPostPresetDocument(recipe, { quality })`
+  resolves it into a flat, portable preset deterministically per seed.
+- The MCP style tools (`create_style_recipe`, `generate_style_presets` with
+  `lab: 'post'`) do the same thing server-side — use them only when you want
+  validated batches persisted to the shared `.toonlab/` workspace; otherwise
+  generate in code.
+- Ship the resolved preset in the app; keep the recipe only if runtime
+  re-rolling is a feature.
 
 Developer guidance:
 - Keep the post stack optional and controlled by the host app.

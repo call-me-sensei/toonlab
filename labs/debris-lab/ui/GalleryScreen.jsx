@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 
-import { Button, Icon, Modal, toast } from '../../shared/ui/index.js';
+import { BrandLockup, Button, Icon, Modal, toast } from '../../shared/ui/index.js';
 import { BUILT_IN_DEBRIS_PRESETS, DEBRIS_TYPES } from '../../../src/debrisgen/index.js';
 import { deleteLocalDebrisPreset, loadLocalDebrisPresets } from '../debrisProjectStore.js';
 import { DebrisThumbnail } from './DebrisThumbnail.jsx';
@@ -49,7 +49,7 @@ export function GalleryScreen({ actions, state }) {
   return (
     <div className="db-gallery" data-testid="gallery">
       <header className="db-gallery-header">
-        <span className="db-gallery-brand"><Icon name="logo-toonlab" /> toonlab / Debris Lab</span>
+        <BrandLockup labName="Debris Lab" />
         <Button icon="download" kind="ghost" onClick={() => setImportOpen(true)} testId="gallery-import">
           Import recipe…
         </Button>

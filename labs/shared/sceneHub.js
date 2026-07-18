@@ -1,9 +1,19 @@
 import { buildLocalCharacterModelOptions } from './localModelCatalog.js';
 
 export const SCENE_HUB_OPTIONS = Object.freeze([
+  // The root page is the Labs home (card grid over every lab); the hub select
+  // never resolves to it, but listing it first gives every lab a way back.
+  Object.freeze({
+    id: 'home',
+    label: 'ToonLab — All Labs',
+    path: '/',
+    search: '',
+  }),
+  // The Shader Lab moved off the root page when the Labs home landed there.
   Object.freeze({
     id: 'character',
-    label: 'Character Lab',
+    label: 'Character Shader',
+    path: '/shader-lab/',
     search: '',
   }),
   // Walkable indoor environment scene with the schema-driven environment
@@ -12,8 +22,20 @@ export const SCENE_HUB_OPTIONS = Object.freeze([
   // docs/environment.md); without one it surfaces a load banner. (The Shader
   // Lab's static environment view is still reachable directly via /?env=1.)
   Object.freeze({
+    id: 'grassLab',
+    label: 'Grass Lab',
+    path: '/grass-lab/',
+    search: '',
+  }),
+  Object.freeze({
     id: 'environmentLab',
-    label: 'Environment Lab (Indoor)',
+    label: 'Environment Lab',
+    path: '/environment-lab/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'environmentWalkable',
+    label: 'Indoor Playground (walkable)',
     path: '/playground/',
     search: '?scene=indoor',
   }),
@@ -77,21 +99,9 @@ export const SCENE_HUB_OPTIONS = Object.freeze([
     search: '',
   }),
   Object.freeze({
-    id: 'catalog',
-    label: 'Catalog',
-    path: '/catalog/',
-    search: '',
-  }),
-  Object.freeze({
-    id: 'assetLab',
-    label: 'Asset Browser (CC0 imports)',
-    path: '/asset-lab/',
-    search: '',
-  }),
-  Object.freeze({
-    id: 'vfxLab',
-    label: 'VFX Lab',
-    path: '/vfx-lab/',
+    id: 'settings',
+    label: 'Settings · MCP Connection',
+    path: '/settings/',
     search: '',
   }),
   // Showcase pages (examples/, not labs): reachable from the hub so the
@@ -131,9 +141,9 @@ const SCENE_HUB_ALIASES = new Map([
   ['riverCrossing', 'waterPlayground'],
   ['oceanBeach', 'waterPlayground'],
   // Former indoor entry ids.
-  ['liyue', 'environmentLab'],
-  ['liyueWalk', 'environmentLab'],
-  ['environmentWalk', 'environmentLab'],
+  ['liyue', 'environmentWalkable'],
+  ['liyueWalk', 'environmentWalkable'],
+  ['environmentWalk', 'environmentWalkable'],
 ]);
 
 function normalizeSceneHubId(id) {
@@ -152,22 +162,40 @@ export const CHARACTER_MODEL_OPTIONS = Object.freeze([
   // compact mannequin needs the lift to read as surface freestyle; taller
   // models generally do not.
   Object.freeze({ label: 'Mannequin', model: '/characters/mannequin.glb', swimVisualLift: 0.18 }),
+  // Host-injected characters: a hosting app (ToonLab Pro's LabMount) may
+  // stamp `window.__toonlabHostCharacterModels = [{ label, model }]` with the
+  // signed URLs of the user's uploaded character models BEFORE the lab
+  // module loads; they surface in every character picker.
+  ...(Array.isArray(window.__toonlabHostCharacterModels) ? window.__toonlabHostCharacterModels : [])
+    .filter((entry) => entry && entry.model)
+    .map((entry) => Object.freeze({
+      label: String(entry.label || 'Uploaded character'),
+      model: String(entry.model),
+      mtl: entry.mtl ? String(entry.mtl) : null,
+    })),
   ...buildLocalCharacterModelOptions().map((option) => Object.freeze({
     label: option.label,
     model: `/${option.modelUrl}`,
+    mtl: option.materialUrl ? `/${option.materialUrl}` : null,
   })),
 ]);
 
 export function resolveSceneHubId(params = new URLSearchParams(window.location.search)) {
   const pathname = window.location.pathname.toLowerCase();
+  if (pathname.startsWith('/shader-lab')) {
+    return (params.has('env') || params.has('environment')) ? 'environmentLab' : 'character';
+  }
   if (pathname.startsWith('/tree-lab') || pathname.startsWith('/tree-designer')) return 'treeLab';
   if (pathname.startsWith('/debris-lab')) return 'debrisLab';
   if (pathname.startsWith('/texture-lab')) return 'textureLab';
   if (pathname.startsWith('/water-lab')) return 'waterLab';
+  if (pathname.startsWith('/lighting-lab')) return 'lightingLab';
+  if (pathname.startsWith('/weather-lab')) return 'weatherLab';
+  if (pathname.startsWith('/environment-lab')) return 'environmentLab';
+  if (pathname.startsWith('/grass-lab')) return 'grassLab';
   if (pathname.startsWith('/prop-lab')) return 'propLab';
   if (pathname.startsWith('/building-lab')) return 'buildingLab';
-  if (pathname.startsWith('/catalog')) return 'catalog';
-  if (pathname.startsWith('/asset-lab')) return 'assetLab';
+  if (pathname.startsWith('/settings')) return 'settings';
   if (pathname.startsWith('/vfx-lab')) return 'vfxLab';
   const onPlaygroundPath = pathname.startsWith('/playground');
   const onRockLabPath = pathname.startsWith('/rock-lab');
@@ -176,7 +204,7 @@ export function resolveSceneHubId(params = new URLSearchParams(window.location.s
 
   if (onRockLabPath || scene === 'rock') return 'rockLab';
   if ((onPlaygroundPath || controller === 'ecctrl') && scene === 'water') return 'waterPlayground';
-  if ((onPlaygroundPath || controller === 'ecctrl') && (scene === 'liyue' || scene === 'indoor')) return 'environmentLab';
+  if ((onPlaygroundPath || controller === 'ecctrl') && (scene === 'liyue' || scene === 'indoor')) return 'environmentWalkable';
   if (onPlaygroundPath || controller === 'ecctrl') return 'controller';
   if (params.has('env') || params.has('environment')) return 'environmentLab';
   return 'character';

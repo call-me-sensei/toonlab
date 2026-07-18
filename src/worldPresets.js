@@ -62,6 +62,9 @@ const WORLD_PRESET_DEFINITIONS = new Map([
     water: {
       preset: 'call_me_sensei',
     },
+    weather: {
+      preset: 'call_me_sensei',
+    },
     grass: {
       preset: 'call_me_sensei',
       // Asset-lab blades (0.16–0.42 m) vanish at 50 m+; meadow scale reads.
@@ -90,7 +93,7 @@ const WORLD_PRESET_DEFINITIONS = new Map([
  * Registers a named world preset (community presets sit alongside the
  * built-ins). `definition` follows the same shape as the built-ins: any of
  * `{ label, description, units, camera, environment, sky, water, grass,
- * trees, rocks }`.
+ * trees, rocks, weather }`.
  */
 export function registerWorldPreset(name, definition = {}, { overwrite = false } = {}) {
   const id = String(name ?? '').trim();

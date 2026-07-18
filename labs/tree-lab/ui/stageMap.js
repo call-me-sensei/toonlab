@@ -29,8 +29,8 @@ export const STAGES = [
     label: 'Leaves',
   },
   {
-    description: 'Leaf style, palette, season, and wind (live — not baked into GLB).',
-    groups: ['color', 'wind'],
+    description: 'Leaf style, palette, and season.',
+    groups: ['color'],
     icon: 'stage-look',
     id: 'look',
     key: '4',

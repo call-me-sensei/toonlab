@@ -14,6 +14,7 @@ const CLUSTER_LABELS = {
   all: 'All clusters',
   buildinggen: 'Buildings',
   debrisgen: 'Debris',
+  lighting: 'Lighting',
   pathgen: 'Paths',
   post: 'Post',
   propgen: 'Props',
@@ -27,6 +28,7 @@ const CLUSTER_LABELS = {
 const LAB_LINKS = {
   buildinggen: (entry) => `/building-lab/?recipe=${encodeURIComponent(JSON.stringify(entry.recipe))}`,
   debrisgen: (entry) => `/debris-lab/?debrisRecipe=${encodeURIComponent(JSON.stringify({ kind: 'toonlab.debrisRecipe', name: entry.label, settings: entry.recipe.settings, version: 1 }))}`,
+  lighting: (entry) => `/lighting-lab/?preset=${encodeURIComponent(`${entry.recipe.kind}:${entry.recipe.preset}`)}`,
   propgen: (entry) => `/prop-lab/?recipe=${encodeURIComponent(JSON.stringify(entry.recipe))}`,
   water: (entry) => `/water-lab/?waterPreset=${encodeURIComponent(entry.recipe.preset)}`,
 };

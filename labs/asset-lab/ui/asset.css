@@ -79,6 +79,30 @@
 .asset-grid .card-tris { color: #6d8296; font-size: 10px; }
 .asset-grid .empty { color: #6d8296; grid-column: 1 / -1; padding: 40px; text-align: center; }
 
+.asset-source-facts { color: #6d8296; font-size: 11px; margin: -4px 0 0; }
+.asset-source-disabled {
+  background: #1a1520;
+  border: 1px solid #3a2b45;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+.asset-source-disabled p { color: #c9b3dd; font-size: 12px; margin: 0; }
+.asset-source-disabled code { color: #e0cff0; }
+
+.asset-more { border-top: 1px solid #1d2835; padding-top: 8px; }
+.asset-more summary { color: #8ea4b8; cursor: pointer; font-size: 12px; }
+.asset-more-hint { color: #6d8296; font-size: 11px; margin: 8px 0; }
+.asset-import { color: #9fb4c6; display: flex; flex-direction: column; font-size: 11px; gap: 4px; margin-bottom: 10px; }
+.asset-import input { color: #9fb4c6; font-size: 11px; }
+.asset-more-source { border-top: 1px solid #16202b; padding: 8px 0; }
+.asset-more-source a { color: #7fb3e8; font-size: 12px; font-weight: 600; }
+.asset-more-license { color: #6d8296; font-size: 10px; margin-left: 8px; }
+.asset-more-source p { color: #8ea4b8; font-size: 11px; margin: 4px 0 0; }
+.asset-more-source .asset-more-warning { color: #e8b96a; }
+
 .asset-key { display: flex; flex-direction: column; gap: 6px; }
 .asset-key label { color: #8ea4b8; font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase; }
 .asset-key-row { align-items: center; display: flex; gap: 10px; }

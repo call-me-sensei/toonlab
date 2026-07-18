@@ -1,10 +1,15 @@
 // assetlib verification — pure-Node, OFFLINE by design: fixtures mirror real
-// API payloads captured 2026-07-14 (shapes asserted against the live APIs),
-// so normalization, download resolution, donation-vault filtering, and the
+// API payloads captured 2026-07-14 (Poly Haven / ambientCG / Poly Pizza) and
+// 2026-07-16 (KayKit GitHub listings, Open Source 3D Assets registry JSON),
+// shapes asserted against the live APIs — so normalization, download
+// resolution, donation-vault filtering, the source registry, and the
 // catalog-entry contract are checked without touching the network.
 // Run: node scripts/verify-assetlib.mjs
 
+import { readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import process from 'node:process';
+import { fileURLToPath } from 'node:url';
 import { deflateRawSync } from 'node:zlib';
 
 import {
@@ -30,6 +35,28 @@ import {
   rewritePolyPizzaDownloadUrl,
   searchPolyPizza,
 } from '../src/assetlib/polypizza.js';
+import {
+  KAYKIT_PACKS,
+  fetchKayKitIndex,
+  fetchKayKitPackFiles,
+  getKayKitPack,
+  normalizeKayKitFiles,
+  resolveKayKitDownload,
+} from '../src/assetlib/kaykit.js';
+import { KAYKIT_STATIC_INDEX } from '../src/assetlib/kaykitStaticIndex.js';
+import {
+  fetchOs3dIndex,
+  normalizeOs3dAssets,
+  normalizeOs3dProjects,
+} from '../src/assetlib/opensource3d.js';
+import {
+  ASSET_SOURCES,
+  ASSET_SOURCE_INTEGRATIONS,
+  ASSET_SOURCE_QUALITY_TIERS,
+  curateAssetRefs,
+  getAssetSource,
+  listAssetSources,
+} from '../src/assetlib/sources.js';
 import { readZipEntries } from '../src/assetlib/zip.js';
 import { validateCatalogEntry } from '../src/catalog/manifest.js';
 import { createCatalog } from '../src/catalog/index.js';
@@ -255,6 +282,201 @@ check('polypizza: 401 explains the missing key', await searchPolyPizza({
 const ppEntry = importedAssetCatalogEntry(ppRef, { download: ppRef.download });
 check('polypizza: imported entry validates', validateCatalogEntry(ppEntry).ok
   && ppEntry.id === 'imported/polypizza/abc123');
+
+// --- source registry -----------------------------------------------------------------
+
+check('sources: ids unique + shapes complete', (() => {
+  const ids = new Set(ASSET_SOURCES.map((source) => source.id));
+  return ids.size === ASSET_SOURCES.length && ASSET_SOURCES.every((source) => source.id
+    && source.label
+    && source.url?.startsWith('https://')
+    && source.license
+    && typeof source.enabled === 'boolean'
+    && typeof source.keyed === 'boolean'
+    && Array.isArray(source.kinds)
+    && ASSET_SOURCE_INTEGRATIONS.includes(source.integration)
+    && ASSET_SOURCE_QUALITY_TIERS.includes(source.qualityTier)
+    && source.notes
+    && source.goodFor);
+})());
+check('sources: curation policy — only Poly Haven + ambientCG ship enabled',
+  ASSET_SOURCES.filter((source) => source.enabled).map((source) => source.id).sort().join(',')
+    === 'ambientcg,polyhaven');
+check('sources: enabled ⇒ reviewed tier; unreviewed ⇒ disabled', ASSET_SOURCES.every((source) => (source.enabled
+  ? source.qualityTier !== 'unreviewed'
+  : source.qualityTier === 'unreviewed')));
+check('sources: keyed api sources say where the key comes from',
+  getAssetSource('polypizza').key.env === 'TOONLAB_POLYPIZZA_KEY'
+  && getAssetSource('polypizza').key.url.includes('poly.pizza'));
+check('sources: sketchfab is a link-out that explains why (OAuth + branding terms)', (() => {
+  const sketchfab = getAssetSource('sketchfab');
+  return sketchfab.integration === 'linkout'
+    && sketchfab.url.includes('licenses=cc0')
+    && /OAuth/i.test(sketchfab.restrictions)
+    && /branding/i.test(sketchfab.restrictions);
+})());
+check('sources: sharetextures carries the never-automate warning', (() => {
+  const sharetextures = getAssetSource('sharetextures');
+  return sharetextures.integration === 'linkout' && /automated downloads/i.test(sharetextures.restrictions);
+})());
+check('sources: freesound notes the non-commercial API tier',
+  /non-commercial/i.test(getAssetSource('freesound').notes));
+check('listAssetSources: hides disabled by default, includeDisabled shows all, filters work',
+  listAssetSources().every((source) => source.enabled)
+  && listAssetSources({ includeDisabled: true }).length === ASSET_SOURCES.length
+  && listAssetSources({ includeDisabled: true, integration: 'api' }).every((source) => source.integration === 'api')
+  && listAssetSources({ includeDisabled: true, integration: ['manual', 'linkout'] }).length > 3
+  && listAssetSources({ kind: 'texture' }).some((source) => source.id === 'ambientcg'));
+check('filterAssetRefs: per-asset disabled flag respected', (() => {
+  const flagged = [{ ...refs[0], disabled: true }, refs[1]];
+  return filterAssetRefs(flagged).length === 1
+    && filterAssetRefs(flagged, { includeDisabled: true }).length === 2;
+})());
+check('curateAssetRefs: include list keeps only the keepers, no list passes through',
+  curateAssetRefs(refs, { curated: [refs[0].id] }).length === 1
+  && curateAssetRefs(refs, { curated: null }).length === refs.length
+  && curateAssetRefs(refs, getAssetSource('polyhaven')).length === refs.length);
+
+// --- KayKit --------------------------------------------------------------------------
+
+const furniturePack = getKayKitPack('furniture-bits');
+const furnitureFiles = await fetchKayKitPackFiles(furniturePack, {
+  fetchImpl: () => { throw new Error('static packs must not fetch'); },
+});
+check('kaykit: static pack lists without network', furnitureFiles.includes('armchair_pillows.gltf')
+  && furnitureFiles.includes('furniturebits_texture.png'));
+
+// the static index must cover every file we bundle at public/props/cc0/
+const repoRoot = resolve(fileURLToPath(import.meta.url), '../..');
+check('kaykit: static index covers the bundled packs', ['kaykit-city', 'kaykit-furniture'].every((dir) => {
+  const pack = KAYKIT_PACKS.find((candidate) => candidate.bundled === dir);
+  const staticEntry = KAYKIT_STATIC_INDEX[pack.id];
+  return readdirSync(resolve(repoRoot, 'public/props/cc0', dir))
+    .filter((name) => /\.(gltf|png)$/i.test(name))
+    .every((name) => staticEntry.models.includes(name) || staticEntry.texture === name);
+}));
+
+const kkRefs = normalizeKayKitFiles(furnitureFiles, furniturePack);
+const armchair = kkRefs.find((ref) => ref.id === 'furniture-bits/armchair_pillows');
+check('kaykit: refs normalized (kind, category, attribution, provenance)', armchair
+  && armchair.kind === 'model'
+  && armchair.source === 'kaykit'
+  && armchair.categories.includes('furniture')
+  && armchair.attribution.license === 'CC0'
+  && armchair.attribution.text.includes('kaylousberg.com')
+  && armchair.authors.includes('Kay Lousberg')
+  && armchair.pageUrl.includes('KayKit-Furniture-Bits-1.0'));
+check('kaykit: gltf download resolves raw urls for gltf + bin + shared texture',
+  armchair.download.format === 'gltf'
+  && armchair.download.url === 'https://raw.githubusercontent.com/KayKit-Game-Assets/KayKit-Furniture-Bits-1.0/main/addons/kaykit_furniture_bits/Assets/gltf/armchair_pillows.gltf'
+  && armchair.download.resources['armchair_pillows.bin'].endsWith('/armchair_pillows.bin')
+  && armchair.download.resources['furniturebits_texture.png'].endsWith('/furniturebits_texture.png'));
+const dungeonPack = getKayKitPack('dungeon-remastered');
+const dungeonRefs = normalizeKayKitFiles(
+  await fetchKayKitPackFiles(dungeonPack, { fetchImpl: () => { throw new Error('static packs must not fetch'); } }),
+  dungeonPack,
+);
+check('kaykit: single-file ".gltf.glb" packs resolve as glb without resources', (() => {
+  const banner = dungeonRefs.find((ref) => ref.id === 'dungeon-remastered/banner_blue');
+  return banner
+    && banner.download.format === 'glb'
+    && banner.download.url.endsWith('/banner_blue.gltf.glb')
+    && Object.keys(banner.download.resources).length === 0;
+})());
+
+check('kaykit: nested paths keep their directory in urls and resources', (() => {
+  const download = resolveKayKitDownload(getKayKitPack('medieval-hexagon'), 'tiles/base/hex_grass.gltf', { texture: 'hexagons_medieval.png' });
+  return download.url.endsWith('/Assets/gltf/tiles/base/hex_grass.gltf')
+    && download.resources['tiles/base/hex_grass.bin'].endsWith('/tiles/base/hex_grass.bin')
+    && download.resources['tiles/base/hexagons_medieval.png'].endsWith('/tiles/base/hexagons_medieval.png');
+})());
+
+const KAYKIT_TREES_PAYLOAD = {
+  tree: [
+    { path: 'addons/kaykit_test_pack/Assets/gltf/tiles/hex_grass.gltf', type: 'blob' },
+    { path: 'addons/kaykit_test_pack/Assets/gltf/tiles/hex_grass.bin', type: 'blob' },
+    { path: 'addons/kaykit_test_pack/Assets/gltf/tiles', type: 'tree' },
+    { path: 'README.md', type: 'blob' },
+  ],
+};
+const testPack = { bundled: null, category: 'test', enabled: true, gltfPath: 'Assets/gltf', id: 'test-pack', name: 'Test', repo: 'KayKit-Test-1.0', slug: 'kaykit_test_pack' };
+let kkCalls = 0;
+const kkStub = async () => { kkCalls += 1; return { json: async () => KAYKIT_TREES_PAYLOAD, ok: true, status: 200 }; };
+const treeFiles = await fetchKayKitPackFiles(testPack, { fetchImpl: kkStub });
+await fetchKayKitPackFiles(testPack, { fetchImpl: kkStub });
+check('kaykit: trees API path filters blobs under the pack root + caches per session',
+  kkCalls === 1
+  && treeFiles.length === 2
+  && treeFiles[0] === 'tiles/hex_grass.gltf');
+check('kaykit: rate-limit 403 explains the 60 req/h limit', await fetchKayKitPackFiles(
+  { ...testPack, id: 'test-pack-limited', repo: 'KayKit-Test-2.0' },
+  { fetchImpl: async () => ({ ok: false, status: 403 }) },
+).then(() => false, (error) => error.message.includes('60 req/h')));
+check('kaykit: index skips failing packs and drops enabled:false packs', (await fetchKayKitIndex({
+  fetchImpl: async () => ({ ok: false, status: 403 }),
+  packs: [furniturePack, { ...testPack, enabled: false, id: 'test-pack-off' }],
+})).every((ref) => ref.pack === 'furniture-bits'));
+
+const kkEntry = importedAssetCatalogEntry(armchair, { download: armchair.download });
+check('kaykit: imported entry validates with provenance', validateCatalogEntry(kkEntry).ok
+  && kkEntry.id === 'imported/kaykit/furniture-bits-armchair-pillows'
+  && kkEntry.recipe.attribution.sourceLabel === 'KayKit');
+
+// --- Open Source 3D Assets -----------------------------------------------------------
+
+const OS3D_PROJECTS = [
+  { asset_data_file: 'assets/pm-momuspark.json', creator_id: 'Polygonal Mind', description: 'Park assets', github_url: 'https://github.com/ToxSam/cc0-models-Polygonal-Mind/tree/main/projects/MomusPark', id: 'pm-momuspark', is_public: true, license: 'CC0', name: 'MomusPark' },
+  { asset_data_file: 'assets/other.json', id: 'other-ccby', is_public: true, license: 'CC-BY', name: 'Other' },
+  { asset_data_file: 'assets/hidden.json', id: 'hidden', is_public: false, license: 'CC0', name: 'Hidden' },
+];
+const OS3D_ASSETS = [
+  {
+    format: 'GLB',
+    id: 'momuspark-001',
+    is_draft: false,
+    is_public: true,
+    metadata: { attributes: [{ trait_type: 'Type', value: 'Bench' }], file_size: 878104 },
+    model_file_url: 'https://raw.githubusercontent.com/ToxSam/cc0-models-Polygonal-Mind/main/projects/MomusPark/Bench_01_Art.glb',
+    name: 'Bench_01_Art',
+    thumbnail_url: 'https://raw.githubusercontent.com/ToxSam/cc0-models-Polygonal-Mind/main/projects/MomusPark/Bench_01_Art_thumbnail.png',
+  },
+  { format: 'GLB', id: 'momuspark-002', is_draft: true, model_file_url: 'https://x/draft.glb', name: 'Draft' },
+  { format: 'FBX', id: 'momuspark-003', model_file_url: 'https://x/mesh.fbx', name: 'NotGltf' },
+];
+
+const os3dProjects = normalizeOs3dProjects(OS3D_PROJECTS);
+check('opensource3d: only public CC0 collections survive (exact match, no CC-BY)',
+  os3dProjects.length === 1 && os3dProjects[0].id === 'pm-momuspark');
+const os3dRefs = normalizeOs3dAssets(OS3D_ASSETS, os3dProjects[0]);
+check('opensource3d: refs normalized; drafts and non-glTF formats dropped',
+  os3dRefs.length === 1
+  && os3dRefs[0].kind === 'model'
+  && os3dRefs[0].source === 'opensource3d'
+  && os3dRefs[0].attribution.license === 'CC0'
+  && os3dRefs[0].authors[0] === 'Polygonal Mind'
+  && os3dRefs[0].download.url.endsWith('Bench_01_Art.glb')
+  && os3dRefs[0].download.format === 'glb'
+  && os3dRefs[0].download.sizeBytes === 878104
+  && os3dRefs[0].tags.includes('bench')
+  && os3dRefs[0].thumbnailUrl.endsWith('_thumbnail.png'));
+
+let os3dCalls = 0;
+const os3dStub = async (url) => {
+  os3dCalls += 1;
+  return {
+    json: async () => (url.endsWith('projects.json') ? OS3D_PROJECTS : OS3D_ASSETS),
+    ok: true,
+    status: 200,
+  };
+};
+const os3dIndex = await fetchOs3dIndex({ fetchImpl: os3dStub });
+await fetchOs3dIndex({ fetchImpl: os3dStub });
+check('opensource3d: index fetches projects + CC0 collections once, cached',
+  os3dCalls === 2 && os3dIndex.length === 1);
+const os3dEntry = importedAssetCatalogEntry(os3dRefs[0], { download: os3dRefs[0].download });
+check('opensource3d: imported entry validates with provenance', validateCatalogEntry(os3dEntry).ok
+  && os3dEntry.id === 'imported/opensource3d/momuspark-001'
+  && os3dEntry.recipe.attribution.sourceLabel === 'Open Source 3D Assets');
 
 // --- catalog entry contract ---------------------------------------------------------
 

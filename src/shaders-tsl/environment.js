@@ -80,6 +80,7 @@ import { applySaturation, envLuma, windowPaneMask } from './chunks/environment-c
 import { environmentDebugColor } from './chunks/environment-debug.js';
 import { createEnvironmentLightingChunk } from './chunks/environment-lighting.js';
 import { sampleEnvironmentSunShadow } from './chunks/environment-sun-shadow.js';
+import { projectedWaterCaustics } from './chunks/projected-water-caustics.js';
 import { stylizedCloudShadow } from './chunks/stylized-cloud-shadow.js';
 import { toonSceneLights } from './chunks/character-scene-lights.js';
 
@@ -692,6 +693,14 @@ export function createEnvironmentNodeMaterial({
         ));
       });
     }
+
+    // When the camera is below an active WaterSurface, the seabed is drawn
+    // directly instead of being seen through the water material. Receive the
+    // same moving sunlight here; the shared updater keeps this inert above
+    // water, where the surface shader already composites its own caustics.
+    color.addAssign(
+      projectedWaterCaustics(vWorldPosition, normalWorld).mul(sunlightVisibility),
+    );
 
     color.assign(applySaturation(color.mul(u.exposure), u.saturation));
 

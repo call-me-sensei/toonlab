@@ -4,16 +4,23 @@ import { MeshPhysicalNodeMaterial } from 'three/webgpu';
 import {
   clamp,
   float,
+  luminance,
   max,
   mix,
+  normalMap as normalMapNode,
+  normalWorld,
   positionWorld,
   smoothstep,
   step,
   texture,
   uniform,
+  uv,
   vec2,
+  vec3,
   vertexColor,
 } from 'three/tsl';
+
+import { projectedWaterCaustics } from '../shaders-tsl/chunks/projected-water-caustics.js';
 
 const DEFAULT_FOAM_COLOR = Object.freeze([0.94, 0.98, 1.0]);
 const DEFAULT_WET_DARKENING = 0.3;
@@ -162,6 +169,10 @@ export function updateWaterShoreMaterial(material, {
  * modulation is disabled below to avoid applying the base twice.
  */
 export function createWaterShoreMaterial({
+  albedoMap = null,
+  armMap = null,
+  normalMap = null,
+  textureRepeat = 1,
   stateField = null,
   foamColor = DEFAULT_FOAM_COLOR,
   foamAmount = DEFAULT_FOAM_AMOUNT,
@@ -202,11 +213,48 @@ export function createWaterShoreMaterial({
   const presentedActiveFoam = activeFoam.mul(foamAmountNode);
   const presentedResidue = residue.mul(foamAmountNode);
 
+  // Optional tiling detail lets authored lab/showcase terrain use this same
+  // persistent wet-sand material without weakening its vertex-painted depth
+  // tint. ARM follows the Poly Haven convention (AO, roughness, metalness).
+  // The maps are fixed when the graph is created; wetness/foam remain live.
+  const hasTiledMaps = albedoMap?.isTexture || armMap?.isTexture || normalMap?.isTexture;
+  const tiledUv = hasTiledMaps
+    ? uv().mul(Math.max(Number(textureRepeat) || 1, 1e-3))
+    : null;
+  const vertexBaseColor = vertexColor().rgb;
+  const armSample = armMap?.isTexture ? texture(armMap).sample(tiledUv) : null;
+  const albedoSample = albedoMap?.isTexture
+    ? texture(albedoMap).sample(tiledUv).rgb
+    : null;
+  const albedoLuminance = albedoSample ? luminance(albedoSample) : null;
+  const sandContrast = albedoLuminance
+    ? clamp(albedoLuminance.mul(1.7).add(0.48), 0.72, 1.24)
+    : null;
+  const sandChroma = albedoSample
+    ? albedoSample.div(max(albedoLuminance, float(0.08)))
+    : null;
+  const dryBaseColor = albedoSample
+    ? mix(
+      vertexBaseColor,
+      clamp(
+        vertexBaseColor
+          .mul(sandContrast)
+          .mul(mix(vec3(1.0), sandChroma, 0.18)),
+        0.0,
+        1.0,
+      ),
+      0.86,
+    )
+    : vertexBaseColor;
+  const dryRoughness = armSample
+    ? mix(float(0.82), float(1.0), armSample.g)
+    : float(DRY_ROUGHNESS);
+
   // Damp sand darkens substantially but remains saturated. Exposed active
   // foam must still read after the thin water geometry has retreated, so blend
   // toward the physical foam albedo; residue receives a quieter contribution.
   const wetScale = float(1.0).sub(moisture.mul(uniforms.uShoreWetDarkening));
-  const wetBaseColor = vertexColor().rgb.mul(wetScale);
+  const wetBaseColor = dryBaseColor.mul(wetScale);
   // The water mesh is deliberately clipped at the signed swash head. The
   // same temporal state extends about one source-cell onto exposed wet sand,
   // so render coherent active foam here as the thin sand-side half of the
@@ -231,7 +279,7 @@ export function createWaterShoreMaterial({
     0.0,
     1.0,
   );
-  const roughness = mix(DRY_ROUGHNESS, uniforms.uShoreWetRoughness, gloss);
+  const roughness = mix(dryRoughness, uniforms.uShoreWetRoughness, gloss);
   const clearcoatOcclusion = clamp(
     presentedActiveFoam.mul(0.72).add(presentedResidue.mul(0.18)),
     0.0,
@@ -241,9 +289,21 @@ export function createWaterShoreMaterial({
 
   const material = new MeshPhysicalNodeMaterial({ vertexColors: false });
   material.name = 'WaterShoreMaterial';
-  material.colorNode = shoreColor;
+  // Fold the underwater light into albedo instead of assigning emissiveNode.
+  // Some node backends replace the normal lit path when an otherwise-zero
+  // custom emissive graph is present, which made the dry beach charcoal while
+  // the camera was above water. The shared enabled uniform keeps this addend
+  // exactly zero outside the underwater pass.
+  material.colorNode = shoreColor.add(projectedWaterCaustics(positionWorld, normalWorld));
   material.metalnessNode = float(0.0);
   material.roughnessNode = mix(roughness, float(0.88), foamRoughness);
+  if (armSample) material.aoNode = mix(float(0.9), float(1.0), armSample.r);
+  if (normalMap?.isTexture) {
+    material.normalNode = normalMapNode(
+      texture(normalMap).sample(tiledUv).rgb,
+      vec2(0.24, 0.24),
+    );
+  }
   material.clearcoatNode = film.mul(uniforms.uShoreWetClearcoat).mul(clearcoatOcclusion);
   material.clearcoatRoughnessNode = mix(0.32, 0.1, film);
   material.specularIntensityNode = mix(0.5, 1.0, film);

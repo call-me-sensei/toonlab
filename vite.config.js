@@ -1,12 +1,14 @@
 import { resolve } from 'node:path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { toonlabWorkspacePlugin } from './mcp/vite-plugin.mjs';
 
 // examples/ import ToonLab by its published package name so they read
 // exactly like consumer code; these aliases resolve those specifiers to the
 // in-repo source. Subpath entries must come before the bare root entry.
 const packageAliases = [
-  ...['toon', 'environment', 'water', 'vegetation', 'sky', 'post', 'rockgen',
+  ...['toon', 'environment', 'lighting', 'water', 'vegetation', 'sky', 'weather', 'post', 'camera',
+    'game-feel', 'rockgen',
     'debrisgen', 'pathgen', 'propgen', 'buildinggen', 'villagegen', 'ambientfx',
     'vfxgen', 'fauna', 'catalog', 'texgen', 'assetlib', 'character', 'loaders', 'debug'].map((subpath) => ({
     find: `@call-me-sensei/toonlab/${subpath}`,
@@ -28,7 +30,7 @@ export default defineConfig(({ mode }) => {
   return {
   // Fast Refresh for the React HUD (labs/**/ui). Vanilla .js modules —
   // engines, generators, shaders — pass through untouched.
-  plugins: [react()],
+  plugins: [toonlabWorkspacePlugin({ rootDirectory: __dirname }), react()],
   resolve: {
     alias: packageAliases,
   },
@@ -79,20 +81,33 @@ export default defineConfig(({ mode }) => {
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
+        shaderLab: resolve(__dirname, 'shader-lab/index.html'),
+        environmentLab: resolve(__dirname, 'environment-lab/index.html'),
+        grassLab: resolve(__dirname, 'grass-lab/index.html'),
+        shaderLabLegacy: resolve(__dirname, 'shader-lab/legacy/index.html'),
         playground: resolve(__dirname, 'playground/index.html'),
         rockLab: resolve(__dirname, 'rock-lab/index.html'),
         treeLab: resolve(__dirname, 'tree-lab/index.html'),
         debrisLab: resolve(__dirname, 'debris-lab/index.html'),
         propLab: resolve(__dirname, 'prop-lab/index.html'),
         buildingLab: resolve(__dirname, 'building-lab/index.html'),
-        catalog: resolve(__dirname, 'catalog/index.html'),
         textureLab: resolve(__dirname, 'texture-lab/index.html'),
-        waterLab: resolve(__dirname, 'water-lab/index.html'),
+        gallery: resolve(__dirname, 'gallery/index.html'),
+        // Gallery detail page + the unlisted embed stage it iframes.
+        assetPage: resolve(__dirname, 'asset/index.html'),
         assetLab: resolve(__dirname, 'asset-lab/index.html'),
+        waterLab: resolve(__dirname, 'water-lab/index.html'),
+        lightingLab: resolve(__dirname, 'lighting-lab/index.html'),
+        weatherLab: resolve(__dirname, 'weather-lab/index.html'),
+        settings: resolve(__dirname, 'settings/index.html'),
         vfxLab: resolve(__dirname, 'vfx-lab/index.html'),
         treeDesignerLegacy: resolve(__dirname, 'tree-designer/index.html'),
         outdoorWorld: resolve(__dirname, 'examples/outdoor-world/index.html'),
         vfxArena: resolve(__dirname, 'examples/vfx-arena/index.html'),
+        // Hub-listed demos — without inputs they resolve in dev but 404 in
+        // production builds.
+        faunaDemo: resolve(__dirname, 'examples/fauna-demo/index.html'),
+        ambientFxDemo: resolve(__dirname, 'examples/ambientfx-demo/index.html'),
       },
     },
   },

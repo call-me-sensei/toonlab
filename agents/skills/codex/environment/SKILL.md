@@ -10,7 +10,7 @@ classification, sun/lamp rigs, time-of-day, ambient probes, planar reflections,
 BVH vertex AO, fog, cloud shadows, or environment presets.
 
 Public imports:
-- `toonlab/environment`
+- `@call-me-sensei/toonlab/environment`
 
 Read first:
 - `docs/environment.md`

@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+import { deepMerge } from './core/generation.js';
+
 // Seeded stylized-terrain generator. Import from '@call-me-sensei/toonlab'.
 //
 // The randomization contract: ANY seed yields a valid, playable world.
@@ -104,6 +106,27 @@ export function getTerrainArchetypeOptions() {
   return Array.from(TERRAIN_ARCHETYPES.entries()).map(([id, a]) => ({ id, label: a.label }));
 }
 
+/**
+ * Registers an extensible terrain starting point. The definition is merged
+ * over `options.extends` (rollingPlains by default), so plugins can add new
+ * morphology families without modifying ToonLab or choosing from a fixed
+ * built-in catalog.
+ */
+export function registerTerrainArchetype(id, definition = {}, options = {}) {
+  const key = String(id ?? '').trim();
+  if (!key) throw new Error('Terrain archetype id is required.');
+  if (!options.overwrite && TERRAIN_ARCHETYPES.has(key)) {
+    throw new Error(`Terrain archetype "${key}" already exists.`);
+  }
+  const parentId = options.extends ?? 'rollingPlains';
+  const parent = TERRAIN_ARCHETYPES.get(parentId);
+  if (!parent) throw new Error(`Unknown parent terrain archetype "${parentId}".`);
+  const next = deepMerge(parent, definition);
+  next.label = String(definition.label || key);
+  TERRAIN_ARCHETYPES.set(key, next);
+  return { id: key, label: next.label };
+}
+
 const DEFAULT_PALETTE = {
   golden: 0xd2b24c,
   haze: 0xa9c6e8,
@@ -206,6 +229,10 @@ export function createStylizedTerrain({
   seed = 1,
   size = 1000,
   archetype = 'terracedKarst',
+  // Continuous morphology overrides turn archetypes into starting points,
+  // not a closed catalog. Any nested continent/mountains/rolling/rim/
+  // terraces value may be replaced by a generated biome recipe.
+  morphology = null,
   waterCoverage = null,           // 0..0.6; default from the archetype
   height = null,                  // H: mountain amplitude override (m)
   depth = null,                   // D: basin depth below the ground datum (m)
@@ -220,9 +247,12 @@ export function createStylizedTerrain({
   if (!base) {
     throw new Error(`Unknown terrain archetype "${archetype}" (have: ${[...TERRAIN_ARCHETYPES.keys()].join(', ')}).`);
   }
-  const spec = Number.isFinite(height)
-    ? { ...base, mountains: { ...base.mountains, amp: Math.max(height, 1) } }
+  const customized = morphology && typeof morphology === 'object'
+    ? deepMerge(base, morphology)
     : base;
+  const spec = Number.isFinite(height)
+    ? { ...customized, mountains: { ...customized.mountains, amp: Math.max(height, 1) } }
+    : customized;
   const coverage = Math.min(Math.max(
     Number.isFinite(waterCoverage) ? waterCoverage : spec.waterCoverage, 0), 0.6);
   const sizeX = Number.isFinite(size?.x) ? size.x : Number(size) || 1000;

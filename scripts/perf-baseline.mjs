@@ -39,7 +39,7 @@ const expectedRendererBackend = {
 const BUDGET_RATIO = 1.10;
 
 const projectRoot = process.cwd();
-const appUrl = process.env.VISUAL_BASELINE_URL || 'http://127.0.0.1:5175/';
+const appUrl = process.env.VISUAL_BASELINE_URL || 'http://127.0.0.1:5175/shader-lab/legacy/';
 
 const viewportParts = (process.env.VISUAL_BASELINE_VIEWPORT || '2048x1160').split('x').map(Number);
 const viewport = {

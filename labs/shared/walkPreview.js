@@ -109,6 +109,9 @@ function anyPressed(pressed, codes) {
   return codes.some((code) => pressed.has(code));
 }
 
+// `groundY` may be a number (flat stage) or a function `(x, z) => height`
+// (terrain stages): grounded walkers snap to the sampled height, jumps land
+// on it, and the camera follow target tracks it.
 export function installWalkPreviewController({
   camera,
   controls,
@@ -154,6 +157,10 @@ export function installWalkPreviewController({
   let verticalVelocity = 0;
   let walkWeight = 0;
 
+  const groundHeightAt = typeof groundY === 'function'
+    ? groundY
+    : () => groundY;
+
   function enabled() {
     return Boolean(getEnabled?.());
   }
@@ -161,7 +168,7 @@ export function installWalkPreviewController({
   function resetJump(walker = getWalker?.()) {
     verticalVelocity = 0;
     grounded = true;
-    if (walker) walker.position.y = groundY;
+    if (walker) walker.position.y = groundHeightAt(walker.position.x, walker.position.z);
   }
 
   function clearInput() {
@@ -337,10 +344,14 @@ export function installWalkPreviewController({
       else walker.position.add(moveStep);
     }
 
-    if (!grounded || walker.position.y > groundY) {
+    const walkerGroundY = groundHeightAt(walker.position.x, walker.position.z);
+    if (grounded && walker.position.y !== walkerGroundY) {
+      // Grounded walkers follow the terrain profile under their feet.
+      walker.position.y = walkerGroundY;
+    } else if (!grounded || walker.position.y > walkerGroundY) {
       verticalVelocity -= gravity * delta;
       walker.position.y += verticalVelocity * delta;
-      if (walker.position.y <= groundY) resetJump(walker);
+      if (walker.position.y <= walkerGroundY) resetJump(walker);
     }
 
     const actualPlanarSpeed = Math.hypot(
@@ -349,7 +360,14 @@ export function installWalkPreviewController({
     ) / Math.max(delta, 1e-5);
     updateAnimation(delta, moving, running, actualPlanarSpeed);
 
-    controls.target.lerp(followTarget.set(walker.position.x, groundY + followHeight, walker.position.z), 0.08);
+    // Follow only while the walker is actually in motion so an idle walker
+    // never hijacks an authored camera view.
+    if (moving || !grounded || velocity.lengthSq() > 1e-4) {
+      controls.target.lerp(
+        followTarget.set(walker.position.x, walkerGroundY + followHeight, walker.position.z),
+        0.08,
+      );
+    }
   });
 
   return {

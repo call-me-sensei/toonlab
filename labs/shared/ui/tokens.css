@@ -28,12 +28,25 @@
   --accent-500: #5fa9ef;
   --accent-600: #3e87d3;
   --accent-subtle: rgba(143, 198, 255, 0.13);
+  /* Preview-scene accent (amber) — controls that only affect how you LOOK
+     at the document, never the document itself. Product controls keep the
+     blue accent; anything amber is never saved. */
+  --preview-300: #ffd98a;
+  --preview-400: #f0c05a;
+  --preview-subtle: rgba(240, 192, 90, 0.14);
+  --preview-border: rgba(240, 192, 90, 0.45);
   --success: #7bd69a;
   --success-subtle: rgba(123, 214, 154, 0.14);
   --warning: #f0c05a;
   --warning-subtle: rgba(240, 192, 90, 0.14);
   --danger: #f07a6a;
   --danger-subtle: rgba(240, 122, 106, 0.14);
+
+  /* ---- brand (the ToonLab Pro site lockup: vermillion mark + wordmark;
+     fonts resolve to the site webfonts inside Pro, system elsewhere) ---- */
+  --brand-accent: #e8332e;
+  --font-brand: 'M PLUS 1', 'Zen Kaku Gothic New', var(--font-ui);
+  --font-brand-jp: 'Zen Kaku Gothic New', 'M PLUS 1', sans-serif;
 
   /* ---- spacing (4pt) ------------------------------------------------- */
   --space-1: 4px;

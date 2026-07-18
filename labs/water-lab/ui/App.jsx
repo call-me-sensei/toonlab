@@ -4,23 +4,25 @@
 import { useEffect, useState } from 'react';
 
 import {
+  BrandLockup,
   Button,
   Icon,
   IconButton,
   Popover,
+  PresetRowShell,
+  PreviewBar,
+  PreviewToggle,
+  RendererToggle,
   SegmentedControl,
   Select,
   Slider,
   toast,
   ToastStack,
   TextField,
-  Toggle,
   useStoreState,
 } from '../../shared/ui/index.js';
 import { ScrubValue } from '../../shared/ui/components/Slider.jsx';
 import { SchemaGroup } from '../../shared/ui/schema/SchemaGroup.jsx';
-import { SCENE_HUB_OPTIONS, navigateSceneHub } from '../../shared/sceneHub.js';
-import { persistLabScene } from '../../shared/labParams.js';
 import { setLabHandoff } from '../../shared/labHandoff.js';
 import { downloadBlob, pickFile } from '../../shared/download.js';
 import {
@@ -48,18 +50,13 @@ const SECTION_ICONS = Object.freeze({
   waves: 'stage-detail',
 });
 
-const WATER_WORKSPACE_SECTIONS = Object.freeze([
-  Object.freeze({
-    description: 'Choose the ground and the depth, flow, and interaction gauges shown in the scene.',
-    id: 'stage',
-    label: 'Stage',
-  }),
-  ...WATER_SETTING_GROUPS.map((group) => Object.freeze({
+const WATER_WORKSPACE_SECTIONS = Object.freeze(
+  WATER_SETTING_GROUPS.map((group) => Object.freeze({
     description: group.description,
     id: group.id,
     label: group.label,
   })),
-]);
+);
 
 const CAMERA_MODE_OPTIONS = Object.freeze([
   Object.freeze({ label: 'Rotate', value: 'rotate' }),
@@ -96,7 +93,7 @@ function PresetRow({ actions, state }) {
   ];
   const isLocal = state.localPresets.some((entry) => entry.id === state.presetId);
   return (
-    <div className="wl-preset-row">
+    <PresetRowShell title="The water preset you are editing — switching replaces every value in this panel.">
       <Select
         onChange={(id) => { if (id) actions.applyPreset(id); }}
         options={options}
@@ -110,7 +107,7 @@ function PresetRow({ actions, state }) {
           onClick={() => actions.deletePreset(state.presetId)}
         />
       )}
-    </div>
+    </PresetRowShell>
   );
 }
 
@@ -179,7 +176,7 @@ function TopBar({ actions, state }) {
   const [menuAnchor, setMenuAnchor] = useState(null);
   return (
     <header className="wl-topbar tk">
-      <span className="wl-brand"><Icon name="logo-toonlab" /> Water Lab</span>
+      <BrandLockup labName="Water Lab" />
       <button
         type="button"
         className="wl-title"
@@ -191,72 +188,12 @@ function TopBar({ actions, state }) {
       <IconButton disabled={!state.canUndo} icon="undo" label="Undo (⌘Z)" onClick={() => actions.undo()} />
       <IconButton disabled={!state.canRedo} icon="redo" label="Redo (⇧⌘Z)" onClick={() => actions.redo()} />
       <span className="wl-topbar-spacer" />
-      <span className="wl-scene-select">
-        <Select
-          onChange={(id) => { persistLabScene(id); navigateSceneHub(id); }}
-          options={SCENE_HUB_OPTIONS.map((entry) => ({ label: entry.label, value: entry.id }))}
-          value="waterLab"
-        />
-      </span>
+      <RendererToggle />
       <Button icon="play" kind="primary" onClick={() => previewInScene(actions)} testId="preview-scene">
         Preview in scene
       </Button>
       {menuAnchor && <DocumentMenu actions={actions} anchor={menuAnchor} onClose={() => setMenuAnchor(null)} state={state} />}
     </header>
-  );
-}
-
-/** Kit field row for the non-schema stage params (view state, not settings). */
-function StageParamRow({ field, onChange, value }) {
-  return (
-    <div className="tk-field">
-      <span className="tk-field-label"><span className="tk-field-label-text">{field.label}</span></span>
-      <Slider max={field.max} min={field.min} onChange={(next) => onChange(Math.round(next))} step={field.step} value={value} />
-      <ScrubValue max={field.max} min={field.min} onChange={(next) => onChange(Math.round(next))} step={field.step} value={value} />
-    </div>
-  );
-}
-
-// Test objects on the stage: rocks at stepped depths (see-through/depth-fade
-// reference), a koi school, and flow-reactive kelp. Their interaction
-// *response* parameters are real water settings and live in the schema groups
-// (Waves: flow, Ripples, Splashes) — this section only sizes the stage.
-function StageSection({ actions, state }) {
-  return (
-    <section className="tk-section" data-testid="group-stage">
-      <div className="tk-section-title">Stage</div>
-      <div className="tk-section-caption">
-        Test objects for seeing through the water and watching interactions.
-        Tune their response under Waves (Flow), Ripples, and Splashes.
-      </div>
-      <div className="tk-section-fields">
-        <div className="tk-field">
-          <span className="tk-field-label"><span className="tk-field-label-text">Ground</span></span>
-          <Select
-            onChange={(stage) => actions.setView({ stage })}
-            options={WATER_LAB_STAGES.map((entry) => ({ label: entry.label, value: entry.id }))}
-            testId="stage-ground"
-            value={state.view.stage}
-          />
-          <span />
-        </div>
-        <div className="tk-field">
-          <span className="tk-field-label"><span className="tk-field-label-text">Depth rocks</span></span>
-          <Toggle checked={state.view.rocks} onChange={(rocks) => actions.setView({ rocks })} testId="stage-rocks" />
-          <span />
-        </div>
-        <StageParamRow
-          field={{ label: 'Fish', max: 90, min: 0, step: 1 }}
-          onChange={(fish) => actions.setView({ fish })}
-          value={state.view.fish}
-        />
-        <StageParamRow
-          field={{ label: 'Kelp', max: 160, min: 0, step: 1 }}
-          onChange={(kelp) => actions.setView({ kelp })}
-          value={state.view.kelp}
-        />
-      </div>
-    </section>
   );
 }
 
@@ -298,10 +235,9 @@ function Inspector({ actions, sectionId, state }) {
   const group = WATER_SETTING_GROUPS.find((entry) => entry.id === section.id);
   return (
     <aside className="wl-inspector tk" data-testid="inspector">
+      <PresetRow actions={actions} state={state} />
       <h2 className="wl-inspector-header" data-testid="inspector-title">{section.label}</h2>
       <p className="wl-inspector-caption">{section.description}</p>
-      {section.id === 'stage' && <PresetRow actions={actions} state={state} />}
-      {section.id === 'stage' && <StageSection actions={actions} state={state} />}
       {group && (
         <WaterSchemaGroup
           actions={actions}
@@ -325,23 +261,70 @@ function CameraBar({ engine, mode, onModeChange }) {
         value={mode}
       />
       <IconButton icon="reset" label="Reset camera" onClick={() => engine.resetCamera()} />
+      <Button
+        kind="secondary"
+        onClick={() => engine.setCameraView('underwater-up')}
+        testId="camera-underwater-up"
+      >
+        From below
+      </Button>
+      <Button
+        kind="secondary"
+        onClick={() => engine.setCameraView('underwater-floor')}
+        testId="camera-underwater-floor"
+      >
+        Seabed
+      </Button>
       <span className="wl-camerabar-hint">Left-drag selected mode · wheel zoom · right-drag pan</span>
     </div>
   );
 }
 
-function StageBar({ actions, engine, state }) {
+// The scene around the water — ground, test objects, weather toys, debug
+// views. All preview; the preset carries only the water settings. (The
+// Ground pick nudges wave-direction settings as an editing convenience.)
+function WaterPreviewBar({ actions, engine, state }) {
   return (
-    <div className="wl-stagebar tk">
-      <Select onChange={(debug) => actions.setView({ debug })} options={DEBUG_OPTIONS} value={state.view.debug} />
-      <Button kind="secondary" onClick={() => engine.dropBall()} testId="drop-ball">Drop ball</Button>
-      <Button kind="secondary" onClick={() => engine.dropBall({ sinker: true })} testId="drop-sinker">Drop sinker</Button>
-      <label className="wl-rain">
-        <Toggle checked={state.view.rain} onChange={(rain) => actions.setView({ rain })} />
-        <span>Rain</span>
-      </label>
-      <span className="wl-stagebar-hint">⇧-drag the water to splash</span>
-    </div>
+    <PreviewBar
+      hint="⇧-drag the water to splash"
+      title="Preview only — the stage, test objects, and debug view are never exported with your water preset."
+    >
+      <span className="wl-previewbar-select">
+        <Select
+          onChange={(stage) => actions.setView({ stage })}
+          options={WATER_LAB_STAGES.map((entry) => ({ label: entry.label, value: entry.id }))}
+          testId="stage-ground"
+          value={state.view.stage}
+        />
+      </span>
+      <PreviewToggle
+        checked={state.view.rocks}
+        label="Rocks"
+        onChange={(rocks) => actions.setView({ rocks })}
+        testId="stage-rocks"
+        title="Depth-fade reference rocks"
+      />
+      <span className="tk-previewbar-slider" title="Koi school size">
+        <span>Fish</span>
+        <Slider max={90} min={0} onChange={(fish) => actions.setView({ fish: Math.round(fish) })} step={1} value={state.view.fish} />
+      </span>
+      <span className="tk-previewbar-slider" title="Flow-reactive underwater plants">
+        <span>Plants</span>
+        <Slider max={160} min={0} onChange={(kelp) => actions.setView({ kelp: Math.round(kelp) })} step={1} value={state.view.kelp} />
+      </span>
+      <span className="wl-previewbar-select wl-previewbar-select--debug">
+        <Select onChange={(debug) => actions.setView({ debug })} options={DEBUG_OPTIONS} value={state.view.debug} />
+      </span>
+      <Button kind="secondary" onClick={() => engine.dropBall()} testId="drop-ball">Ball</Button>
+      <Button kind="secondary" onClick={() => engine.dropBall({ sinker: true })} testId="drop-sinker">Sinker</Button>
+      <PreviewToggle
+        checked={state.view.rain}
+        label="Rain"
+        onChange={(rain) => actions.setView({ rain })}
+        testId="stage-rain"
+        title="Rain splashes on the surface"
+      />
+    </PreviewBar>
   );
 }
 
@@ -360,7 +343,7 @@ function StatusBar({ state }) {
 export function App({ engine, store }) {
   const state = useStoreState(store);
   const { actions } = store;
-  const [sectionId, setSectionId] = useState('stage');
+  const [sectionId, setSectionId] = useState(WATER_WORKSPACE_SECTIONS[0].id);
   const [cameraMode, setCameraModeState] = useState('rotate');
 
   useEffect(() => { document.title = `${state.name} — Water Lab`; }, [state.name]);
@@ -375,7 +358,7 @@ export function App({ engine, store }) {
         <StatusBar state={state} />
       </div>
       <CameraBar engine={engine} mode={cameraMode} onModeChange={setCameraModeState} />
-      <StageBar actions={actions} engine={engine} state={state} />
+      <WaterPreviewBar actions={actions} engine={engine} state={state} />
       <ToastStack />
     </div>
   );

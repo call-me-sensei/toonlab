@@ -53,6 +53,16 @@ export function loadLocalToonPresets() {
   return validDocuments;
 }
 
+export function deleteLocalToonPreset(id) {
+  const nextDocuments = readLocalToonPresetDocuments()
+    .map((entry) => validateToonPresetDocument(entry))
+    .filter((entry) => entry.ok)
+    .map((entry) => entry.value)
+    .filter((entry) => entry.id !== id);
+  writeLocalToonPresetDocuments(nextDocuments);
+  document.body.dataset.localToonPresetCount = String(nextDocuments.length);
+}
+
 export function upsertLocalToonPresetDocument(presetDocument) {
   const result = validateToonPresetDocument(presetDocument);
   if (!result.ok) throw new Error(result.errors.join(' '));

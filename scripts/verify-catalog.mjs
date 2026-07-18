@@ -22,7 +22,7 @@ const entries = catalog.list();
 check('catalog has a real library (≥ 60 entries)', entries.length >= 60, `${entries.length}`);
 check('every entry validates', entries.every((entry) => validateCatalogEntry(entry).ok));
 check('every existing preset family appears',
-  ['propgen', 'buildinggen', 'vegetation', 'rockgen', 'debrisgen', 'pathgen', 'water', 'sky', 'post', 'toon']
+  ['propgen', 'buildinggen', 'vegetation', 'rockgen', 'debrisgen', 'pathgen', 'water', 'sky', 'lighting', 'post', 'toon']
     .every((cluster) => entries.some((entry) => entry.cluster === cluster)));
 
 // --- spawn contract across asset clusters -----------------------------------------

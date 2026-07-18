@@ -13,14 +13,21 @@ Layout:
 - `skills/codex/` — Codex-oriented feature skills.
 - `skills/claude/` — Claude-oriented feature skills.
 
-Available feature skills:
+Available feature skills (start with `game-dev` for whole-game work):
 
+- `asset-sourcing`
+- `camera`
 - `environment`
+- `game-dev`
+- `game-feel`
+- `lighting`
+- `outdoor-world`
 - `post-processing`
 - `rockgen`
 - `toon-shading`
 - `vegetation-sky`
 - `water`
+- `weather`
 
 These resources are not part of the npm package. The npm package stays
 runtime-only.

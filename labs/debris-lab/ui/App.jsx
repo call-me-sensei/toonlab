@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 
 import {
+  BrandLockup,
   Button,
   ColorWell,
   Icon,
   IconButton,
   Modal,
   Popover,
+  RendererToggle,
   SegmentedControl,
   Select,
   Slider,
@@ -16,8 +18,6 @@ import {
 } from '../../shared/ui/index.js';
 import { ScrubValue } from '../../shared/ui/components/Slider.jsx';
 import { SchemaGroup } from '../../shared/ui/schema/SchemaGroup.jsx';
-import { SCENE_HUB_OPTIONS, navigateSceneHub } from '../../shared/sceneHub.js';
-import { persistLabScene } from '../../shared/labParams.js';
 import {
   BUILT_IN_DEBRIS_PRESETS,
   DEBRIS_ARRANGEMENTS,
@@ -95,9 +95,7 @@ function TopBar({ actions, state }) {
   }
   return (
     <header className="db-topbar tk">
-      <button type="button" className="db-brand" onClick={() => actions.setView({ gallery: true })}>
-        <Icon name="logo-toonlab" /> Debris Lab
-      </button>
+      <BrandLockup labName="Debris Lab" />
       <button
         type="button"
         className="db-title"
@@ -109,13 +107,7 @@ function TopBar({ actions, state }) {
       <IconButton disabled={!state.canUndo} icon="undo" label="Undo (⌘Z)" onClick={() => actions.undo()} />
       <IconButton disabled={!state.canRedo} icon="redo" label="Redo (⇧⌘Z)" onClick={() => actions.redo()} />
       <span className="db-topbar-spacer" />
-      <span className="db-scene-select">
-        <Select
-          onChange={(id) => { persistLabScene(id); navigateSceneHub(id); }}
-          options={SCENE_HUB_OPTIONS.map((entry) => ({ label: entry.label, value: entry.id }))}
-          value="debrisLab"
-        />
-      </span>
+      <RendererToggle />
       <Button icon="dice" kind="secondary" onClick={() => actions.randomizeCurrent()} testId="randomize">Randomize</Button>
       <Button icon="link" kind="ghost" onClick={share}>Share</Button>
       <Button icon="stage-export" kind="primary" onClick={() => actions.setView({ export: true })}>Export</Button>

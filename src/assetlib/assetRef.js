@@ -13,6 +13,9 @@
 //     thumbnailUrl: 'https://…',        // the source's own preview render
 //     pageUrl: 'https://…',             // human page, used for attribution links
 //     attribution: { license: 'CC0', sourceLabel: 'Poly Haven', sourceUrl: '…' },
+//     disabled: true,                   // optional moderation flag — CC0 clears
+//                                       // copyright, NOT trademarks/personality
+//                                       // rights; flagged refs never list
 //     …source-specific extras (polycount, maxResolution, downloads, …)
 //   }
 //
@@ -37,11 +40,14 @@ export function slugifyAssetId(id) {
 /**
  * Shared search over normalized refs — mirrors catalog.list() semantics
  * (free text over id/name/tags/categories; exact kind/category match).
+ * Refs flagged `disabled` (moderation: trademark/personality-rights concerns
+ * CC0 does not clear) are dropped unless `includeDisabled`.
  */
-export function filterAssetRefs(refs, { text = null, kind = null, category = null } = {}) {
+export function filterAssetRefs(refs, { text = null, kind = null, category = null, includeDisabled = false } = {}) {
   const query = text ? String(text).toLowerCase() : null;
   const results = [];
   for (const ref of refs ?? []) {
+    if (ref.disabled && !includeDisabled) continue;
     if (kind && ref.kind !== kind) continue;
     if (category && !ref.categories.includes(category)) continue;
     if (query) {

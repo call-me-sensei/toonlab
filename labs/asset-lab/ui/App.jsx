@@ -17,9 +17,14 @@ import {
   AMBIENTCG_PROXY_API,
   POLYPIZZA_PROXY_API,
   collectAssetCategories,
+  curateAssetRefs,
+  fetchKayKitIndex,
+  fetchOs3dIndex,
   fetchPolyhavenIndex,
   filterAssetRefs,
+  getAssetSource,
   importedAssetCatalogEntry,
+  listAssetSources,
   searchAmbientcg,
   searchPolyPizza,
 } from '@call-me-sensei/toonlab/assetlib';
@@ -36,7 +41,14 @@ const SOURCE_OPTIONS = [
   { label: 'Poly Haven', value: 'polyhaven' },
   { label: 'ambientCG', value: 'ambientcg' },
   { label: 'Poly Pizza (low-poly)', value: 'polypizza' },
+  { label: 'KayKit packs (low-poly)', value: 'kaykit' },
+  { label: 'Open Source 3D Assets', value: 'opensource3d' },
 ];
+
+// Sources whose whole (CC0-only) index fits in memory — free-text search and
+// category chips filter locally, no debounce. The rest search remotely.
+const LOCAL_INDEX_SOURCES = ['polyhaven', 'kaykit', 'opensource3d'];
+const MODEL_ONLY_SOURCES = ['polypizza', 'kaykit', 'opensource3d'];
 
 const KIND_OPTIONS = [
   { label: 'Models', value: 'models' },
@@ -45,6 +57,8 @@ const KIND_OPTIONS = [
 
 const SOURCE_LINKS = {
   ambientcg: 'https://ambientcg.com',
+  kaykit: 'https://kaylousberg.com',
+  opensource3d: 'https://opensource3dassets.com',
   polyhaven: 'https://polyhaven.com',
   polypizza: 'https://poly.pizza',
 };
@@ -62,11 +76,24 @@ const BACKDROP_OPTIONS = [
 // TOONLAB_POLYPIZZA_KEY (when set) overrides it at the proxy.
 export const POLYPIZZA_KEY_STORAGE = 'toonlab.asset-lab.polypizza-key.v1';
 
+// Local per-user override for registry-disabled sources ({ sourceId: true })
+// — the owner's review workflow: unreviewed sources ship enabled:false in
+// sources.js, a reviewer flips them on locally to evaluate in this lab.
+export const SOURCE_OVERRIDE_STORAGE = 'toonlab.asset-lab.enabled-sources.v1';
+
 function readStoredKey() {
   try {
     return localStorage.getItem(POLYPIZZA_KEY_STORAGE) ?? '';
   } catch {
     return '';
+  }
+}
+
+function readSourceOverrides() {
+  try {
+    return JSON.parse(localStorage.getItem(SOURCE_OVERRIDE_STORAGE)) ?? {};
+  } catch {
+    return {};
   }
 }
 
@@ -90,7 +117,17 @@ export function App({ engine, boot = {} }) {
   const [ppKey, setPpKey] = useState(readStoredKey);
   const [keyDraft, setKeyDraft] = useState('');
   const [editingKey, setEditingKey] = useState(false);
+  const [sourceOverrides, setSourceOverrides] = useState(readSourceOverrides);
   const lastShow = useRef(null);
+
+  const sourceInfo = getAssetSource(source);
+  const sourceEnabled = !sourceInfo || sourceInfo.enabled !== false || sourceOverrides[source] === true;
+
+  const enableSourceLocally = () => {
+    const next = { ...sourceOverrides, [source]: true };
+    try { localStorage.setItem(SOURCE_OVERRIDE_STORAGE, JSON.stringify(next)); } catch { /* session only */ }
+    setSourceOverrides(next);
+  };
 
   const savePpKey = () => {
     const value = keyDraft.trim();
@@ -128,15 +165,27 @@ export function App({ engine, boot = {} }) {
     window.addEventListener('pointerup', stop);
   };
 
-  // Poly Haven: whole index once, filter locally. ambientCG (materials) and
-  // Poly Pizza (low-poly models, BYO key injected by the proxy): remote
-  // search through the backend/dev proxy, debounced.
+  // Local-index sources (Poly Haven / KayKit / Open Source 3D): whole CC0
+  // index once, filter locally. ambientCG (materials) and Poly Pizza
+  // (low-poly models, BYO key injected by the proxy): remote search through
+  // the backend/dev proxy, debounced. Registry-disabled sources list nothing
+  // until the local evaluation override is flipped; sources with a curated
+  // include list only surface the keepers.
   useEffect(() => {
     let cancelled = false;
     setIndexError(null);
-    if (source === 'polyhaven') {
-      fetchPolyhavenIndex({ type: kind })
-        .then((loaded) => { if (!cancelled) setRefs(loaded); })
+    if (!sourceEnabled) {
+      setRefs([]);
+      return undefined;
+    }
+    if (LOCAL_INDEX_SOURCES.includes(source)) {
+      const index = source === 'kaykit'
+        ? fetchKayKitIndex()
+        : source === 'opensource3d'
+          ? fetchOs3dIndex()
+          : fetchPolyhavenIndex({ type: kind });
+      index
+        .then((loaded) => { if (!cancelled) setRefs(curateAssetRefs(loaded, sourceInfo)); })
         .catch((error) => { if (!cancelled) setIndexError(error.message); });
       return () => { cancelled = true; };
     }
@@ -145,7 +194,7 @@ export function App({ engine, boot = {} }) {
         ? searchPolyPizza({ apiKey: ppKey || null, apiUrl: POLYPIZZA_PROXY_API, limit: 48, query })
         : searchAmbientcg({ apiUrl: AMBIENTCG_PROXY_API, limit: 80, query });
       search
-        .then((loaded) => { if (!cancelled) setRefs(loaded); })
+        .then((loaded) => { if (!cancelled) setRefs(curateAssetRefs(loaded, sourceInfo)); })
         .catch((error) => {
           if (cancelled) return;
           setIndexError(source === 'polypizza'
@@ -154,12 +203,12 @@ export function App({ engine, boot = {} }) {
         });
     }, 300);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [source, kind, source === 'polyhaven' ? null : query, source === 'polypizza' ? ppKey : null]);
+  }, [source, kind, sourceEnabled, LOCAL_INDEX_SOURCES.includes(source) ? null : query, source === 'polypizza' ? ppKey : null]);
 
   const categories = useMemo(() => collectAssetCategories(refs).slice(0, 16), [refs]);
   const results = useMemo(() => filterAssetRefs(refs, {
     category: category === 'all' ? null : category,
-    text: source === 'polyhaven' ? (query || null) : null,
+    text: LOCAL_INDEX_SOURCES.includes(source) ? (query || null) : null,
   }), [refs, query, category, source]);
 
   const selected = useMemo(
@@ -229,6 +278,68 @@ export function App({ engine, boot = {} }) {
     }
   };
 
+  // Manual-import flow for the no-API sources (Kenney, Quaternius, The Base
+  // Mesh, Sketchfab downloads, …): the user downloads from the source site,
+  // then drops the .glb/.gltf/.zip here. Zips extract in-memory via the
+  // shared reader; companion files become object-urls resolved by
+  // loadImportedModel's suffix matcher. Session-only by design — object-urls
+  // cannot be re-downloaded, so these never save to the library.
+  const importLocalFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = ''; // re-selecting the same file must re-fire
+    if (!file) return;
+    try {
+      const lower = file.name.toLowerCase();
+      let download = null;
+      if (lower.endsWith('.zip')) {
+        const entries = await readZipEntries(await file.arrayBuffer());
+        const model = entries.find((entry) => /\.(glb|gltf)$/i.test(entry.name));
+        if (!model) { toast('No .glb/.gltf inside that zip.'); return; }
+        const resources = {};
+        for (const entry of entries) {
+          if (entry === model) continue;
+          resources[entry.name] = URL.createObjectURL(new Blob([entry.data]));
+        }
+        download = {
+          format: model.name.toLowerCase().endsWith('.glb') ? 'glb' : 'gltf',
+          resources,
+          url: URL.createObjectURL(new Blob([model.data])),
+        };
+      } else if (lower.endsWith('.glb') || lower.endsWith('.gltf')) {
+        download = { format: lower.endsWith('.glb') ? 'glb' : 'gltf', resources: {}, url: URL.createObjectURL(file) };
+      } else {
+        toast('Import a .glb, .gltf, or a .zip containing one.');
+        return;
+      }
+      const ref = {
+        attribution: { license: 'see source site', sourceLabel: 'Manual import', sourceUrl: null },
+        authors: [],
+        categories: [],
+        download,
+        id: `${file.name}@${Date.now()}`, // unique — never reuse a stale cache entry
+        kind: 'model',
+        name: file.name,
+        pageUrl: null,
+        source: 'manual',
+        tags: [],
+        thumbnailUrl: null,
+      };
+      setSelectedId(null);
+      setLoading(true);
+      const result = await engine.show(ref, { stylePreset: style });
+      setLoading(false);
+      if (!result.ok && !result.stale) toast(`Import failed: ${result.error}`);
+    } catch (error) {
+      setLoading(false);
+      toast(`Import failed: ${error.message}`);
+    }
+  };
+
+  const moreSources = useMemo(
+    () => listAssetSources({ includeDisabled: true, integration: ['manual', 'linkout', 'reference'] }),
+    [],
+  );
+
   return (
     <div className="asset-shell">
       <aside className="asset-side">
@@ -245,16 +356,37 @@ export function App({ engine, boot = {} }) {
             setCategory('all');
             setSelectedId(null);
             if (next === 'ambientcg') setKind('textures'); // materials only
-            if (next === 'polypizza') setKind('models'); // models only
+            if (MODEL_ONLY_SOURCES.includes(next)) setKind('models');
           }}
-          options={SOURCE_OPTIONS}
+          options={SOURCE_OPTIONS.map((option) => ({
+            ...option,
+            label: getAssetSource(option.value)?.enabled === false && !sourceOverrides[option.value]
+              ? `${option.label} · off (unreviewed)`
+              : option.label,
+          }))}
           value={source}
         />
+        {sourceInfo ? (
+          <p className="asset-source-facts">
+            {sourceInfo.license} · quality: {sourceInfo.qualityTier}
+            {sourceInfo.keyed ? ' · key required' : ''}
+          </p>
+        ) : null}
+        {!sourceEnabled ? (
+          <div className="asset-source-disabled">
+            <p>
+              Disabled pending quality review — the curation bar is Poly
+              Haven-tier (or approved stylized). Enable locally to evaluate;
+              flip <code>enabled</code> in sources.js to ship it.
+            </p>
+            <Button onClick={enableSourceLocally}>Enable locally for evaluation</Button>
+          </div>
+        ) : null}
         <Select
           onChange={setKind}
           options={KIND_OPTIONS.filter((option) => {
             if (source === 'ambientcg') return option.value === 'textures';
-            if (source === 'polypizza') return option.value === 'models';
+            if (MODEL_ONLY_SOURCES.includes(source)) return option.value === 'models';
             return true;
           })}
           value={kind}
@@ -343,6 +475,27 @@ export function App({ engine, boot = {} }) {
         ) : null}
         {indexError ? <p className="asset-error">{indexError}</p> : null}
         <p className="asset-count">{results.length} of {refs.length} assets · all CC0</p>
+        <details className="asset-more">
+          <summary>More CC0 sources · manual import</summary>
+          <p className="asset-more-hint">
+            No public file API on these — download from the site, then import
+            the file here (previewed through the style set, session-only).
+          </p>
+          <label className="asset-import">
+            Import a downloaded .glb / .gltf / .zip
+            <input accept=".glb,.gltf,.zip" onChange={importLocalFile} type="file" />
+          </label>
+          {moreSources.map((entry) => (
+            <div className="asset-more-source" key={entry.id}>
+              <a href={entry.url} rel="noreferrer" target="_blank">{entry.label} ↗</a>
+              <span className="asset-more-license">{entry.license}</span>
+              <p title={entry.notes}>{entry.goodFor}</p>
+              {entry.restrictions ? (
+                <p className="asset-more-warning">{entry.restrictions}</p>
+              ) : null}
+            </div>
+          ))}
+        </details>
       </aside>
 
       <main className="asset-grid" data-count={results.length}>
@@ -362,7 +515,11 @@ export function App({ engine, boot = {} }) {
             </div>
           </button>
         ))}
-        {results.length === 0 && !indexError ? <div className="empty">Nothing matches.</div> : null}
+        {results.length === 0 && !indexError ? (
+          <div className="empty">
+            {sourceEnabled ? 'Nothing matches.' : 'Source disabled pending quality review — enable it locally (sidebar) to evaluate.'}
+          </div>
+        ) : null}
       </main>
 
       {compareOn && selected ? (

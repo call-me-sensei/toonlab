@@ -43,15 +43,19 @@ const flow = water.getFlowAt(x, z);         // surge velocity (breaker whitewate
 (Inside this repo the labs import from `../../src/water/...`.)
 
 Constraints: the surface must stay axis-aligned (translation only), and
-depth-based effects assume a perspective camera. `WaterScenePasses` renders
-a color+depth grab pass and a planar reflection pass per frame; exclude
-objects with `userData.waterExclude` (both passes) or
-`userData.waterReflectionExclude` (reflection only).
+depth-based effects assume a perspective camera. Above water,
+`WaterScenePasses` renders a submerged-scene color+depth grab and a planar
+reflection. Below water, that color target becomes a same-pose air-side
+transmission capture with an oblique water-plane clip, while the planar
+reflection and scene-depth pass are skipped. Exclude objects with
+`userData.waterExclude` (all water passes), `userData.waterGrabExclude`
+(above-water grab only), or `userData.waterReflectionExclude` (reflection
+only).
 
 ## Settings, presets, tones
 
 Water settings are flat (`createWaterSettings({ preset: 'ocean',
-waveIntensity: 0.6 })`); all 79 fields across 7 groups (waves, surface,
+waveIntensity: 0.6 })`); all 82 fields across 7 groups (waves, surface,
 foam, lighting, ripples, splashes, quality) are in the
 [settings reference](settings-reference.md). Highlights:
 
@@ -64,6 +68,10 @@ foam, lighting, ripples, splashes, quality) are in the
   deepColor`), separate from wave motion. `colorTone` picks a named palette
   from `WATER_COLOR_TONES`: `classic`, `anime`, `teal`, `caribbean`,
   `lagoon`, `deepOcean`.
+- **Underwater transmission** — `indexOfRefraction` anchors the Snell window
+  and total internal reflection; `underwaterTransmission` controls how much
+  of the captured air-side scene comes through; `underwaterTintStrength`
+  keeps that view inside the authored water palette.
 - **Shore** — `shoalingDepth`, `shorelineWaves`, `shorelineRunup`, and
   `runupDistance` tune surf and swash reach. With an explicit
   `runupDistance`, event peaks vary over 80–100% of that bound and the next
@@ -122,7 +130,10 @@ The water samples this atlas so swash foam remains attached to the moving
 wet/dry edge. A beach material can sample the same atlas, preserving wet sand,
 the glossy draining film, and foam that has just crossed onto exposed sand.
 The ground mesh must provide a `color` vertex attribute because
-`createWaterShoreMaterial` uses it as the dry albedo.
+`createWaterShoreMaterial` uses it as the dry albedo. Optional `albedoMap`,
+Poly Haven-style `armMap` (AO/roughness/metalness), `normalMap`, and
+`textureRepeat` inputs can layer tiling grain detail under the same live wet
+sand, foam, and projected-caustic response.
 
 ```js
 import {
@@ -210,8 +221,21 @@ directly (`createWaterMaterial`).
   (optionally a function for pose-dependent bodies).
 - **`WaterRain`** — GPU-looping rain streaks to pair with ripple dimples.
 - **`WaterKelpField`** — instanced kelp blades swaying with the flow.
-- **Underwater view** — the surface renders a stylized Snell-window
-  underside when the camera dips below the waterline.
+- **Underwater view** — when the camera dips below the waterline, a clipped
+  same-pose scene capture supplies the real sky, clouds, and above-water
+  objects to a stylized IOR-based Snell window with total internal
+  reflection and compact Beer–Lambert-inspired tinting.
+- **Projected floor caustics** — the environment and shore materials receive
+  a runtime-generated seamless Voronoi web sampled in two independently
+  moving layers. It is distorted by waves and attenuated by water depth,
+  receiver angle, and the active water region. This is the shimmering light
+  commonly mistaken for a floor reflection; it is not mirror reflection.
+
+Full-screen underwater fog, image distortion, waterline meniscus, and sun
+shafts remain scene/post-processing responsibilities rather than surface
+material features. The Water Lab changes scene fog and background below the
+surface, but the water module does not force those artistic choices on every
+host application.
 
 Scene shadowing and cloud shadows: the surface darkens under cast shadows
 (`sceneShadowStrength`) and shares the global cloud-shadow field
@@ -332,6 +356,13 @@ events; a single attractive still does not prove continuity.
 - **Backend safety:** native WebGPU and the WebGL2 fallback retain displaced
   waves and swash. Neither may log a WebGPU private-address-space pipeline
   error or silently fall back to a completely flat surface.
+- **From below:** use the Water Lab's **From below** shortcut. The real sky,
+  clouds, and above-water silhouettes remain visible inside the Snell window;
+  grazing rays transition into a stylized total-internal-reflection band
+  without turning the whole underside transparent.
+- **Seabed:** use the **Seabed** shortcut on open ground. A moving two-layer
+  caustic web stays attached to actual receiving geometry, follows the water
+  palette and sun tint, fades with depth, and never appears on dry ground.
 - **Debug cross-check:** in `shoreState`, the blue foam signal follows the same
   event as the moving edge, green film trails the retreat, and red moisture
   outlives both. In `caustics` and `foam`, no fixed internal seam should reveal

@@ -5,17 +5,48 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  Badge, Button, Icon, IconButton, Modal, Popover, SegmentedControl, Select, Slider,
+  Badge, BrandLockup, Button, Icon, IconButton, Modal, Popover, PresetRowShell,
+  PreviewBar, PreviewToggle, RendererToggle, SegmentedControl, Select, Slider,
   TextField, ToastStack, useStoreState,
 } from '../../shared/ui/index.js';
 import { ScrubValue } from '../../shared/ui/components/Slider.jsx';
 import { WEATHER_PRESETS } from '../engine/skyWeather.js';
 import { BARK_TEXTURE_PRESETS } from '../engine/barkTextures.js';
-import { SCENE_HUB_OPTIONS, navigateSceneHub } from '../../shared/sceneHub.js';
-import { persistLabScene } from '../../shared/labParams.js';
 import { WALK_PREVIEW_TITLE } from '../../shared/walkPreview.js';
 import { findTreePreset } from '../treePresetStore.js';
 import { STAGES } from './stageMap.js';
+import { TREE_SETTING_FIELD_SCHEMA } from '../../../src/vegetation/treeRecipe.js';
+import { applyBarkShader, applyFlowerShader, applyFoliageShader, applyGrassShader, VEGETATION_SHADERS } from '../../../src/vegetation/vegetationShaders.js';
+import { SchemaGroup } from '../../shared/ui/schema/SchemaGroup.jsx';
+
+// Two editing contexts, never mixed: ASSETS is the creation lab (the recipe
+// you export); SHADER edits the vegetation shaders. Within Shader mode the
+// rail lists each vegetation shader — its own sections and fields.
+const LAB_MODES = Object.freeze([
+  Object.freeze({ label: 'Shader', value: 'shader' }),
+  Object.freeze({ label: 'Assets', value: 'assets' }),
+]);
+
+const SHADER_ICONS = Object.freeze({ bark: 'stage-wood', flower: 'stage-flowers', foliage: 'stage-leaves', grass: 'tool-leaves' });
+const SHADER_STORAGE_KEY = 'toonlab.vegetationShaders.v1';
+
+function loadShaderDocuments() {
+  try {
+    const raw = window.localStorage?.getItem(SHADER_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveShaderDocuments(documents) {
+  try {
+    window.localStorage?.setItem(SHADER_STORAGE_KEY, JSON.stringify(documents));
+  } catch {
+    // Private modes may reject storage — the lab keeps working unsaved.
+  }
+}
 import { StagePanel } from './panels/StagePanel.jsx';
 import { PowerDrawer } from './panels/PowerDrawer.jsx';
 import { ExportDialog } from './panels/ExportDialog.jsx';
@@ -82,7 +113,7 @@ function EnvironmentMenu({ actions, anchor, onClose, state }) {
         </div>
         <div style={{ display: 'grid', gap: 6 }}>
           <span className="tk-field-label"><span className="tk-field-label-text">Weather</span></span>
-          <SegmentedControl
+          <Select
             onChange={(weather) => actions.setSky({ weather })}
             options={Object.entries(WEATHER_PRESETS)
               .map(([value, preset]) => ({ label: preset.label, value }))}
@@ -98,9 +129,8 @@ function EnvironmentMenu({ actions, anchor, onClose, state }) {
   );
 }
 
-function TopBar({ actions, engine, state }) {
+function TopBar({ actions, engine, mode, onModeChange, state }) {
   const [menuAnchor, setMenuAnchor] = useState(null);
-  const [envAnchor, setEnvAnchor] = useState(null);
   const preset = state.presetId ? findTreePreset(state.presetId) : null;
   const title = preset?.label ?? 'Untitled tree';
 
@@ -118,7 +148,7 @@ function TopBar({ actions, engine, state }) {
 
   return (
     <header className="td-topbar tk">
-      <IconButton icon="logo-toonlab" label="Open gallery" onClick={() => actions.setView({ gallery: true })} testId="topbar-home" />
+      <BrandLockup labName="Vegetation Lab" />
       <button
         type="button"
         className="td-topbar-title"
@@ -131,36 +161,11 @@ function TopBar({ actions, engine, state }) {
       </button>
       <IconButton disabled={!state.canUndo} icon="undo" label="Undo (⌘Z)" onClick={() => actions.undo()} testId="undo" />
       <IconButton disabled={!state.canRedo} icon="redo" label="Redo (⇧⌘Z)" onClick={() => actions.redo()} testId="redo" />
-      <span className="td-topbar-spacer" />
-      <span className="td-scene-select">
-        <Select
-          onChange={(id) => {
-            persistLabScene(id);
-            navigateSceneHub(id);
-          }}
-          options={SCENE_HUB_OPTIONS.map((option) => ({ label: option.label, value: option.id }))}
-          testId="scene-hub"
-          value="treeLab"
-        />
+      <span className="td-sublab" data-testid="mode-switch" title="Assets is the creation lab (recipes you export); Shader edits the vegetation shaders. The two are never edited at the same time.">
+        <SegmentedControl onChange={onModeChange} options={[...LAB_MODES]} value={mode} />
       </span>
-      <Button
-        kind="ghost"
-        onClick={(event) => setEnvAnchor({ x: event.clientX, y: event.clientY + 10 })}
-        testId="environment-open"
-      >
-        🌤 Environment
-      </Button>
-      <Button
-        kind={state.walkPreview ? 'secondary' : 'ghost'}
-        onClick={() => {
-          const on = !state.walkPreview;
-          if (on) actions.setMannequin(true);
-          actions.setWalkPreview(on);
-        }}
-        testId="preview-toggle"
-      >
-        {state.walkPreview ? '⏹ Stop preview' : '▶ Preview'}
-      </Button>
+      <span className="td-topbar-spacer" />
+      <RendererToggle />
       <Button icon="link" kind="ghost" onClick={share} testId="share">Share</Button>
       <Button
         icon="stage-export"
@@ -178,19 +183,32 @@ function TopBar({ actions, engine, state }) {
           state={state}
         />
       )}
-      {envAnchor && (
-        <EnvironmentMenu
-          actions={actions}
-          anchor={envAnchor}
-          onClose={() => setEnvAnchor(null)}
-          state={state}
-        />
-      )}
+
     </header>
   );
 }
 
-function StageRail({ actions, state }) {
+function StageRail({ actions, activeShader, mode, onShaderChange, state }) {
+  if (mode === 'shader') {
+    return (
+      <nav className="td-rail tk" data-testid="stage-rail">
+        {VEGETATION_SHADERS.map((master) => (
+          <button
+            key={master.id}
+            type="button"
+            className="td-rail-stage"
+            data-active={activeShader === master.id}
+            data-testid={`shader-${master.id}`}
+            title={`${master.label} — ${master.description}`}
+            onClick={() => onShaderChange(master.id)}
+          >
+            <Icon name={SHADER_ICONS[master.id]} />
+            <span>{master.label}</span>
+          </button>
+        ))}
+      </nav>
+    );
+  }
   return (
     <nav className="td-rail tk" data-testid="stage-rail">
       {/* Move is a UTILITY, not a stage: it shows whether your hands are on
@@ -532,6 +550,37 @@ function RootsSection({ actions, state }) {
   );
 }
 
+function ShaderInspector({ activeShader, onShaderSetting, onShaderPreset, shaderState }) {
+  const master = VEGETATION_SHADERS.find((entry) => entry.id === activeShader) ?? VEGETATION_SHADERS[0];
+  const current = shaderState[master.id];
+  return (
+    <aside className="td-inspector tk" data-testid="inspector">
+      <PresetRowShell title={`The ${master.label.toLowerCase()} shader preset you are editing — treatment only; albedo stays on the asset, light stays on the scene.`}>
+        <Select
+          onChange={(id) => { if (id) onShaderPreset(master.id, id); }}
+          options={[
+            ...(current.presetId === null ? [{ label: 'Custom…', value: '' }] : []),
+            ...master.getPresetOptions(),
+          ]}
+          testId="shader-preset-select"
+          value={current.presetId ?? ''}
+        />
+      </PresetRowShell>
+      <h2 style={{ font: 'var(--type-title)', margin: 'var(--space-1)' }} data-testid="inspector-title">{master.label} shader</h2>
+      <p style={{ color: 'var(--text-tertiary)', font: 'var(--type-caption)', margin: '0 var(--space-1) var(--space-3)' }}>
+        {master.description}
+      </p>
+      <SchemaGroup
+        fields={master.fieldSchema}
+        getValue={(field) => current.settings[field.key]}
+        group={{ description: master.description, id: master.id, label: `${master.label} treatment` }}
+        onChange={(field, value) => onShaderSetting(master.id, field.key, value)}
+        showCaption={false}
+      />
+    </aside>
+  );
+}
+
 function Inspector({ actions, state }) {
   if (state.view.drawer) {
     return (
@@ -569,33 +618,129 @@ function StatusBar({ actions, engine, state }) {
       <span className="td-status-stats">
         seed {state.settings.plant.seed} · {Number(cards).toLocaleString()} cards
       </span>
-      <button
-        type="button"
-        className="tk-button"
-        data-kind={state.mannequin ? 'primary' : 'ghost'}
-        data-testid="mannequin-toggle"
-        title="Show a 1.8m mannequin next to the tree for scale"
-        onClick={() => actions.setMannequin(!state.mannequin)}
-      >
-        🧍 Scale
-      </button>
-      <button
-        type="button"
-        className="tk-button"
-        data-kind={state.walkPreview ? 'primary' : 'ghost'}
-        data-testid="walk-toggle"
-        title={WALK_PREVIEW_TITLE}
-        onClick={() => actions.setWalkPreview(!state.walkPreview)}
-      >
-        🚶 Walk
-      </button>
     </footer>
   );
 }
 
-export function App({ engine, sketchBindings, store }) {
+// Scene-preview configuration — the bottom bar over the viewport (shared
+// PreviewBar): time of day, weather, scale mannequin, walking. All
+// presentation, never part of the recipe or the shader preset.
+function TreePreviewBar({ actions, state }) {
+  const hour = state.sky.hour;
+  const clock = `${String(Math.floor(hour)).padStart(2, '0')}:${String(Math.round((hour % 1) * 60)).padStart(2, '0')}`;
+  return (
+    <PreviewBar
+      hint={state.walkPreview ? 'WASD/arrows move · Shift runs · Space jumps' : null}
+      title="Preview only — time, weather, mannequin, and walking are presentation; never part of the recipe or exports."
+    >
+      <span className="tk-previewbar-slider" title={`Time of day — ${clock}`}>
+        <span>{clock}</span>
+        <Slider defaultValue={12} max={24} min={0} onChange={(value) => actions.setSky({ hour: value })} step={0.5} testId="sky-hour" value={hour} />
+      </span>
+      <span className="td-previewbar-select">
+        <Select
+          onChange={(weather) => actions.setSky({ weather })}
+          options={Object.entries(WEATHER_PRESETS).map(([value, preset]) => ({ label: preset.label, value }))}
+          testId="sky-weather"
+          value={state.sky.weather}
+        />
+      </span>
+      <span className="tk-previewbar-slider" title="Wind strength — scene atmosphere; the canopy flutter it drives is live, never baked into exports.">
+        <span>Wind</span>
+        <Slider
+          max={TREE_SETTING_FIELD_SCHEMA.wind.strength.range?.max ?? 0.3}
+          min={0}
+          onChange={(value) => actions.setField(TREE_SETTING_FIELD_SCHEMA.wind.strength, value)}
+          step={TREE_SETTING_FIELD_SCHEMA.wind.strength.range?.step ?? 0.005}
+          testId="wind-strength"
+          value={state.settings.wind.strength}
+        />
+      </span>
+      <span className="tk-previewbar-slider" title="Wind speed — how fast the flutter oscillates.">
+        <span>Speed</span>
+        <Slider
+          max={TREE_SETTING_FIELD_SCHEMA.wind.speed.range?.max ?? 3}
+          min={0}
+          onChange={(value) => actions.setField(TREE_SETTING_FIELD_SCHEMA.wind.speed, value)}
+          step={TREE_SETTING_FIELD_SCHEMA.wind.speed.range?.step ?? 0.05}
+          testId="wind-speed"
+          value={state.settings.wind.speed}
+        />
+      </span>
+      <PreviewToggle
+        checked={Boolean(state.mannequin)}
+        label="Scale"
+        onChange={(mannequin) => actions.setMannequin(mannequin)}
+        testId="mannequin-toggle"
+        title="Show a 1.8m mannequin next to the tree for scale"
+      />
+      <PreviewToggle
+        checked={Boolean(state.walkPreview)}
+        label="Walk"
+        onChange={(on) => {
+          if (on) actions.setMannequin(true);
+          actions.setWalkPreview(on);
+        }}
+        testId="walk-toggle"
+        title={WALK_PREVIEW_TITLE}
+      />
+    </PreviewBar>
+  );
+}
+
+export function App({ dressing, engine, sketchBindings, store }) {
   const state = useStoreState(store);
   const { actions } = store;
+  const [mode, setMode] = useState('assets');
+  const [activeShader, setActiveShader] = useState('foliage');
+  // Per-master shader preset state: { presetId, settings }, persisted.
+  const [shaderState, setShaderState] = useState(() => {
+    const saved = loadShaderDocuments();
+    return Object.fromEntries(VEGETATION_SHADERS.map((master) => {
+      const entry = saved[master.id];
+      return [master.id, {
+        presetId: entry?.presetId ?? 'call_me_sensei',
+        settings: master.createSettings(entry?.settings ?? { preset: 'call_me_sensei' }),
+      }];
+    }));
+  });
+
+  function applyShaderToScene(masterId, settings) {
+    const plantRoot = engine.scene;
+    if (masterId === 'foliage') applyFoliageShader(plantRoot, settings);
+    if (masterId === 'grass' && dressing?.grass) applyGrassShader(dressing.grass, settings);
+    if (masterId === 'flower') applyFlowerShader(plantRoot, settings);
+    if (masterId === 'bark') applyBarkShader(plantRoot, settings);
+  }
+
+  function commitShaderState(next) {
+    setShaderState(next);
+    saveShaderDocuments(Object.fromEntries(Object.entries(next).map(([id, entry]) => [id, entry])));
+  }
+
+  function handleShaderSetting(masterId, key, value) {
+    const master = VEGETATION_SHADERS.find((entry) => entry.id === masterId);
+    const settings = master.createSettings({ ...shaderState[masterId].settings, [key]: value });
+    applyShaderToScene(masterId, settings);
+    commitShaderState({ ...shaderState, [masterId]: { presetId: null, settings } });
+  }
+
+  function handleShaderPreset(masterId, presetId) {
+    const master = VEGETATION_SHADERS.find((entry) => entry.id === masterId);
+    const settings = master.createSettings({ preset: presetId });
+    applyShaderToScene(masterId, settings);
+    commitShaderState({ ...shaderState, [masterId]: { presetId, settings } });
+  }
+
+  // Apply on mount and re-apply after every rebuild — rebuilds replace
+  // materials, so treatment must survive edits and plant switches.
+  useEffect(() => {
+    const applyAll = () => {
+      for (const master of VEGETATION_SHADERS) applyShaderToScene(master.id, shaderState[master.id].settings);
+    };
+    applyAll();
+    return engine.onRebuilt?.(applyAll);
+  }, [engine, shaderState]);
 
   if (state.view.gallery) {
     return (
@@ -609,9 +754,18 @@ export function App({ engine, sketchBindings, store }) {
   return (
     <div className="tk">
       <div className="td-root">
-        <TopBar actions={actions} engine={engine} state={state} />
-        <StageRail actions={actions} state={state} />
-        <Inspector actions={actions} state={state} />
+        <TopBar actions={actions} engine={engine} mode={mode} onModeChange={setMode} state={state} />
+        <StageRail actions={actions} activeShader={activeShader} mode={mode} onShaderChange={setActiveShader} state={state} />
+        {mode === 'shader'
+          ? (
+            <ShaderInspector
+              activeShader={activeShader}
+              onShaderPreset={handleShaderPreset}
+              onShaderSetting={handleShaderSetting}
+              shaderState={shaderState}
+            />
+          )
+          : <Inspector actions={actions} state={state} />}
         <StatusBar actions={actions} engine={engine} state={state} />
       </div>
       {state.sketchMode
@@ -622,6 +776,7 @@ export function App({ engine, sketchBindings, store }) {
             <OptionsBar actions={actions} state={state} />
           </>
         )}
+      <TreePreviewBar actions={actions} state={state} />
       <BranchInspectorPopover actions={actions} state={state} />
       {state.view.export && (
         <ExportDialog

@@ -35,17 +35,40 @@ npm run dev
 Vite serves the labs at `http://localhost:5175`. See
 [Getting started](docs/getting-started.md) for a tour.
 
+### Local MCP server
+
+Running the labs locally also creates a disk-backed `.toonlab/` workspace
+shared by the browser tools and the included MCP server. Open
+`http://localhost:5175/settings/` for a checkout-specific configuration you
+can paste into an MCP-compatible coding tool.
+
+```bash
+npm run dev
+# In an MCP client, use the command/config shown at /settings/.
+```
+
+The local server can search the built-in procedural catalog and public CC0
+sources, read your saved presets and exported files, generate seeded recipes,
+and import assets into the project. It uses stdio, requires no account or
+OAuth, and keeps work on disk. See [Local MCP and workspace](docs/mcp.md).
+
 ## The labs
 
-Runnable demos in `labs/` (not published to npm). Switch between them with
-the HUD Scene select:
+Runnable demos in `labs/` (not published to npm). The Labs home (`/`) links
+every lab as a card; the HUD Scene select switches between them in-lab:
 
-- **Shader Lab** (`/`) — character + environment shader tuning: every toon
+- **Shader Lab** (`/shader-lab/`) — character + environment shader tuning: every toon
   and environment setting as a live control, preset export/import, debug
   views.
 - **Playground** (`/playground/`) — third-person character controller
   in gameplay scenes: calm lake, river crossing, ocean beach with breaking
   waves, and an indoor room. Walk, jump, swim, splash.
+- **Weather Lab** (`/weather-lab/`) — 22 shared weather presets plus live
+  controls for atmosphere, wind, precipitation, lightning, and surface
+  response. Tune, transition, import, save, and export developer presets.
+- **Lighting Lab** (`/lighting-lab/`) — build reusable luminaire, rig, look,
+  and quality presets; edit and stress-test light budgets, shadows, cookies,
+  IES/linking metadata, and export Unreal Engine 5.8 MegaLights/Lumen intent.
 - **Rock Lab** (`/rock-lab/`) — procedural stylized rocks, cliffs,
   heightfields, sculpt edits, and GLB export.
 - **Tree Lab** (`/tree-lab/`) — procedural stylized trees,
@@ -74,9 +97,11 @@ the HUD Scene select:
   Re-roll it from the URL:
   `?seed=42&archetype=lakeland&water=0.4&villages=2&shrines=1&paths=4`.
 
-Every URL parameter has a HUD control, lab state persists per lab in
-`localStorage`, and **Reset Lab** clears it. Point any lab at your own model
-with the Model URL input or `?model=` — see
+Every URL parameter has a HUD control. In local development, lab state is
+mirrored into `.toonlab/` so the MCP server and browser share it; existing
+`localStorage` and IndexedDB data migrate on first run. Static hosted builds
+fall back to browser storage. **Reset Lab** clears the current lab state.
+Point any lab at your own model with the Model URL input or `?model=` — see
 [Characters](docs/characters.md).
 
 ## What's inside
@@ -85,6 +110,8 @@ with the Model URL input or `?model=` — see
 |---|---|---|
 | Toon character shading | `@call-me-sensei/toonlab/toon` | Modern anime character shader: cel bands with art-directed face lighting, skin-tone shadow management, shadow-color HSV control, scene/self/contact shadows, average-shadow smoothing, rim light (fresnel or screen-space depth), stylized + anisotropic hair highlights, eye catchlights, role-aware specular, source map routing (normal/AO/emissive/MatCap/ramp/detail), inverted-hull outlines, glitter, stickers, perspective removal, shell fur, dither fades — 23 settings groups, all preset-serializable. [Docs](docs/toon-shading.md) |
 | Environment shading | `@call-me-sensei/toonlab/environment` | Modern anime-style scene shader for texture packs, standard glTF, and untextured scenes: material-role classification, wrapped lighting, packed-map hints, window cutouts, sun/lamp rigs, time-of-day, six-direction ambient probe, planar floor reflections, BVH vertex-AO baking, height fog, cloud shadows. [Docs](docs/environment.md) |
+| Lighting | `@call-me-sensei/toonlab/lighting` | Versioned lighting recipes and looks, physical/artistic intensity helpers, reusable luminaire/rig/look/quality presets, deterministic light and shadow budgets, capability diagnostics, runtime Three.js realization, and a data-only Unreal Engine 5.8 MegaLights/Lumen handoff. [Docs](docs/lighting.md) |
+| Weather | `@call-me-sensei/toonlab/weather` | Shared cross-system weather coordinator with 22 presets, smooth transitions, one-draw GPU precipitation (rain, snow, sleet, hail, dust), lightning/thunder events, and normalized wetness/snow/ice outputs. It drives sky, sun, fog, cloud shadows, wind, vegetation, water, fauna, and ambient effects through their public adapters. [Docs](docs/weather.md) |
 | Water | `@call-me-sensei/toonlab/water` | Fully procedural interactive water: Gerstner wave stack with a calm→storm dial, wave sets, plunging breakers you can surf, three-stop absorption color, refraction/caustics/foam, GPU ripple sim, splashes, wakes, rain, kelp, underwater view — with a CPU mirror of the whole spectrum for buoyancy. [Docs](docs/water.md) |
 | Vegetation | `@call-me-sensei/toonlab/vegetation` | Instanced grass and flower fields (wind, push-away, scene + cloud shadows, backlit translucency) and procedural stylized trees with a serializable recipe system. [Docs](docs/vegetation-sky.md) |
 | Paths, roads & bridges | `@call-me-sensei/toonlab/pathgen` | Seeded path networks routed over any `heightAt`: cost-field router (slope/water aware), hand-drawn ribbon overlay in dirt/stone/planks, arched plank bridges with collision, stepped stone climbs, flattened `paths.heightAt` for walkability, scatter exclusion mask, minimap overlay. |
@@ -96,6 +123,8 @@ with the Model URL input or `?model=` — see
 | Asset catalog | `@call-me-sensei/toonlab/catalog` | Every recipe/preset as a searchable manifest with one headline call: `catalog.spawn(id, { seed })` → a placeable PropAsset for props, buildings, trees, rocks, and debris. `catalog.addSource(url)` mounts remote registries. |
 | Sky | `@call-me-sensei/toonlab/sky` | Procedural gradient/sun/painterly-cloud/star dome that also shows up in water reflections. [Docs](docs/vegetation-sky.md) |
 | Post-processing | `@call-me-sensei/toonlab/post` | Optional single-pipeline compositor: character-aware bloom, color grade, LUT, vignette, screen outline, depth cue — schema-driven, preset-serializable. [Docs](docs/post-processing.md) |
+| Camera | `@call-me-sensei/toonlab/camera` | Extensible camera operator stack, generated recipe/preset documents, follow/framing/collision/damping/noise/impulse behavior, and a director for blending reusable rigs. [Style domain docs](docs/style-labs.md#camera) |
+| Game feel | `@call-me-sensei/toonlab/game-feel` | Event-driven response scheduler for camera punches, hit-stop/time warp, squash, flashes, audio, and haptics through capability-safe adapters, extensible effect factories, and bounded concurrency. [Style domain docs](docs/style-labs.md#game-feel) |
 | Procedural textures | `@call-me-sensei/toonlab/texgen` | Seamless CPU-baked PBR texture generator: 25 tileable pattern/noise generators, layered detail + colored overlays (moss, rust, grime), five-stop cel-capable color ramp, cavity/sheen hand-painted read, derived normal/AO/roughness/metalness/height/ORM/emissive maps, 60+ presets, and a natural-language recipe mapper (offline keywords or BYO-key Gemini/OpenAI). [Docs](docs/texture-lab.md) |
 | Character pipeline | `@call-me-sensei/toonlab/character` | Bone-role adapters for VRM/MMD/Mixamo/Rigify rigs, native-clip conventions, Mixamo retarget helpers, and a procedural freestyle swim clip. [Docs](docs/characters.md) |
 | Model loaders | `@call-me-sensei/toonlab/loaders` | Optional GLB/glTF, VRM 0+1, PMX/PMD, FBX, OBJ, and text-USDZ loading helpers. Kept off the root import so apps that do not load models avoid loader dependencies. [Docs](docs/characters.md) |
@@ -127,6 +156,7 @@ const world = await createStylizedWorld({
   renderer, scene, camera,
   terrain: { heightAt: terrain.heightAt, root: terrainRoot, size: terrain.meshExtent },
   water: { level: terrain.waterLevel },
+  weather: { preset: 'call_me_sensei' }, // 'snow' | 'hail' | 'thunderstorm' | ...
   followTarget: character, // your character root (optional): splashes, wakes, grass push
 });
 character.position.copy(terrain.spawn); // probed: walkable, near a shore
@@ -198,6 +228,11 @@ stack, with WebGL2 fallback through the same TSL path.
   load your own models.
 - [Toon character shading](docs/toon-shading.md)
 - [Environment shading](docs/environment.md)
+- [Lighting](docs/lighting.md)
+- [Weather system](docs/weather.md)
+- [Generative style labs](docs/style-labs.md) — Post & Color, Camera, Motion,
+  UI Theme, Biome, Soundscape, and Game Feel; shared recipes, MCP authoring,
+  package runtimes, quality budgets, and engine design references.
 - [Water](docs/water.md)
 - [Vegetation and sky](docs/vegetation-sky.md)
 - [Post-processing](docs/post-processing.md)

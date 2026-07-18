@@ -228,8 +228,9 @@ export function createFlowerHeadBillboardNodeMaterial({
  * Toon material for 3D bloom-head meshes (vertex-colored petals + center
  * from createFlowerHeadGeometry), with the shared instance-phased wind bob.
  */
-export function createFlowerBloomNodeMaterial({ windSpeed = 1, windStrength = 0 } = {}) {
+export function createFlowerBloomNodeMaterial({ unlitLift = 0.35, windSpeed = 1, windStrength = 0 } = {}) {
   const u = {
+    uUnlitLift: uniform(unlitLift),
     uWindSpeed: uniform(windSpeed),
     uWindStrength: uniform(windStrength),
   };
@@ -237,9 +238,10 @@ export function createFlowerBloomNodeMaterial({ windSpeed = 1, windStrength = 0 
   const material = new MeshToonNodeMaterial({ side: THREE.DoubleSide, vertexColors: true });
   material.name = 'StylizedFlowerBloom';
   material.positionNode = positionLocal.add(flowerSway(u));
-  // Petal-tinted floor for unlit faces: cup interiors and shaded petals
-  // read as darker petal color instead of toon-band black.
-  material.emissiveNode = vertexColor().rgb.mul(0.35);
+  // Petal-tinted floor for unlit faces (the flower shader's Unlit Petal
+  // Lift): cup interiors and shaded petals read as darker petal color
+  // instead of toon-band black.
+  material.emissiveNode = vertexColor().rgb.mul(u.uUnlitLift);
 
   material.uniforms = u;
   return material;

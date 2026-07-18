@@ -101,6 +101,16 @@ check('non-classic tone forces its palette over explicit values',
 const classic = createWaterSettings({ colorTone: 'classic', shallowColor: [1, 0, 0] });
 check('classic tone leaves explicit colors alone', deepEqual(classic.shallowColor, [1, 0, 0]));
 
+const underwaterLimits = createWaterSettings({
+  indexOfRefraction: 9,
+  underwaterTransmission: -1,
+  underwaterTintStrength: 2,
+});
+check('underwater optics settings clamp to their public ranges',
+  underwaterLimits.indexOfRefraction === 1.8
+    && underwaterLimits.underwaterTransmission === 0
+    && underwaterLimits.underwaterTintStrength === 1);
+
 // --- sanitize + document round-trips -----------------------------------------------
 const sanitized = sanitizeWaterPresetSettings(DEFAULT_WATER_SETTINGS);
 check('sanitize covers every schema key from the defaults',
@@ -439,6 +449,18 @@ const waterLabEngineSource = readFileSync(
   new URL('../labs/water-lab/engine/waterLabEngine.js', import.meta.url),
   'utf8',
 );
+const scenePassSource = readFileSync(
+  new URL('../src/water/waterScenePasses.js', import.meta.url),
+  'utf8',
+);
+const projectedCausticsSource = readFileSync(
+  new URL('../src/shaders-tsl/chunks/projected-water-caustics.js', import.meta.url),
+  'utf8',
+);
+const environmentShaderSource = readFileSync(
+  new URL('../src/shaders-tsl/environment.js', import.meta.url),
+  'utf8',
+);
 check('temporal foam breakup stays out of the private-memory-heavy main shader',
   !visibleWaterShaderSource.includes('waterValueNoise(')
     && shoreStateShaderSource.includes('const fineNoise ='));
@@ -460,6 +482,24 @@ check('coherent edge foam continues onto wet sand instead of clipping at the wat
 check('Swash Foam controls both the water-side and sand-side presentation',
   shoreGroundMaterialSource.includes('uShoreFoamAmount')
     && waterLabEngineSource.includes('foamAmount: settings.swashFoamAmount'));
+check('underwater surface uses a physical IOR boundary around a captured air-side scene',
+  visibleWaterShaderSource.includes('refract(')
+    && visibleWaterShaderSource.includes('const criticalCos =')
+    && visibleWaterShaderSource.includes('const capturedAir = u.uSceneColor'));
+check('submerged grab uses a same-pose camera clipped to the air side',
+  scenePassSource.includes('this.transmissionCamera = new THREE.PerspectiveCamera()')
+    && scenePassSource.includes('this.applyWaterClipPlane(renderer, transmissionCamera, waterY)')
+    && scenePassSource.includes('if (cameraBelow) {\n        this.depthValid = false;'));
+check('projected floor caustics combine two independently moving seamless samples',
+  projectedCausticsSource.includes('const cellA =')
+    && projectedCausticsSource.includes('const cellB =')
+    && projectedCausticsSource.includes('min(cellA, cellB).oneMinus()'));
+check('environment and shore materials both receive the underwater caustic projector',
+  environmentShaderSource.includes('projectedWaterCaustics(vWorldPosition, normalWorld)')
+    && shoreGroundMaterialSource.includes('projectedWaterCaustics(positionWorld, normalWorld)'));
+check('Water Lab exposes repeatable underside and seabed inspection cameras',
+  waterLabEngineSource.includes("view === 'underwater-up'")
+    && waterLabEngineSource.includes("view !== 'underwater-floor'"));
 
 if (failures > 0) {
   console.error(`\nverify-watergen: ${failures} failure(s)`);

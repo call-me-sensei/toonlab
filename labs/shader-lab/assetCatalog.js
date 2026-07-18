@@ -4,6 +4,7 @@ import {
   buildLocalCharacterModelOptions,
   directoryFromPath,
   filenameFromPath,
+  findLocalCharacterMaterialUrl,
   LOCAL_CHARACTER_ASSET_MANIFEST,
   LOCAL_ENVIRONMENT_ASSET_MANIFEST,
   normalizeAssetUrlPath,
@@ -42,23 +43,6 @@ const TEST_ENVIRONMENT_BACKGROUND_URLS = TEST_ENVIRONMENT_BACKGROUND_ASSET_PATHS
 // (main.js then falls back to loading the default character instead).
 export const DEFAULT_ENVIRONMENT_URL = TEST_ENVIRONMENT_MODEL_URLS[0] ?? '';
 
-function findCharacterMaterialUrlForModel(modelUrl, characterName) {
-  const modelDirectory = directoryFromPath(modelUrl);
-  const modelBaseKey = normalizeNameKey(stripFileExtension(filenameFromPath(modelUrl)));
-  const characterKey = normalizeNameKey(characterName);
-  const sameDirectoryMaterials = TEST_CHARACTER_MATERIAL_URLS
-    .filter((materialUrl) => directoryFromPath(materialUrl) === modelDirectory);
-
-  const preferredMaterial = sameDirectoryMaterials.find((materialUrl) => {
-    const materialBaseKey = normalizeNameKey(stripFileExtension(filenameFromPath(materialUrl)));
-    return materialBaseKey === modelBaseKey ||
-      materialBaseKey === characterKey ||
-      materialBaseKey === 'model';
-  });
-  if (preferredMaterial) return preferredMaterial;
-  return sameDirectoryMaterials.length === 1 ? sameDirectoryMaterials[0] : null;
-}
-
 function buildCharacterAssetOptions() {
   const discoveredOptions = buildLocalCharacterModelOptions()
     .map((entry) => ({
@@ -66,7 +50,7 @@ function buildCharacterAssetOptions() {
       id: entry.id,
       label: entry.label,
       materialUrl: entry.format === 'obj'
-        ? findCharacterMaterialUrlForModel(entry.modelUrl, entry.name)
+        ? findLocalCharacterMaterialUrl(entry.modelUrl, entry.name)
         : null,
       modelUrls: [entry.modelUrl],
       name: entry.name,

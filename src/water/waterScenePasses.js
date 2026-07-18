@@ -9,6 +9,7 @@ import { createPassDepthColorMaterial } from '../shaders-tsl/chunks/pass-depth-c
 //
 // Exclusion flags on object.userData:
 //   waterExclude           — hidden from both passes
+//   waterGrabExclude       — hidden from the above-water grab only
 //   waterReflectionExclude — hidden from the reflection pass only
 //   skipWaterReflection    — legacy alias of waterReflectionExclude
 //
@@ -70,10 +71,12 @@ export class WaterScenePasses {
 
     this.grabTarget = null;
     this.reflectionTarget = null;
+    this.transmissionCamera = new THREE.PerspectiveCamera();
     this.reflectionCamera = new THREE.PerspectiveCamera();
     this.reflectionMatrix = new THREE.Matrix4();
     this.reflectionValid = false;
     this.grabValid = false;
+    this.depthValid = false;
 
     // Scene-depth pass state for the TSL renderer path.
     this.depthTarget = null;
@@ -89,6 +92,7 @@ export class WaterScenePasses {
       drawingBufferSize: new THREE.Vector2(),
       cameraPosition: new THREE.Vector3(),
       cameraDirection: new THREE.Vector3(),
+      cameraQuaternion: new THREE.Quaternion(),
       target: new THREE.Vector3(),
       plane: new THREE.Plane(),
       clipPlane: new THREE.Vector4(),
@@ -265,11 +269,25 @@ export class WaterScenePasses {
 
   renderGrabPass(renderer, scene, camera, waterMesh) {
     this.ensureGrabTarget(renderer);
+    this.scratch.waterWorldPosition.setFromMatrixPosition(waterMesh.matrixWorld);
+    camera.getWorldPosition(this.scratch.cameraPosition);
+    const cameraBelow = this.scratch.cameraPosition.y < this.scratch.waterWorldPosition.y;
+    // Above water the grab sees the submerged scene. Below water it becomes a
+    // same-pose transmission camera clipped to the air side of the surface,
+    // so clouds and above-water objects are genuinely visible through it.
+    const grabCamera = cameraBelow
+      ? this.updateTransmissionCamera(
+        renderer,
+        camera,
+        this.scratch.waterWorldPosition.y,
+      )
+      : camera;
     // waterGrabExclude skips the refraction grab/depth renders only — for
     // above-water set dressing (cliffs, large rocks) whose reflection
-    // matters but whose refracted contribution is invisible.
+    // matters but whose refracted contribution is invisible. From below,
+    // that set dressing belongs in the transmitted above-water view.
     const restoreFlagged = hideFlagged(scene, (object) => object.userData?.waterExclude
-      || object.userData?.waterGrabExclude);
+      || (!cameraBelow && object.userData?.waterGrabExclude));
     const waterWasVisible = waterMesh.visible;
     waterMesh.visible = false;
     const previousTarget = renderer.getRenderTarget();
@@ -280,8 +298,13 @@ export class WaterScenePasses {
       renderer.shadowMap.autoUpdate = false;
       renderer.setRenderTarget(this.grabTarget);
       renderer.clear();
-      renderer.render(scene, camera);
-      this.renderDepthPass(renderer, scene, camera);
+      renderer.render(scene, grabCamera);
+      if (cameraBelow) {
+        this.depthValid = false;
+      } else {
+        this.renderDepthPass(renderer, scene, grabCamera);
+        this.depthValid = true;
+      }
       this.grabValid = true;
     } finally {
       renderer.setRenderTarget(previousTarget);
@@ -290,6 +313,52 @@ export class WaterScenePasses {
       waterMesh.visible = waterWasVisible;
       restoreFlagged();
     }
+  }
+
+  applyWaterClipPlane(renderer, camera, waterY) {
+    // Oblique near-plane clipping (Lengyel), matching THREE.Reflector's
+    // coordinate-system-aware construction. The positive side of this plane
+    // is the air volume, even when the virtual camera itself is underwater.
+    const { plane, clipPlane, q } = this.scratch;
+    plane.normal.set(0, 1, 0);
+    plane.constant = -waterY;
+    plane.applyMatrix4(camera.matrixWorldInverse);
+    clipPlane.set(plane.normal.x, plane.normal.y, plane.normal.z, plane.constant);
+
+    const projectionMatrix = camera.projectionMatrix;
+    q.x = (Math.sign(clipPlane.x) + projectionMatrix.elements[8]) / projectionMatrix.elements[0];
+    q.y = (Math.sign(clipPlane.y) + projectionMatrix.elements[9]) / projectionMatrix.elements[5];
+    q.z = -1.0;
+    q.w = (1.0 + projectionMatrix.elements[10]) / projectionMatrix.elements[14];
+    clipPlane.multiplyScalar(1.0 / clipPlane.dot(q));
+    projectionMatrix.elements[2] = clipPlane.x;
+    projectionMatrix.elements[6] = clipPlane.y;
+    projectionMatrix.elements[10] = renderer.coordinateSystem === THREE.WebGPUCoordinateSystem
+      ? clipPlane.z - this.clipBias
+      : clipPlane.z + 1.0 - this.clipBias;
+    projectionMatrix.elements[14] = clipPlane.w;
+    camera.projectionMatrixInverse.copy(projectionMatrix).invert();
+  }
+
+  updateTransmissionCamera(renderer, camera, waterY) {
+    const { cameraPosition, cameraQuaternion } = this.scratch;
+    camera.getWorldPosition(cameraPosition);
+    camera.getWorldQuaternion(cameraQuaternion);
+
+    const transmissionCamera = this.transmissionCamera;
+    transmissionCamera.coordinateSystem = renderer.coordinateSystem;
+    transmissionCamera.position.copy(cameraPosition);
+    transmissionCamera.quaternion.copy(cameraQuaternion);
+    transmissionCamera.scale.set(1, 1, 1);
+    transmissionCamera.near = camera.near;
+    transmissionCamera.far = camera.far;
+    transmissionCamera.layers.mask = camera.layers.mask;
+    transmissionCamera.projectionMatrix.copy(camera.projectionMatrix);
+    transmissionCamera.projectionMatrixInverse.copy(camera.projectionMatrixInverse);
+    transmissionCamera.updateMatrixWorld();
+    transmissionCamera.matrixWorldInverse.copy(transmissionCamera.matrixWorld).invert();
+    this.applyWaterClipPlane(renderer, transmissionCamera, waterY);
+    return transmissionCamera;
   }
 
   updateReflectionCamera(renderer, camera, waterY) {
@@ -315,29 +384,7 @@ export class WaterScenePasses {
     reflectionCamera.updateMatrixWorld();
     reflectionCamera.matrixWorldInverse.copy(reflectionCamera.matrixWorld).invert();
 
-    // Oblique near-plane clipping (Lengyel), same construction as
-    // THREE.Reflector: geometry below the water plane never leaks into the
-    // mirrored image. The node backends use ReflectorNode's coordinate-
-    // system-aware variant of the same construction.
-    const { plane, clipPlane, q } = this.scratch;
-    plane.setFromNormalAndCoplanarPoint(
-      new THREE.Vector3(0, 1, 0),
-      new THREE.Vector3(0, waterY, 0));
-    plane.applyMatrix4(reflectionCamera.matrixWorldInverse);
-    clipPlane.set(plane.normal.x, plane.normal.y, plane.normal.z, plane.constant);
-
-    const projectionMatrix = reflectionCamera.projectionMatrix;
-    q.x = (Math.sign(clipPlane.x) + projectionMatrix.elements[8]) / projectionMatrix.elements[0];
-    q.y = (Math.sign(clipPlane.y) + projectionMatrix.elements[9]) / projectionMatrix.elements[5];
-    q.z = -1.0;
-    q.w = (1.0 + projectionMatrix.elements[10]) / projectionMatrix.elements[14];
-    clipPlane.multiplyScalar(1.0 / clipPlane.dot(q));
-    projectionMatrix.elements[2] = clipPlane.x;
-    projectionMatrix.elements[6] = clipPlane.y;
-    projectionMatrix.elements[10] = renderer.coordinateSystem === THREE.WebGPUCoordinateSystem
-      ? clipPlane.z - this.clipBias
-      : clipPlane.z + 1.0 - this.clipBias;
-    projectionMatrix.elements[14] = clipPlane.w;
+    this.applyWaterClipPlane(renderer, reflectionCamera, waterY);
 
     this.reflectionMatrix
       .copy(BIAS_MATRIX)
@@ -382,7 +429,10 @@ export class WaterScenePasses {
 
   render(renderer, scene, camera, waterMesh) {
     if (this.sceneColorEnabled) this.renderGrabPass(renderer, scene, camera, waterMesh);
-    else this.grabValid = false;
+    else {
+      this.grabValid = false;
+      this.depthValid = false;
+    }
     if (this.reflectionEnabled) this.renderReflectionPass(renderer, scene, camera, waterMesh);
     else this.reflectionValid = false;
   }
@@ -392,11 +442,14 @@ export class WaterScenePasses {
     if (!uniforms) return;
     if (this.grabValid && this.grabTarget) {
       uniforms.uSceneColor.value = this.grabTarget.texture;
-      uniforms.uSceneDepth.value = this.depthTarget.texture;
       uniforms.uUseSceneColor.value = 1;
-      uniforms.uUseSceneDepth.value = 1;
     } else {
       uniforms.uUseSceneColor.value = 0;
+    }
+    if (this.depthValid && this.depthTarget) {
+      uniforms.uSceneDepth.value = this.depthTarget.texture;
+      uniforms.uUseSceneDepth.value = 1;
+    } else {
       uniforms.uUseSceneDepth.value = 0;
     }
     if (this.reflectionValid && this.reflectionTarget) {

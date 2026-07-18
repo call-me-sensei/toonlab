@@ -94,11 +94,20 @@ Every cluster has a `default` and a studio-managed `call_me_sensei` preset.
 
 ## Subpath imports
 
-`/toon` `/environment` `/water` `/vegetation` (incl. scatter helpers +
+`/toon` `/environment` `/lighting` `/weather` `/water` `/vegetation` (incl. scatter helpers +
 `StylizedForest`) `/sky` `/post` `/character` `/loaders` `/rockgen`
 `/debrisgen` `/pathgen` `/debug`; root adds `createStylizedTerrain`,
 `createStylizedWorld`, `createWorldCollision`, `createWorldMinimap`,
 `resolveWorldPreset`, `createStylizedPaths`.
+
+Lighting (`/lighting`) owns portable, versioned recipes and looks rather than
+a replacement renderer. Use `createLightingManager({ scene, camera, renderer,
+recipe, quality })`, call `update()` as the focus/camera moves, and save JSON
+with the recipe/look serializers. Luminaire, rig, look, and quality presets
+come from `getLightingPresetOptions(kind)`. Disc/tube area lights, IES, tag
+linking, and Unreal Engine 5.8 MegaLights/Lumen are explicit adapter intent;
+the capability report and diagnostics state each runtime fallback. Author and
+stress-test them in `/lighting-lab/`.
 
 Paths/roads/bridges: `createStylizedWorld({ paths: { seed, auto: { count: 4,
 styles: ['dirt', 'stone'] } } })` routes seeded trails around slopes, bridges
@@ -128,6 +137,15 @@ Fauna (`/fauna`) and ambient VFX (`/ambientfx`) are one option each:
 `createStylizedWorld({ fauna: { species: { birds: 40, fish: 80 } },
 ambientfx: { effects: { petals: true, fireflies: true } } })` — both join
 the world's fog/wind/cloud-shadow automatically.
+
+Weather (`/weather`) is a cross-system coordinator, not an environment
+catch-all: `createStylizedWorld({ weather: { preset: 'snow' } })`, then
+`world.setWeather('thunderstorm', { duration: 4 })`. Its 22 shared presets
+drive sky/sun/fog/cloud shadows, wind across vegetation/fauna/ambient FX,
+one-draw GPU rain/snow/sleet/hail/dust, water waves/ripples, lightning and
+thunder events. Surface `{ wetness, snowCover, ice }` values are host-facing
+outputs for custom terrain/prop/character materials. Labs should read
+`getWeatherPresetOptions()` rather than maintaining a private condition list.
 
 Gameplay VFX (`/vfxgen`): event-driven combat/movement effects, spawned at
 gameplay moments (not a world option) — `createVfxSystem({ seed, preset,

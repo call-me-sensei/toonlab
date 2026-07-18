@@ -1,7 +1,8 @@
 // Asset Browser boot. URL params make every state headless-reachable (the
 // MCP preview tool and lab-probe drive these):
 //   ?asset=wooden_crate_01     auto-load this asset id
-//   ?source=polyhaven|ambientcg  which library it lives in (default polyhaven)
+//   ?source=polyhaven|ambientcg|polypizza|kaykit|opensource3d
+//                              which library it lives in (default polyhaven)
 //   ?kind=model|texture        which index the asset lives in (default model)
 //   ?style=call_me_sensei      style set applied to the preview
 //   ?res=1k|2k|4k              download resolution (default 1k)
@@ -19,6 +20,8 @@ import { installRendererSwitcher } from '../../shared/rendererSwitcher.js';
 import {
   AMBIENTCG_PROXY_API,
   POLYPIZZA_PROXY_API,
+  fetchKayKitIndex,
+  fetchOs3dIndex,
   fetchPolyPizzaModel,
   fetchPolyhavenIndex,
   readZipEntries,
@@ -42,11 +45,14 @@ if (!window.__assetLabBooted) {
     kind: urlParams.get('kind') === 'texture' ? 'texture' : 'model',
     query: urlParams.get('q') ?? '',
     res: urlParams.get('res') ?? '1k',
-    source: ['ambientcg', 'polypizza'].includes(urlParams.get('source'))
+    source: ['ambientcg', 'polypizza', 'kaykit', 'opensource3d'].includes(urlParams.get('source'))
       ? urlParams.get('source')
       : 'polyhaven',
     split: Number.parseFloat(urlParams.get('split')) || 0.5,
     style: urlParams.get('style') ?? 'default',
+    // Direct GLB url (same-origin embedders, e.g. the pro Generate screen's
+    // detail modal): bypasses every catalog and loads the model straight in.
+    url: urlParams.get('url'),
   };
   const engine = createAssetEngine({ mount: document.getElementById('stage') });
   // Automation/embed hook: same-origin embedders (toonlab-pro asset pages)
@@ -58,8 +64,25 @@ if (!window.__assetLabBooted) {
 
   engine.start()
     .then(async () => {
+      if (boot.url && boot.kind === 'model') {
+        // Direct-url model (generated props): the engine's imported-ref path
+        // fetches ref.download.url as-is — no proxy, no catalog lookup.
+        const ref = {
+          kind: 'model',
+          source: 'imported',
+          id: boot.asset ?? 'generated-prop',
+          name: boot.asset ?? 'Generated prop',
+          download: { url: boot.url },
+        };
+        const result = await engine.show(ref, { resolution: boot.res, stylePreset: boot.style });
+        if (!result.ok && !result.stale) console.error('Asset Browser direct-url load failed:', result.error);
+        if (result.ok) window.__assetLabShown = { ref, result };
+        return;
+      }
       if (!boot.asset) return;
       // headless path: load the requested asset even with the HUD hidden
+      // headless probes bypass the registry enabled flags on purpose — this
+      // IS the evaluation surface for unreviewed sources
       const refs = boot.source === 'ambientcg'
         ? await searchAmbientcg({ apiUrl: AMBIENTCG_PROXY_API, id: boot.asset })
         : boot.source === 'polypizza'
@@ -67,7 +90,11 @@ if (!window.__assetLabBooted) {
             apiKey: localStorage.getItem('toonlab.asset-lab.polypizza-key.v1'),
             apiUrl: POLYPIZZA_PROXY_API,
           })].filter(Boolean)
-          : await fetchPolyhavenIndex({ type: boot.kind === 'texture' ? 'textures' : 'models' });
+          : boot.source === 'kaykit'
+            ? await fetchKayKitIndex()
+            : boot.source === 'opensource3d'
+              ? await fetchOs3dIndex()
+              : await fetchPolyhavenIndex({ type: boot.kind === 'texture' ? 'textures' : 'models' });
       const ref = refs.find((candidate) => candidate.id === boot.asset)
         ?? refs.find((candidate) => candidate.id.toLowerCase() === boot.asset.toLowerCase());
       if (!ref) {

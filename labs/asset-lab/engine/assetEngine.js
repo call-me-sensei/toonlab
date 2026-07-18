@@ -22,7 +22,11 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 import { createLabRenderer, whenRendererReady } from '../../shared/rendererFactory.js';
-import { applyEnvironmentShader, resolveEnvironmentPreset } from '@call-me-sensei/toonlab/environment';
+import {
+  applyEnvironmentShader,
+  createEnvironmentSunShadowPass,
+  resolveEnvironmentPreset,
+} from '@call-me-sensei/toonlab/environment';
 import {
   fetchPolyhavenFiles,
   loadAmbientcgTextureMaterial,
@@ -95,6 +99,13 @@ export function createAssetEngine({ mount }) {
   lights.fill.position.set(6, 4, 7); // camera side, silhouettes/front — never shadows
   lights.fill.visible = false; // default matches the classic sun+sky stage
   scene.add(lights.sun, lights.sun.target, lights.sky, lights.fill);
+
+  // Styled meshes carry TSL environment materials, which never read three's
+  // native shadow maps — without this pass the toonified side renders fully
+  // lit (no rail-on-deck self-shadowing) while the classic-material original
+  // side and ground shadow correctly. Native shadowMap stays enabled above
+  // for those classic receivers; this pass feeds only the TSL side.
+  const sunShadowPass = createEnvironmentSunShadowPass({ renderer, scene });
 
   function setBackdrop(name) {
     const backdrop = BACKDROPS[name] ?? BACKDROPS.studio;
@@ -179,6 +190,17 @@ export function createAssetEngine({ mount }) {
       // compression) — without it imports read as posterized photos.
       scanStylize: true,
     });
+    // The sun-shadow pass flips FrontSide casters to BackSide (three's acne
+    // guard), but converted materials default to DoubleSide — their own
+    // front faces land in the depth map and the whole model self-shadows.
+    // The TSL compare has no normalBias, so pin BackSide explicitly; imports
+    // here are closed low-poly meshes where the far side is the right depth.
+    object.traverse((child) => {
+      if (!child.isMesh) return;
+      for (const mat of Array.isArray(child.material) ? child.material : [child.material]) {
+        if (mat) mat.shadowSide = THREE.BackSide;
+      }
+    });
   }
 
   function mountSubject(originalDisplay, styledDisplay) {
@@ -188,6 +210,7 @@ export function createAssetEngine({ mount }) {
     scene.add(styledDisplay);
     current = { original: originalDisplay, styled: styledDisplay };
     frame(styledDisplay);
+    sunShadowPass.invalidate(); // new casters, possibly identical sun pose
   }
 
   function buildTextureStage(materialInput) {
@@ -356,6 +379,7 @@ export function createAssetEngine({ mount }) {
         mesh.material = material.clone();
         await stylize(mesh, lastStylePreset);
       }
+      sunShadowPass.invalidate(); // cutout silhouettes may have changed
       return { ok: true };
     } catch (error) {
       return { error: error?.message ?? String(error), ok: false };
@@ -386,6 +410,12 @@ export function createAssetEngine({ mount }) {
                 download: ref.download,
                 pristine: await loadImportedModel({ url: rewritePolyPizzaDownloadUrl(ref.download.url) }),
               };
+            }
+            if (ref.download?.url) {
+              // sources whose refs carry the download directly (KayKit /
+              // Open Source 3D raw GitHub urls send CORS `*`; manual imports
+              // pass object-urls) — no proxy, no files-doc round trip
+              return { download: ref.download, pristine: await loadImportedModel(ref.download) };
             }
             const files = await fetchPolyhavenFiles(ref.id);
             const download = resolvePolyhavenModelDownload(files, { resolution });
@@ -443,6 +473,12 @@ export function createAssetEngine({ mount }) {
       return;
     }
     if (compare && current?.original) {
+      // Refresh the TSL sun-shadow map before scissoring (a scissored render
+      // would clip the shadow target). The two copies coincide in space, so
+      // the styled casters serve both sides of the wipe.
+      current.styled.visible = true;
+      current.original.visible = false;
+      sunShadowPass.update();
       const splitX = Math.round(viewWidth * split);
       renderer.setScissorTest(true);
       current.styled.visible = false;
@@ -459,6 +495,7 @@ export function createAssetEngine({ mount }) {
         current.styled.visible = true;
         if (current.original) current.original.visible = false;
       }
+      sunShadowPass.update();
       renderer.render(scene, camera);
     }
   };
@@ -490,6 +527,7 @@ export function createAssetEngine({ mount }) {
       disposed = true;
       window.removeEventListener('resize', resize);
       renderer.setAnimationLoop(null);
+      sunShadowPass.dispose();
       renderer.domElement.remove();
     },
     getCurrentObject: () => current?.styled ?? null,

@@ -8,8 +8,9 @@ alwaysApply: true
 
 - Treat `agents/codex/AGENTS.md` as the shared developer guide.
 - Help developers use ToonLab runtime APIs.
-- Prefer package subpath imports such as `toonlab/toon`, `toonlab/water`, and
-  `toonlab/rockgen`; keep root imports lightweight.
+- Prefer package subpath imports such as `@call-me-sensei/toonlab/toon`,
+  `@call-me-sensei/toonlab/water`, and `@call-me-sensei/toonlab/rockgen`;
+  keep root imports lightweight.
 - Use TSL/NodeMaterial patterns. Do not guide developers toward raw GLSL,
   `ShaderMaterial`, or classic WebGL-only forks for ToonLab features.
 - Treat ToonLab labs, sample assets, screenshots, captures, and generated

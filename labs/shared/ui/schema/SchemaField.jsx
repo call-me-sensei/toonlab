@@ -64,6 +64,11 @@ export function SchemaField({
       />
     );
   } else if (field.type === 'color') {
+    // Nullable colors ("unset — material default", e.g. environment
+    // parameters) render a neutral well; editing commits a real value.
+    if (value == null) {
+      value = Array.isArray(field.defaultValue) ? field.defaultValue : [1, 1, 1];
+    }
     // Multi-color specs (list of hex strings — e.g. autumn palettes) render
     // as a swatch strip; editing happens in the feature UI that set them.
     if (Array.isArray(value) && typeof value[0] === 'string') {
@@ -82,14 +87,15 @@ export function SchemaField({
     } else {
       control = <ColorWell onChange={onChange} testId={testId} value={value} />;
     }
-  } else if (field.type === 'vector2' || field.type === 'vector3') {
+  } else if (field.type === 'vector2' || field.type === 'vector3' || field.type === 'vector4') {
     // Direction/vector fields: one scrubbable value per component, emitting a
     // plain array (the settings-schema convention for vectors). Water uses
-    // these for waveDirection/flowDirection (XZ) and sunDirection (XYZ).
-    const size = field.type === 'vector2' ? 2 : 3;
-    const min = field.min ?? -1;
-    const max = field.max ?? 1;
-    const step = field.step ?? 0.01;
+    // these for waveDirection/flowDirection (XZ) and sunDirection (XYZ); the
+    // toon schema adds vector4 (RGBA-style color+strength quads).
+    const size = field.type === 'vector2' ? 2 : field.type === 'vector3' ? 3 : 4;
+    const min = field.min ?? field.range?.min ?? -1;
+    const max = field.max ?? field.range?.max ?? 1;
+    const step = field.step ?? field.range?.step ?? 0.01;
     const parts = Array.from({ length: size }, (_, index) => {
       const component = Array.isArray(value) ? Number(value[index]) : NaN;
       return Number.isFinite(component) ? component : 0;
@@ -115,6 +121,9 @@ export function SchemaField({
   } else if (field.type === 'number') {
     const range = field.range ?? { max: 1, min: 0, step: 0.01 };
     const scale = field.display?.scale ?? 1;
+    // Nullable numbers ("unset — material default") sit at their default (or
+    // the range floor) until edited.
+    if (value == null) value = Number.isFinite(field.defaultValue) ? field.defaultValue : range.min;
     control = (
       <Slider
         defaultValue={field.defaultValue}

@@ -8,7 +8,7 @@ import { chromium } from 'playwright';
 // neutral-gray CC0 mannequin, which reads as unsaturated on purpose). This is
 // a maintainer tool: it assumes the private assets-local/ drop-in exists.
 const appUrl = process.env.VISUAL_CHECK_URL
-  || 'http://127.0.0.1:5175/?test=visual-check&model=assets-local/models/tests/pmx/ganyu/ganyu.pmx';
+  || 'http://127.0.0.1:5175/shader-lab/legacy/?test=visual-check&model=assets-local/models/tests/pmx/ganyu/ganyu.pmx';
 const outDir = process.env.VISUAL_OUT_DIR || '/private/tmp/threejs-toon-shader';
 const appUrlObject = new URL(appUrl);
 const checksWaterScene = appUrlObject.searchParams.get('scene') === 'water';

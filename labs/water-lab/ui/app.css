@@ -30,14 +30,10 @@ body[data-hide-hud='true'] #app { display: none; }
   border-bottom: 1px solid var(--border-subtle);
   pointer-events: auto;
 }
-.wl-brand {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding-right: var(--space-3);
-  border-right: 1px solid var(--border-subtle);
-  font: var(--type-title);
-  color: var(--text-secondary);
+/* Brand lockup + lab name come from the kit (.tk-brand, LabChrome.jsx). */
+.wl-topbar .tk-brand {
+  padding-right: var(--space-2);
+  margin-right: var(--space-1);
 }
 .wl-title {
   display: inline-flex;
@@ -55,7 +51,6 @@ body[data-hide-hud='true'] #app { display: none; }
 .wl-title:hover { background: var(--surface-3); }
 .wl-dirty { color: var(--accent-400); font-size: 8px; }
 .wl-topbar-spacer { flex: 1; }
-.wl-scene-select { width: 170px; }
 
 /* --- workflow rail ------------------------------------------------------ */
 .wl-rail {
@@ -141,6 +136,9 @@ body[data-hide-hud='true'] #app { display: none; }
 .wl-save-row .tk-textfield { flex: 1; }
 
 /* --- floating camera and stage-toys bars ---------------------------------- */
+.wl-previewbar-select { width: 150px; }
+.wl-previewbar-select--debug { width: 120px; }
+
 .wl-camerabar {
   position: fixed;
   top: calc(var(--topbar-h) + 10px);
@@ -151,7 +149,7 @@ body[data-hide-hud='true'] #app { display: none; }
   gap: var(--space-3);
   min-height: 34px;
   padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--preview-border);
   border-radius: var(--radius-3);
   background: var(--surface-overlay);
   backdrop-filter: var(--blur-overlay);

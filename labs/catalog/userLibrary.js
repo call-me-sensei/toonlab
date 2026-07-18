@@ -32,16 +32,48 @@ async function withStore(mode, work) {
 }
 
 export async function listLibraryEntries() {
-  return withStore('readonly', (store) => store.getAll());
+  try {
+    const response = await fetch('/api/toonlab/library', { headers: { accept: 'application/json' } });
+    if (!response.ok) throw new Error(`workspace library: ${response.status}`);
+    let state = await response.json();
+    if (!state.migrated) {
+      let legacy = [];
+      try { legacy = await withStore('readonly', (store) => store.getAll()); } catch { /* no legacy DB */ }
+      const migration = await fetch('/api/toonlab/library/migrate', {
+        body: JSON.stringify({ entries: legacy }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+      if (!migration.ok) throw new Error(`workspace library migration: ${migration.status}`);
+      state = await migration.json();
+    }
+    return state.entries ?? [];
+  } catch {
+    return withStore('readonly', (store) => store.getAll());
+  }
 }
 
 export async function saveLibraryEntry(entry) {
-  await withStore('readwrite', (store) => store.put(entry));
+  try {
+    const response = await fetch(`/api/toonlab/library/${encodeURIComponent(entry.id)}`, {
+      body: JSON.stringify(entry),
+      headers: { 'content-type': 'application/json' },
+      method: 'PUT',
+    });
+    if (!response.ok) throw new Error(`workspace library: ${response.status}`);
+  } catch {
+    await withStore('readwrite', (store) => store.put(entry));
+  }
   return entry.id;
 }
 
 export async function deleteLibraryEntry(id) {
-  await withStore('readwrite', (store) => store.delete(id));
+  try {
+    const response = await fetch(`/api/toonlab/library/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!response.ok) throw new Error(`workspace library: ${response.status}`);
+  } catch {
+    await withStore('readwrite', (store) => store.delete(id));
+  }
 }
 
 /** Registers every stored entry into a catalog registry; returns count. */

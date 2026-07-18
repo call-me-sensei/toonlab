@@ -176,9 +176,23 @@ export const GRASS_SETTING_GROUPS = Object.freeze([
     label: 'Wind',
   }),
   Object.freeze({
-    description: 'Blade palette and sun/sky response, including the backlit glow on blades between the camera and the sun.',
+    description: "The blades' own colors — the grass's identity, whatever the scene lighting does. Magical blue grass welcome.",
+    id: 'palette',
+    label: 'Palette',
+  }),
+  Object.freeze({
+    description: 'How the blades RESPOND to scene light — e.g. the backlit glow on blades between the camera and the sun.',
     id: 'lighting',
     label: 'Lighting',
+  }),
+  Object.freeze({
+    // Scene-owned uniforms: a game (or lab preview rig / weather system)
+    // pushes these from its actual sun and sky every frame. They are NOT
+    // part of a grass look — labs must not present them as shader settings.
+    description: 'Wired from the scene at runtime: the active sun direction/color and sky color the blades respond to.',
+    id: 'sceneLight',
+    label: 'Scene Light',
+    scene: true,
   }),
   Object.freeze({
     description: 'Scene-shadow darkening and the drifting procedural cloud shadows over the field.',
@@ -236,7 +250,7 @@ const GRASS_FIELD_DEFINITIONS = Object.freeze({
       type: 'number',
     },
   },
-  lighting: {
+  palette: {
     baseColor: {
       description: 'Blade color at the root.',
       label: 'Base Color',
@@ -247,6 +261,16 @@ const GRASS_FIELD_DEFINITIONS = Object.freeze({
       label: 'Tip Color',
       type: 'color',
     },
+  },
+  lighting: {
+    backlitStrength: {
+      description: 'Translucent backlight boost when the camera looks toward the sun through the blades.',
+      label: 'Backlit Strength',
+      range: { max: 2, min: 0, step: 0.01 },
+      type: 'number',
+    },
+  },
+  sceneLight: {
     sunDirection: {
       description: 'World-space direction toward the sun (normalized on apply). Match your main directional light.',
       label: 'Sun Direction',
@@ -261,12 +285,6 @@ const GRASS_FIELD_DEFINITIONS = Object.freeze({
       description: 'Ambient sky tint mixed into shaded blades.',
       label: 'Sky Color',
       type: 'color',
-    },
-    backlitStrength: {
-      description: 'Translucent backlight boost when the camera looks toward the sun through the blades.',
-      label: 'Backlit Strength',
-      range: { max: 2, min: 0, step: 0.01 },
-      type: 'number',
     },
   },
   shadows: {

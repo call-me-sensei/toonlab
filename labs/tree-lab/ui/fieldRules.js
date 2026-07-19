@@ -17,6 +17,39 @@ export const CROWN_LAYOUT_FIELDS = new Set([
   'canopy.spread', 'canopy.coreRadius',
 ]);
 
+// The runtime recipe schema intentionally remains polymorphic for backward
+// compatibility. Lab UIs narrow only the Type control: Tree Lab authors
+// trees/bushes, while Flower Lab's type is implicit and cannot drift.
+export function fieldsForLab(fields, labKind = 'tree') {
+  return Object.fromEntries(Object.entries(fields ?? {}).flatMap(([key, field]) => {
+    if (field.id !== 'plant.type') return [[key, field]];
+    if (labKind === 'flower') return [];
+    return [[key, {
+      ...field,
+      optionLabels: { tree: 'Tree', bush: 'Bush / Shrub' },
+      options: ['tree', 'bush'],
+    }]];
+  }));
+}
+
+// Schema groups remain runtime-generic; Flower Lab translates tree-centric
+// authoring nouns without forking the underlying recipe contract.
+const FLOWER_GROUP_COPY = Object.freeze({
+  plant: Object.freeze({ description: 'Seed and overall flower size.', label: 'Flower' }),
+  trunk: Object.freeze({ description: 'Main-stem height, thickness, bend, lean, and twist.', label: 'Stem' }),
+  skeleton: Object.freeze({ description: 'Secondary-stem growth and branching structure.', label: 'Stems' }),
+  canopy: Object.freeze({ description: 'The supporting silhouette around the blooms.', label: 'Silhouette' }),
+  leaves: Object.freeze({ description: 'Leaf-card coverage, density, and tuft behavior.', label: 'Leaves' }),
+  flower: Object.freeze({ description: 'Flower-head species, petal color, and bloom size.', label: 'Bloom' }),
+  color: Object.freeze({ description: 'Leaf palette and pinnable light/shadow tones.', label: 'Leaf Color' }),
+  wind: Object.freeze({ description: 'Live stem and leaf motion preview.', label: 'Wind' }),
+});
+
+export function groupForLab(group, labKind = 'tree') {
+  if (labKind !== 'flower' || !FLOWER_GROUP_COPY[group?.id]) return group;
+  return { ...group, ...FLOWER_GROUP_COPY[group.id] };
+}
+
 export function isFieldDisabled(state, field) {
   const { settings, sketch } = state;
   const isBush = settings.plant.type === 'bush';

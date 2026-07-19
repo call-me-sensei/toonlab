@@ -1,16 +1,22 @@
-// Grass Lab store: flat grass settings (createGrassSettings), preset
-// identity, undo history, persistence, and view state (preview mode /
-// walk). Same store->engine contract as the other redesigned labs.
+// Grass Lab store: portable grass-asset settings, preset identity, undo
+// history, and independent scene-preview state. Live wind, cloud shadow, and
+// interaction inputs never enter the document/history contract.
 
-import { createStore } from '../../shared/ui/index.js';
-import { createGrassSettings, getGrassPresetOptions } from '../../../src/vegetation/stylizedGrass.js';
+import { createStore } from '../../shared/ui/createStore.js';
 import {
+  DEFAULT_GRASS_SETTINGS,
+  applyGrassColorPalette,
+  createGrassSettings,
+  getGrassPresetOptions,
+  sanitizeGrassPresetSettings,
+} from '../../../src/vegetation/stylizedGrass.js';
+import {
+  createGrassPresetDocument,
   deleteLocalGrassPreset,
-  GRASS_PRESET_DOCUMENT_TYPE,
-  GRASS_PRESET_SCHEMA_VERSION,
   loadLocalGrassPresets,
+  parseGrassPresetDocument,
+  serializeGrassPreset,
   upsertLocalGrassPresetDocument,
-  validateGrassPresetDocument,
 } from '../grassPresetStore.js';
 
 const DOCUMENT_STORAGE_KEY = 'toonlab.grassLab.document.v1';
@@ -50,7 +56,29 @@ function presetLabel(id) {
   return [...getGrassPresetOptions()].find((entry) => (entry.value ?? entry.id) === id)?.label ?? id;
 }
 
+function authoredGrassSettings(input = {}, { migrateLegacySceneWind = false } = {}) {
+  const source = input && typeof input === 'object' && !Array.isArray(input)
+    ? { ...input }
+    : input;
+  if (migrateLegacySceneWind && source && typeof source === 'object'
+    && source.windResponse === undefined && Number.isFinite(Number(source.windStrength))) {
+    source.windResponse = Math.max(Number(source.windStrength), 0)
+      / DEFAULT_GRASS_SETTINGS.windStrength;
+  }
+  return sanitizeGrassPresetSettings(createGrassSettings(source));
+}
+
 function bootDocument(urlParams) {
+  const requestedPreset = urlParams.get('grassPreset');
+  if (requestedPreset) {
+    return {
+      bootSource: 'deep-link',
+      mode: 'patch',
+      name: presetLabel(requestedPreset),
+      presetId: requestedPreset,
+      settings: authoredGrassSettings({ preset: requestedPreset }),
+    };
+  }
   const saved = loadDocument();
   if (saved?.settings) {
     return {
@@ -58,16 +86,16 @@ function bootDocument(urlParams) {
       mode: saved.mode ?? 'patch',
       name: saved.name || 'Untitled grass',
       presetId: saved.presetId ?? null,
-      settings: createGrassSettings(saved.settings),
+      settings: authoredGrassSettings(saved.settings, { migrateLegacySceneWind: true }),
     };
   }
-  const preset = urlParams.get('grassPreset') || 'call_me_sensei';
+  const preset = 'call_me_sensei';
   return {
     bootSource: 'fresh',
     mode: 'patch',
     name: presetLabel(preset),
     presetId: preset,
-    settings: createGrassSettings({ preset }),
+    settings: authoredGrassSettings({ preset }),
   };
 }
 
@@ -93,9 +121,19 @@ export function createGrassLabStore({ urlParams = new URLSearchParams(window.loc
     status: boot.bootSource === 'persisted' ? 'Restored your last grass.' : '',
     view: {
       ambientIntensity: 0.5,
+      cloudShadowCoverage: DEFAULT_GRASS_SETTINGS.cloudShadowCoverage,
+      cloudShadowScale: DEFAULT_GRASS_SETTINGS.cloudShadowScale,
+      cloudShadowStrength: DEFAULT_GRASS_SETTINGS.cloudShadowStrength,
+      cloudShadowVelocity: [...DEFAULT_GRASS_SETTINGS.cloudShadowVelocity],
+      gustFrequency: DEFAULT_GRASS_SETTINGS.gustFrequency,
+      gustSpeed: DEFAULT_GRASS_SETTINGS.gustSpeed,
       mode: boot.mode,
+      pushRadius: DEFAULT_GRASS_SETTINGS.pushRadius,
       sunIntensity: 1.2,
       walkPreview: false,
+      windDirection: [...DEFAULT_GRASS_SETTINGS.windDirection],
+      windSpeed: DEFAULT_GRASS_SETTINGS.windSpeed,
+      windStrength: DEFAULT_GRASS_SETTINGS.windStrength,
     },
   });
 
@@ -109,7 +147,6 @@ export function createGrassLabStore({ urlParams = new URLSearchParams(window.loc
 
   function persist() {
     saveDocumentLocal({
-      mode: state().view.mode,
       name: state().name,
       presetId: state().presetId,
       settings: state().settings,
@@ -146,13 +183,13 @@ export function createGrassLabStore({ urlParams = new URLSearchParams(window.loc
   function restore(entry, destination) {
     destination.push(snapshot());
     const document = JSON.parse(entry);
-    commit({ ...document, settings: createGrassSettings(document.settings) }, { status: 'History restored.' });
+    commit({ ...document, settings: authoredGrassSettings(document.settings) }, { status: 'History restored.' });
   }
 
   function replaceForStart(settings, { name, presetId = null, status }) {
     pushHistory();
     store.setState({ name, presetDirty: false, presetId });
-    commit({ settings }, { status });
+    commit({ settings: authoredGrassSettings(settings) }, { status });
   }
 
   store.actions = {
@@ -161,10 +198,34 @@ export function createGrassLabStore({ urlParams = new URLSearchParams(window.loc
     },
 
     applyPreset(id) {
-      replaceForStart(createGrassSettings({ preset: id }), {
+      replaceForStart(authoredGrassSettings({ preset: id }), {
         name: presetLabel(id),
         presetId: id,
         status: `Opened ${presetLabel(id)}.`,
+      });
+      return true;
+    },
+
+    applyColorPalette(palette) {
+      let settings;
+      try {
+        settings = authoredGrassSettings(applyGrassColorPalette(state().settings, palette));
+      } catch (error) {
+        store.setState({ status: error.message });
+        return false;
+      }
+      const unchanged = ['baseColor', 'tipColor', 'shadowTint'].every((key) =>
+        JSON.stringify(settings[key]) === JSON.stringify(state().settings[key]));
+      if (unchanged) {
+        store.setState({ status: `${palette.label} is already active.` });
+        return true;
+      }
+      pushHistory();
+      commit({
+        presetDirty: true,
+        settings,
+      }, {
+        status: `Applied ${palette.label}. Base, tip, and shadow tint updated together.`,
       });
       return true;
     },
@@ -179,17 +240,14 @@ export function createGrassLabStore({ urlParams = new URLSearchParams(window.loc
     },
 
     exportDocument() {
-      return JSON.stringify({
-        id: slug(state().name),
+      return serializeGrassPreset(slug(state().name), {
         label: state().name,
-        schemaVersion: GRASS_PRESET_SCHEMA_VERSION,
         settings: state().settings,
-        type: GRASS_PRESET_DOCUMENT_TYPE,
-      }, null, 2);
+      });
     },
 
     importDocument(text) {
-      const result = validateGrassPresetDocument(text);
+      const result = parseGrassPresetDocument(text);
       if (!result.ok) return result;
       replaceForStart(result.value.settings, {
         name: result.value.label || 'Imported grass',
@@ -206,7 +264,7 @@ export function createGrassLabStore({ urlParams = new URLSearchParams(window.loc
 
     resetLab() {
       clearDocumentLocal();
-      replaceForStart(createGrassSettings({ preset: 'call_me_sensei' }), {
+      replaceForStart(authoredGrassSettings({ preset: 'call_me_sensei' }), {
         name: presetLabel('call_me_sensei'),
         presetId: 'call_me_sensei',
         status: 'Grass Lab reset.',
@@ -218,13 +276,10 @@ export function createGrassLabStore({ urlParams = new URLSearchParams(window.loc
       if (!cleanName) return { ok: false };
       const id = `local_${slug(cleanName)}_${Date.now().toString(36)}`;
       try {
-        upsertLocalGrassPresetDocument({
-          id,
+        upsertLocalGrassPresetDocument(createGrassPresetDocument(id, {
           label: cleanName,
-          schemaVersion: GRASS_PRESET_SCHEMA_VERSION,
           settings: state().settings,
-          type: GRASS_PRESET_DOCUMENT_TYPE,
-        });
+        }));
       } catch (error) {
         return { errors: [error.message], ok: false };
       }
@@ -244,7 +299,7 @@ export function createGrassLabStore({ urlParams = new URLSearchParams(window.loc
       pushHistory(`setting:${key}`);
       commit({
         presetDirty: true,
-        settings: createGrassSettings({ ...state().settings, [key]: value }),
+        settings: authoredGrassSettings({ ...state().settings, [key]: value }),
       });
     },
 
@@ -254,7 +309,6 @@ export function createGrassLabStore({ urlParams = new URLSearchParams(window.loc
 
     setView(patch) {
       store.setState({ view: { ...state().view, ...patch } });
-      if (patch.mode) persist();
     },
 
     undo() {

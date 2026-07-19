@@ -41,10 +41,15 @@ import { NodeMaterial } from 'three/webgpu';
 
 import { sampleEnvironmentSunShadow } from './chunks/environment-sun-shadow.js';
 import { stylizedCloudShadow } from './chunks/stylized-cloud-shadow.js';
+import {
+  createVegetationStyleUniforms,
+  shadeVegetationSurface,
+  tagVegetationRole,
+} from './chunks/vegetation-style.js';
 
-export function createGrassNodeMaterial(settings) {
+export function createGrassNodeMaterial(settings, vegetationShader = null) {
+  const styleUniforms = createVegetationStyleUniforms(vegetationShader, 'grassBlade');
   const u = {
-    uBacklitStrength: uniform(settings.backlitStrength),
     uBaseColor: uniform(new THREE.Color()),
     uCloudShadowCoverage: uniform(settings.cloudShadowCoverage),
     uCloudShadowScale: uniform(settings.cloudShadowScale),
@@ -53,6 +58,7 @@ export function createGrassNodeMaterial(settings) {
     uFadeEnd: uniform(1e6 + 1),
     uFadeStart: uniform(1e6),
     uGustFrequency: uniform(settings.gustFrequency),
+    uGustResponse: uniform(settings.gustResponse),
     uGustSpeed: uniform(settings.gustSpeed),
     uPushPosition: uniform(new THREE.Vector3(0, -1e5, 0)),
     uPushRadius: uniform(settings.pushRadius),
@@ -64,9 +70,14 @@ export function createGrassNodeMaterial(settings) {
     uTime: uniform(0),
     uTipColor: uniform(new THREE.Color()),
     uWindDirection: uniform(new THREE.Vector2(settings.windDirection[0], settings.windDirection[1])),
+    uWindResponse: uniform(settings.windResponse),
     uWindSpeed: uniform(settings.windSpeed),
     uWindStrength: uniform(settings.windStrength),
+    ...styleUniforms,
   };
+  if (!vegetationShader) u.uStyleGrassBacklitStrength.value = settings.backlitStrength;
+  // Compatibility alias: legacy runtime setters now target the canonical style node.
+  u.uBacklitStrength = u.uStyleGrassBacklitStrength;
 
   const material = new NodeMaterial();
   material.name = 'StylizedGrass';
@@ -92,7 +103,7 @@ export function createGrassNodeMaterial(settings) {
     bladePosition.xz.addAssign(facing.mul(positionLocal.x.mul(iInfo.z)));
     bladePosition.y.addAssign(heightFraction.mul(iInfo.x));
 
-    const bendCurve = heightFraction.mul(heightFraction).toVar();
+    const bendCurve = pow(heightFraction, u.uStyleGrassBendExponent).toVar();
 
     // Static per-blade lean (see grass.vert.glsl).
     const bowDirection = vec2(facing.y.negate(), facing.x);
@@ -116,8 +127,11 @@ export function createGrassNodeMaterial(settings) {
     const phase = u.uTime.mul(u.uWindSpeed).add(iInfo.y.mul(6.2831))
       .add(dot(iOrigin.xz, vec2(0.35, 0.28)));
     const flutter = sin(phase).mul(0.5).add(0.5).add(sin(phase.mul(2.33).add(1.7)).mul(0.3));
-    const wind = windDirection.mul(flutter.mul(0.6).add(vGust.mul(1.1))).toVar();
-    bladePosition.xz.addAssign(wind.mul(u.uWindStrength).mul(bendCurve).mul(iInfo.x));
+    const wind = windDirection.mul(
+      flutter.mul(0.6).add(vGust.mul(1.1).mul(u.uGustResponse)),
+    ).toVar();
+    const windAmplitude = u.uWindStrength.mul(u.uWindResponse).toVar();
+    bladePosition.xz.addAssign(wind.mul(windAmplitude).mul(bendCurve).mul(iInfo.x));
 
     // Character push.
     const fromPush = bladePosition.xz.sub(u.uPushPosition.xz).toVar();
@@ -125,12 +139,15 @@ export function createGrassNodeMaterial(settings) {
     const push = smoothstep(0.0, u.uPushRadius, pushDistance).oneMinus()
       .mul(step(abs(iOrigin.y.sub(u.uPushPosition.y)), 1.8));
     bladePosition.xz.addAssign(
-      normalize(fromPush.add(vec2(1e-4, 0.0))).mul(push).mul(0.42).mul(bendCurve).mul(iInfo.x),
+      normalize(fromPush.add(vec2(1e-4, 0.0))).mul(push).mul(0.42)
+        .mul(bendCurve).mul(iInfo.x).mul(u.uStyleGrassInteractionResponse),
     );
-    bladePosition.y.subAssign(push.mul(0.14).mul(bendCurve).mul(iInfo.x));
+    bladePosition.y.subAssign(
+      push.mul(0.14).mul(bendCurve).mul(iInfo.x).mul(u.uStyleGrassInteractionResponse),
+    );
 
     // Shared field normal, tilted by the current bend.
-    const tilt = wind.mul(u.uWindStrength).add(leanDirection.mul(leanAmount).mul(0.35)).mul(heightFraction);
+    const tilt = wind.mul(windAmplitude).add(leanDirection.mul(leanAmount).mul(0.35)).mul(heightFraction);
     vNormal.assign(normalize(vec3(tilt.x.mul(1.4), 1.0, tilt.y.mul(1.4))));
 
     // Distance fade to a degenerate point.
@@ -149,12 +166,20 @@ export function createGrassNodeMaterial(settings) {
     const halfWidth = taper.mul(0.5);
     Discard(abs(vUv.x.sub(0.5)).greaterThan(halfWidth));
 
-    const tipMix = smoothstep(0.1, 0.95, vUv.y.mul(vJitter.mul(0.3).add(0.85))).toVar();
+    const tipMix = smoothstep(
+      u.uStyleGrassTipGradientStart,
+      u.uStyleGrassTipGradientEnd,
+      vUv.y.mul(vJitter.mul(0.3).add(0.85)),
+    ).toVar();
     const color = mix(u.uBaseColor, u.uTipColor, tipMix).toVar();
-    color.mulAssign(vJitter.mul(0.2).add(0.9));
+    color.mulAssign(vJitter.sub(0.5).mul(u.uStyleGrassColorVariationStrength).add(1.0));
 
     // Dense-field AO toward the roots.
-    color.mulAssign(mix(0.64, 1.0, smoothstep(0.0, 0.62, vUv.y)));
+    color.mulAssign(mix(
+      u.uStyleGrassRootOcclusionStrength.oneMinus(),
+      1.0,
+      smoothstep(0.0, u.uStyleGrassRootOcclusionHeight, vUv.y),
+    ));
 
     const normal = normalize(vNormal);
     const sunDirection = normalize(u.uSunDirection);
@@ -163,31 +188,33 @@ export function createGrassNodeMaterial(settings) {
       u.uCloudShadowStrength, u.uCloudShadowCoverage, u.uCloudShadowScale, u.uCloudShadowVelocity,
     );
     const sceneShadow = mix(1.0, sampleEnvironmentSunShadow(vWorldPosition), u.uShadowStrength);
-    const sunVisibility = cloudShadow.mul(sceneShadow).toVar();
-    const wrap = dot(normal, sunDirection).mul(0.5).add(0.5);
-    const litBand = smoothstep(0.44, 0.54, wrap).mul(sunVisibility).toVar();
-    color.mulAssign(mix(0.86, 1.06, litBand));
-    color.mulAssign(mix(vec3(1.0), u.uSunColor, litBand.mul(0.25)));
+    const shaded = shadeVegetationSurface({
+      baseColor: color,
+      bandSoftness: u.uStyleGrassBandSoftness,
+      bandThreshold: u.uStyleGrassBandThreshold,
+      cloudShadow,
+      cloudShadowResponse: u.uStyleGrassCloudShadowResponse,
+      materialShadowColor: u.uShadowTint,
+      normal,
+      sceneShadow,
+      sceneShadowResponse: u.uStyleGrassSceneShadowResponse,
+      shadowFloor: u.uStyleGrassShadowFloor,
+      skyColor: u.uSkyColor,
+      sunColor: u.uSunColor,
+      sunDirection,
+      transmissionMultiplier: u.uStyleGrassBacklitStrength.div(0.35).mul(tipMix),
+      u,
+      worldPosition: vWorldPosition,
+    });
 
-    // Occlusion darkening shared with the terrain response.
-    color.mulAssign(mix(u.uShadowTint, vec3(1.0), sunVisibility));
-
-    // Sky fill + gust sheen.
-    color.addAssign(u.uSkyColor.mul(litBand.oneMinus()).mul(0.07));
-    const sheen = smoothstep(0.78, 1.0, vGust).mul(tipMix);
-    color.addAssign(u.uSunColor.mul(sheen).mul(0.22).mul(litBand));
-
-    // Backlit translucency.
-    const viewDirection = normalize(cameraPosition.sub(vWorldPosition));
-    const backlit = pow(clamp(dot(viewDirection, sunDirection.negate()), 0.0, 1.0), 3.0);
-    color.addAssign(
-      u.uSunColor.mul(backlit).mul(tipMix).mul(u.uBacklitStrength)
-        .mul(sunVisibility.mul(0.65).add(0.35)),
+    const sheen = smoothstep(u.uStyleGrassGustSheenThreshold, 1.0, vGust).mul(tipMix);
+    shaded.color.addAssign(
+      u.uSunColor.mul(sheen).mul(u.uStyleGrassGustSheenStrength).mul(shaded.band),
     );
 
-    return vec4(color, 1.0);
+    return vec4(shaded.color, 1.0);
   })();
 
   material.uniforms = u;
-  return material;
+  return tagVegetationRole(material, 'grassBlade', 'procedural');
 }

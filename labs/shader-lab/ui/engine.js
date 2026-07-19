@@ -1,4 +1,4 @@
-// Character Shader engine: a focused character stage for the schema-driven
+// Character Shader Lab engine: a focused character stage for the schema-driven
 // React workspace (ui/App.jsx). Renders ONE character with the toon shader on
 // a simple studio ground, plays its native idle clip, and hosts the shared
 // walk-preview controller so the character can be driven around like the

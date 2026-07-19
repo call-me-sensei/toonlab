@@ -7,6 +7,13 @@ and rendering always agree.
 Water materials and simulation passes are TSL-only. They run on native WebGPU
 by default and on the TSL WebGL2 fallback with `?renderer=webgl`.
 
+Water Lab authors one complete runtime-system preset. Its Surface, Foam, and
+Lighting groups are the embedded water-shader controls; Waves, Ripples,
+Splashes, and Quality own the coupled runtime behavior. ToonLab intentionally
+does not split those values into a separate Water Shader Lab, which would
+produce two documents with overlapping ownership. See
+[Lab responsibilities](lab-architecture.md).
+
 ## Quickstart
 
 ```js
@@ -28,6 +35,14 @@ scene.add(sky);
 
 water.addInteractor(characterObject3D, { radius: 0.35 });
 water.setFollowTarget(characterObject3D); // ripple window follows across big water
+
+// Current scene light may replace the preset's standalone fallback values.
+water.setSceneOverrides({
+  sunDirection: lightingState.sunDirection,
+  sunColor: lightingState.sunColor,
+  skyZenithColor: lightingState.skyZenithColor,
+  skyHorizonColor: lightingState.skyHorizonColor,
+});
 
 // per frame, before renderer.render(scene, camera):
 water.update(renderer, scene, camera, delta);
@@ -59,9 +74,10 @@ waveIntensity: 0.6 })`); all 82 fields across 7 groups (waves, surface,
 foam, lighting, ripples, splashes, quality) are in the
 [settings reference](settings-reference.md). Highlights:
 
-- **`waveIntensity`** — one dial scales the whole Gerstner spectrum from
-  glassy mirror to storm swell. Components are slope-limited, so big dials
-  stretch to long wavelengths instead of spiking.
+- **`waveIntensity`** — the authored baseline scales the whole Gerstner
+  spectrum from glassy mirror to storm swell. Components are slope-limited,
+  so big dials stretch to long wavelengths instead of spiking. Current
+  Weather may transiently modulate this baseline without editing the preset.
 - **Wave sets** — `waveSetPeriod`/`waveSetStrength` make big waves arrive in
   groups with lulls between, marching at group velocity.
 - **Body color** — three-stop absorption (`shallowColor → midColor →
@@ -89,6 +105,43 @@ Built-in presets (`WATER_PRESET_NAMES`): `mirror`, `calm`, `lake`, `river`,
 signature preset (curated and updated over releases). Apply at construction
 (`preset:`) or live with `water.setPreset(name, overrides)` /
 `water.applySettings(options)`.
+
+### Authored baseline vs. current scene
+
+`water.settings` is always the authored, portable baseline. Body palette,
+wave structure, foam, ripple/splash response, and water-specific lighting
+response belong there. `waveIntensity` is also saved as the intended calmness
+of that body of water.
+
+`sunDirection`, `sunColor`, `skyZenithColor`, and `skyHorizonColor` remain
+portable authored fallbacks so a water asset renders correctly in isolation,
+previews, and scenes without a connected lighting rig. A live scene should
+replace those current values transiently. Weather may likewise add temporary
+wave energy:
+
+```js
+import {
+  WATER_SCENE_OVERRIDE_PRIORITIES,
+} from '@call-me-sensei/toonlab/water';
+
+const weatherLayer = Symbol('weather-water');
+water.setSceneOverrideLayer(weatherLayer, (base) => ({
+  waveIntensity: Math.min(base.waveIntensity + currentWaterWaveBoost, 1),
+}), { priority: WATER_SCENE_OVERRIDE_PRIORITIES.weather });
+
+// Removes Weather only; a separate Lighting layer remains active.
+water.clearSceneOverrideLayer(weatherLayer);
+```
+
+`setSceneOverrides()` is the convenience single-scene layer, and
+`clearSceneOverrides()` removes only that layer. Named owners should clear their
+own layer with `clearSceneOverrideLayer(id)`; `clearAllSceneOverrideLayers()` is
+available for an explicit full teardown. `applySettings()` and `setPreset()`
+keep their existing behavior as authored edits and automatically recompose
+active runtime layers. `water.renderedSettings` exposes the composed state while
+exports continue to read `water.settings`. Runtime layers accept only
+`waveIntensity` and the four fallback sun/sky fields, so scene code cannot
+accidentally overwrite the water palette or wave structure.
 
 ### Registering and sharing presets
 
@@ -188,6 +241,14 @@ new WaterSurface({ quality: { qualityLevel: 'high', detailOctaves: 5, foamOctave
 
 `resolveWaterQualityDefines(quality)` is the resolver if you build materials
 directly (`createWaterMaterial`).
+
+Water quality is a compile-time TSL graph policy. Pass it when constructing
+`WaterSurface`; changing tiers requires replacing the surface/material graph.
+Water Lab performs that rebuild while preserving the authored document and
+stage state. `applySettings()` hot-updates art/simulation uniforms but should
+not be used as a runtime quality switch. The saved `quality` value is the
+preset's preferred deployment default; a host may replace it per device when
+constructing the surface.
 
 ## The systems
 

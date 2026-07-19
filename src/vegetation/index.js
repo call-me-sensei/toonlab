@@ -11,3 +11,8 @@ export * from './treeExport.js';
 export * from './scatter.js';
 export * from './stylizedForest.js';
 export * from './vegetationShaders.js';
+export * from './grassPalettes.js';
+export * from '../shaders-tsl/grass.js';
+export * from '../shaders-tsl/tree-leaf.js';
+export * from '../shaders-tsl/flower.js';
+export * from '../shaders-tsl/woody-surface.js';

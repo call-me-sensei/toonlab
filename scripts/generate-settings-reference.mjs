@@ -52,7 +52,7 @@ const MODULES = [
     module: '/src/water/waterSettings.js',
     groups: 'WATER_SETTING_GROUPS',
     schema: 'WATER_SETTING_FIELD_SCHEMA_BY_GROUP',
-    note: 'Settings are flat: `createWaterSettings({ preset: "ocean", waveIntensity: 0.6 })`. Groups exist for UI organization only.',
+    note: 'Flat authored settings for `WaterSurface`; live sun/sky and Weather wave energy compose through transient scene layers without changing portable `water.settings`. Quality is a construction-time graph policy.',
   },
   {
     title: 'Post-processing',
@@ -63,12 +63,20 @@ const MODULES = [
     note: 'Settings are `{ features, parameters }`: `createPostProcessingSettings({ preset: "softAnime" })`.',
   },
   {
+    title: 'Vegetation shader profile',
+    subpath: 'toonlab/vegetation',
+    module: '/src/vegetation/vegetationShaders.js',
+    groups: 'VEGETATION_SHADER_SETTING_GROUPS',
+    schema: 'VEGETATION_SHADER_FIELD_SCHEMA',
+    note: 'IP-wide grouped settings shared by semantic grass, foliage, flower, bark, and stem material roles. Asset albedo and current scene weather are separate inputs.',
+  },
+  {
     title: 'Grass',
     subpath: 'toonlab/vegetation',
     module: '/src/vegetation/stylizedGrass.js',
     groups: 'GRASS_SETTING_GROUPS',
     schema: 'GRASS_SETTING_FIELD_SCHEMA',
-    note: 'Flat settings consumed by `new StylizedGrassField(options)` and `grass.applySettings(options)`.',
+    note: 'Flat settings consumed by `new StylizedGrassField(options)` and `grass.applySettings(options)`. Portable grass preset v2 stores asset geometry, palette/material, and `windResponse` / `gustResponse`; current light, wind/gust field, cloud field, and push radius are scene/runtime inputs.',
   },
   {
     title: 'Flowers',
@@ -92,7 +100,7 @@ const MODULES = [
     module: '/src/sky/stylizedSky.js',
     groups: 'SKY_SETTING_GROUPS',
     schema: 'SKY_SETTING_FIELD_SCHEMA',
-    note: 'Flat settings consumed by `new StylizedSky(options)` and `sky.applySettings(options)`.',
+    note: '47 schema fields: 46 portable Sky art settings plus non-portable compatibility `radius`. Lighting, Weather, and manual state compose through ordered runtime layers; deployment quality is a separate compile-time tier.',
   },
   {
     title: 'Paths, roads & bridges',
@@ -172,7 +180,9 @@ async function waitForServer(baseUrl, timeoutMs = 30000) {
 
 // Runs inside the page: import the module and flatten groups + schema into
 // JSON-safe data. Field shape is shared across every settings module
-// (id, key, label, description, type, range, defaultValue, options).
+// (id, key, label, description, type, range, defaultValue, options,
+// serializable). Runtime/preview inputs remain documented but are marked so
+// they cannot be mistaken for portable preset fields.
 async function extractModuleData({ module, groups, schema }) {
   const mod = await import(module);
   const groupList = mod[groups];
@@ -195,6 +205,7 @@ async function extractModuleData({ module, groups, schema }) {
       id: group.id,
       label: group.label,
       description: group.description ?? '',
+      scene: Boolean(group.scene),
       fields: fieldList.map((field) => ({
         key: field.key,
         label: field.label,
@@ -203,6 +214,12 @@ async function extractModuleData({ module, groups, schema }) {
         range: field.range ? { min: field.range.min, max: field.range.max, step: field.range.step } : null,
         options: field.options ? field.options.map(String) : null,
         defaultValue: safeValue(field.defaultValue),
+        serializable: field.serializable !== false && !group.scene,
+        scope: group.scene
+          ? 'scene/runtime'
+          : (field.serializable === false && /construction-only/i.test(field.description ?? '')
+            ? 'local/construction'
+            : 'local/runtime'),
       })),
     };
   });
@@ -245,8 +262,9 @@ function renderMarkdown(sections) {
   lines.push('');
   lines.push('Every tunable field in the settings schemas, generated from the');
   lines.push('`*_SETTING_GROUPS` / `*_SETTING_FIELD_SCHEMA` exports. The same schemas');
-  lines.push('drive the [debug panel](debug-panel.md), so everything listed here appears');
-  lines.push('as a live control in the labs.');
+  lines.push('drive the [debug panel](debug-panel.md) and lab inspectors. A lab may place');
+  lines.push('scene/runtime inputs in its Preview controls instead of the saved editor;');
+  lines.push('the **Portable** column makes that ownership explicit.');
   lines.push('');
 
   // Table of contents.
@@ -274,8 +292,8 @@ function renderMarkdown(sections) {
         lines.push(escapeCell(group.description));
         lines.push('');
       }
-      lines.push('| Field | Type | Default | Range / options | Description |');
-      lines.push('|---|---|---|---|---|');
+      lines.push('| Field | Type | Default | Range / options | Portable | Description |');
+      lines.push('|---|---|---|---|---|---|');
       for (const field of group.fields) {
         lines.push([
           '',
@@ -283,6 +301,7 @@ function renderMarkdown(sections) {
           field.type,
           escapeCell(formatDefault(field.defaultValue, field.type)),
           escapeCell(formatRange(field)),
+          field.serializable ? 'Yes' : `No — ${field.scope}`,
           escapeCell(field.description),
           '',
         ].join(' | ').trim());

@@ -1,4 +1,4 @@
-// Character Shader store: toon settings document (nested group settings from
+// Character Shader Lab store: toon settings document (nested group settings from
 // createToonSettings), preset identity, undo history, persistence, and view
 // state (walk preview / idle animation / model url). Same store->engine
 // contract as the other redesigned labs: docRevision bumps on every settings
@@ -221,7 +221,7 @@ export function createCharacterShaderStore({ urlParams = new URLSearchParams(win
       replaceForStart(settings, {
         name: settings.presetLabel || 'Untitled look',
         presetId: settings.preset ?? null,
-        status: 'Character Shader reset.',
+        status: 'Character Shader Lab reset.',
       });
     },
 

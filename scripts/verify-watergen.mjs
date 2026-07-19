@@ -12,6 +12,8 @@ import {
   DEFAULT_WATER_SETTINGS,
   WATER_COLOR_TONES,
   WATER_PRESET_NAMES,
+  WATER_SCENE_OVERRIDE_KEYS,
+  WATER_SCENE_OVERRIDE_PRIORITIES,
   WATER_SETTING_FIELD_SCHEMA,
   WATER_SETTING_FIELD_SCHEMA_BY_GROUP,
   WATER_SETTING_GROUPS,
@@ -38,6 +40,7 @@ import {
   shouldUseDedicatedBreakerShell,
   validateWaterPresetDocument,
   WaterShoreStateField,
+  WaterSurface,
   updateWaterShoreMaterial,
 } from '../src/water/index.js';
 import { beachBedHeight } from '../labs/water-lab/engine/waterLabEngine.js';
@@ -147,6 +150,85 @@ check('registered preset appears in the picker options',
 const resolved = createWaterSettings({ preset: 'verify_suite_water' });
 check('registered preset resolves with its settings',
   Math.abs(resolved.waveAmplitude - 1.7) < 1e-9 && resolved.colorTone === 'lagoon');
+
+// --- authored water vs transient scene/weather state -------------------------------
+check('water scene override contract exposes only baseline wave/light fields',
+  deepEqual(WATER_SCENE_OVERRIDE_KEYS, [
+    'waveIntensity',
+    'sunDirection',
+    'sunColor',
+    'skyZenithColor',
+    'skyHorizonColor',
+  ]));
+
+const runtimeWater = new WaterSurface({
+  depth: 1,
+  passes: false,
+  segmentsPerMeter: 1,
+  simulation: false,
+  splashes: false,
+  sunColor: [1, 0.9, 0.7],
+  waveIntensity: 0.2,
+  width: 1,
+});
+const authoredWaterSnapshot = JSON.stringify(runtimeWater.settings);
+const baselineWaveEnergy = runtimeWater.waveEnergy;
+const weatherLayer = Symbol('verify-weather');
+runtimeWater.setSceneOverrideLayer('lighting', {
+  sunColor: [0.42, 0.58, 0.96],
+}, { priority: WATER_SCENE_OVERRIDE_PRIORITIES.lighting });
+runtimeWater.setSceneOverrideLayer(weatherLayer, (base) => ({
+  waveIntensity: Math.min(base.waveIntensity + 0.35, 1),
+}), { priority: WATER_SCENE_OVERRIDE_PRIORITIES.weather });
+check('scene/weather overrides leave authored water.settings untouched',
+  JSON.stringify(runtimeWater.settings) === authoredWaterSnapshot);
+check('rendered water composes live lighting and additive weather',
+  Math.abs(runtimeWater.renderedSettings.waveIntensity - 0.55) < 1e-9
+    && deepEqual(runtimeWater.renderedSettings.sunColor, [0.42, 0.58, 0.96])
+    && runtimeWater.waveEnergy > baselineWaveEnergy);
+const inspectedWaterOverrides = runtimeWater.sceneOverrides;
+inspectedWaterOverrides.sunColor[0] = 0;
+check('effective runtime state is inspectable without leaking mutable values',
+  Math.abs(runtimeWater.sceneOverrides.waveIntensity - 0.55) < 1e-9
+    && deepEqual(runtimeWater.sceneOverrides.sunColor, [0.42, 0.58, 0.96])
+    && runtimeWater.sceneOverrideLayers.length === 2);
+
+runtimeWater.applySettings({ waveAmplitude: 0.6, waveIntensity: 0.3 });
+check('legacy applySettings still authors values while active weather recomposes',
+  runtimeWater.settings.waveIntensity === 0.3
+    && runtimeWater.settings.waveAmplitude === 0.6
+    && Math.abs(runtimeWater.renderedSettings.waveIntensity - 0.65) < 1e-9);
+const runtimeDocument = parseWaterPresetDocument(serializeWaterPreset('runtime_boundary', {
+  settings: runtimeWater.settings,
+}));
+check('portable water export sees authored baseline, never transient weather',
+  runtimeDocument.ok
+    && runtimeDocument.value.settings.waveIntensity === 0.3
+    && runtimeDocument.value.settings.waveIntensity !== runtimeWater.renderedSettings.waveIntensity);
+
+runtimeWater.clearSceneOverrideLayer(weatherLayer);
+check('clearing Weather restores authored waves without disturbing Lighting',
+  runtimeWater.renderedSettings.waveIntensity === 0.3
+    && deepEqual(runtimeWater.renderedSettings.sunColor, [0.42, 0.58, 0.96])
+    && runtimeWater.sceneOverrideLayers.length === 1);
+runtimeWater.setSceneOverrides({
+  deepColor: [1, 0, 0],
+  waveIntensity: 0.8,
+});
+check('convenience scene override rejects asset palette fields',
+  runtimeWater.renderedSettings.waveIntensity === 0.8
+    && deepEqual(runtimeWater.renderedSettings.deepColor, runtimeWater.settings.deepColor));
+runtimeWater.clearSceneOverrides();
+check('clearing the convenience scene layer preserves independent Lighting',
+  runtimeWater.renderedSettings.waveIntensity === runtimeWater.settings.waveIntensity
+    && deepEqual(runtimeWater.renderedSettings.sunColor, [0.42, 0.58, 0.96])
+    && runtimeWater.sceneOverrideLayers.length === 1);
+runtimeWater.clearAllSceneOverrideLayers();
+check('explicit full teardown restores every authored fallback',
+  runtimeWater.renderedSettings.waveIntensity === runtimeWater.settings.waveIntensity
+    && deepEqual(runtimeWater.renderedSettings.sunColor, runtimeWater.settings.sunColor)
+    && Object.keys(runtimeWater.sceneOverrides).length === 0);
+runtimeWater.dispose();
 
 // --- legacy / loose document shapes ----------------------------------------------------
 const legacy = validateWaterPresetDocument({

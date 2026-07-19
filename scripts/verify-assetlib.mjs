@@ -1,6 +1,7 @@
 // assetlib verification — pure-Node, OFFLINE by design: fixtures mirror real
 // API payloads captured 2026-07-14 (Poly Haven / ambientCG / Poly Pizza) and
-// 2026-07-16 (KayKit GitHub listings, Open Source 3D Assets registry JSON),
+// 2026-07-16 (KayKit GitHub listings, Open Source 3D Assets registry JSON)
+// and 2026-07-19 (Smithsonian 3D file search),
 // shapes asserted against the live APIs — so normalization, download
 // resolution, donation-vault filtering, the source registry, and the
 // catalog-entry contract are checked without touching the network.
@@ -13,12 +14,15 @@ import { fileURLToPath } from 'node:url';
 import { deflateRawSync } from 'node:zlib';
 
 import {
+  ASSETLIB_USER_AGENT,
   collectAssetCategories,
   filterAssetRefs,
   pickResolution,
   slugifyAssetId,
 } from '../src/assetlib/assetRef.js';
 import {
+  POLYHAVEN_BROWSER_API_URL,
+  fetchPolyhavenFiles,
   fetchPolyhavenIndex,
   normalizePolyhavenIndex,
   polyhavenThumbnailUrl,
@@ -49,6 +53,14 @@ import {
   normalizeOs3dAssets,
   normalizeOs3dProjects,
 } from '../src/assetlib/opensource3d.js';
+import {
+  SMITHSONIAN_3D_API_URL,
+  fetchSmithsonianAsset,
+  fetchSmithsonianFileRows,
+  isSmithsonianGalleryReady,
+  normalizeSmithsonianModels,
+  normalizeSmithsonianThumbnails,
+} from '../src/assetlib/smithsonian.js';
 import {
   ASSET_SOURCES,
   ASSET_SOURCE_INTEGRATIONS,
@@ -321,6 +333,12 @@ check('sources: sharetextures carries the never-automate warning', (() => {
 })());
 check('sources: freesound notes the non-commercial API tier',
   /non-commercial/i.test(getAssetSource('freesound').notes));
+check('sources: Smithsonian uses the dedicated keyless 3D API', (() => {
+  const smithsonian = getAssetSource('smithsonian');
+  return smithsonian.integration === 'api'
+    && smithsonian.keyed === false
+    && /3d-api\.si\.edu/.test(smithsonian.notes);
+})());
 check('listAssetSources: hides disabled by default, includeDisabled shows all, filters work',
   listAssetSources().every((source) => source.enabled)
   && listAssetSources({ includeDisabled: true }).length === ASSET_SOURCES.length
@@ -478,6 +496,118 @@ check('opensource3d: imported entry validates with provenance', validateCatalogE
   && os3dEntry.id === 'imported/opensource3d/momuspark-001'
   && os3dEntry.recipe.attribution.sourceLabel === 'Open Source 3D Assets');
 
+// --- Smithsonian 3D Open Access -----------------------------------------------------
+
+const SMITHSONIAN_PACKAGE_ID = 'b0bf6d44-af22-40dc-bd85-7d66255be4a7';
+const SMITHSONIAN_THUMB_ROWS = [{
+  title: 'Blue Crab',
+  content: {
+    file_type: 'jpg',
+    model_url: `3d_package:${SMITHSONIAN_PACKAGE_ID}`,
+    quality: 'Thumb',
+    uri: `https://3d-api.si.edu/content/document/3d_package:${SMITHSONIAN_PACKAGE_ID}/scene-image-thumb.jpg`,
+    usage: 'Image2D',
+  },
+}];
+const SMITHSONIAN_MODEL_ROWS = [
+  {
+    title: 'Blue Crab',
+    content: {
+      draco_compressed: true,
+      file_size: 123456,
+      file_type: 'glb',
+      model_type: 'glb',
+      model_url: `3d_package:${SMITHSONIAN_PACKAGE_ID}`,
+      owning_unit: 'NMNHINV',
+      quality: 'Low',
+      uri: `https://3d-api.si.edu/content/document/3d_package:${SMITHSONIAN_PACKAGE_ID}/model-low.glb`,
+      usage: 'Web3D',
+    },
+  },
+  {
+    title: 'High model is not browser index content',
+    content: {
+      file_type: 'glb',
+      model_type: 'glb',
+      model_url: '3d_package:high-model',
+      quality: 'High',
+      uri: 'https://3d-api.si.edu/content/model-high.glb',
+      usage: 'Web3D',
+    },
+  },
+];
+
+const smithsonianThumbnails = normalizeSmithsonianThumbnails(SMITHSONIAN_THUMB_ROWS);
+const smithsonianRefs = normalizeSmithsonianModels(SMITHSONIAN_MODEL_ROWS, smithsonianThumbnails);
+check('smithsonian: only low Web3D GLBs survive and thumbnails join by package',
+  smithsonianRefs.length === 1
+  && smithsonianRefs[0].id === SMITHSONIAN_PACKAGE_ID
+  && smithsonianRefs[0].kind === 'model'
+  && smithsonianRefs[0].source === 'smithsonian'
+  && smithsonianRefs[0].attribution.license === 'CC0'
+  && smithsonianRefs[0].download.format === 'glb'
+  && smithsonianRefs[0].download.sizeBytes === 123456
+  && smithsonianRefs[0].thumbnailUrl.endsWith('scene-image-thumb.jpg')
+  && smithsonianRefs[0].pageUrl.includes('blue-crab%3A'));
+check('smithsonian: untrusted file hosts are rejected', normalizeSmithsonianModels([{
+  title: 'Bad host',
+  content: {
+    file_type: 'glb',
+    model_type: 'glb',
+    model_url: '3d_package:bad-host',
+    quality: 'Low',
+    uri: 'https://example.com/model.glb',
+    usage: 'Web3D',
+  },
+}]).length === 0);
+check('smithsonian: gallery drops thumbnail-less and UUID-title file rows',
+  isSmithsonianGalleryReady(smithsonianRefs[0])
+  && !isSmithsonianGalleryReady({ ...smithsonianRefs[0], thumbnailUrl: null })
+  && !isSmithsonianGalleryReady({ ...smithsonianRefs[0], name: SMITHSONIAN_PACKAGE_ID }));
+
+let smithsonianPageCalls = 0;
+let smithsonianRequest = null;
+const smithsonianPaged = await fetchSmithsonianFileRows({
+  apiUrl: 'https://smithsonian-proxy.example/api/v1.0',
+  fileType: 'glb',
+  pageSize: 1,
+  quality: 'Low',
+  fetchImpl: async (url, options) => {
+    smithsonianPageCalls += 1;
+    smithsonianRequest = { options, url };
+    const start = Number(new URL(url).searchParams.get('start'));
+    return {
+      json: async () => ({ rowCount: 2, rows: [SMITHSONIAN_MODEL_ROWS[start] ?? SMITHSONIAN_MODEL_ROWS[0]] }),
+      ok: true,
+      status: 200,
+    };
+  },
+});
+check('smithsonian: file search paginates and identifies Node requests',
+  smithsonianPageCalls === 2
+  && smithsonianPaged.length === 2
+  && smithsonianRequest.options.headers.get('user-agent') === ASSETLIB_USER_AGENT
+  && smithsonianRequest.url.includes('start=1'));
+let smithsonianAssetCalls = 0;
+const smithsonianAsset = await fetchSmithsonianAsset(SMITHSONIAN_PACKAGE_ID, {
+  apiUrl: 'https://smithsonian-detail.example/api/v1.0',
+  fetchImpl: async (url) => {
+    smithsonianAssetCalls += 1;
+    const isThumb = new URL(url).searchParams.get('file_type') === 'jpg';
+    return {
+      json: async () => ({ rowCount: 1, rows: isThumb ? SMITHSONIAN_THUMB_ROWS : [SMITHSONIAN_MODEL_ROWS[0]] }),
+      ok: true,
+      status: 200,
+    };
+  },
+});
+check('smithsonian: detail lookup joins one model and thumbnail by model_url',
+  smithsonianAssetCalls === 2
+  && smithsonianAsset?.id === SMITHSONIAN_PACKAGE_ID
+  && isSmithsonianGalleryReady(smithsonianAsset));
+check('smithsonian: browser endpoint is the keyless upstream API',
+  SMITHSONIAN_3D_API_URL === 'https://3d-api.si.edu/api/v1.0');
+
 // --- catalog entry contract ---------------------------------------------------------
 
 const crate = refs.find((ref) => ref.id === 'wooden_crate_01');
@@ -562,13 +692,33 @@ check('zip reader: rejects non-zip input', await readZipEntries(new Uint8Array(6
 // --- fetch cache seam (stubbed — still offline) --------------------------------------
 
 let calls = 0;
-const stubFetch = async () => {
+let indexRequest = null;
+const stubFetch = async (url, options) => {
   calls += 1;
+  indexRequest = { options, url };
   return { json: async () => POLYHAVEN_INDEX, ok: true };
 };
 const first = await fetchPolyhavenIndex({ fetchImpl: stubFetch, now: NOW, type: 'models' });
 await fetchPolyhavenIndex({ fetchImpl: stubFetch, now: NOW, type: 'models' });
 check('index fetch is cached per type per session', calls === 1 && first.length === 2);
+check('polyhaven: Node requests identify ToonLab by default',
+  indexRequest.url === 'https://api.polyhaven.com/assets?type=models'
+  && indexRequest.options.headers.get('user-agent') === ASSETLIB_USER_AGENT);
+check('polyhaven: browser endpoint uses the identifying same-origin proxy',
+  POLYHAVEN_BROWSER_API_URL === '/api/polyhaven');
+
+let filesRequest = null;
+await fetchPolyhavenFiles('wooden_crate_01', {
+  apiUrl: 'https://polyhaven-proxy.example/',
+  fetchImpl: async (url, options) => {
+    filesRequest = { options, url };
+    return { json: async () => POLYHAVEN_MODEL_FILES, ok: true };
+  },
+  headers: { 'User-Agent': 'CallerOverride/1.0' },
+});
+check('polyhaven: custom endpoint and User-Agent override are preserved',
+  filesRequest.url === 'https://polyhaven-proxy.example/files/wooden_crate_01'
+  && filesRequest.options.headers.get('user-agent') === 'CallerOverride/1.0');
 
 console.log(failures === 0 ? '\nverify-assetlib: all checks passed' : `\nverify-assetlib: ${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

@@ -1,0 +1,3 @@
+/* Vegetation Shader Lab intentionally reuses the production Grass Lab shell.
+   Only the authored schema and validation stage differ. */
+@import '../../grass-lab/ui/app.css';

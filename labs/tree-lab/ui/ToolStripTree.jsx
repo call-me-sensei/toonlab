@@ -28,6 +28,12 @@ const TOOL_CAPTIONS = {
   trunk: 'Trunk',
 };
 
+const FLOWER_TOOL_COPY = {
+  branch: { caption: 'Branch Stem', title: 'Branch Stem (B) — draw a secondary stem' },
+  crown: { caption: 'Silhouette', title: 'Silhouette (C) — outline the supporting plant shape' },
+  trunk: { caption: 'Stem', title: 'Stem (T) — drag up from the ground' },
+};
+
 /** Sketch mode: two crayon brushes + Convert. The whole 5-year-old promise. */
 export function SketchModeBar({ actions, sketchBindings, state }) {
   const pending = state.pendingStrokes.length;
@@ -121,26 +127,31 @@ export function SketchModeBar({ actions, sketchBindings, state }) {
   );
 }
 
-export function ToolStrip({ actions, state }) {
-  // Flowers share the tree machinery (drawn wood/leaves flow through
-  // StylizedFlower); only bushes have nothing to sketch on.
-  const isTree = state.settings.plant.type !== 'bush';
+export function ToolStrip({ actions, labKind = 'tree', state }) {
+  const isFlowerLab = labKind === 'flower';
+  // Direct stem/branch tools work for both plant families. The broad doodle
+  // conversion workflow remains a Tree Lab responsibility.
+  const acceptsDrawingTools = state.settings.plant.type !== 'bush';
   const toolIds = STAGE_TOOLS[state.stage] ?? [];
   const tools = toolIds.map((id) => TOOLS.find((tool) => tool.id === id)).filter(Boolean);
   if (!tools.length) return null;
   return (
     <div className="td-toolstrip" data-testid="tool-strip">
-      <button
-        type="button"
-        className="td-tool"
-        data-testid="tool-sketchmode"
-        title="Sketch mode — doodle wood + leaves, then Convert to Tree"
-        onClick={() => actions.setSketchMode(true)}
-      >
-        <Icon name="sketch" />
-        <span>Sketch</span>
-      </button>
-      <div className="td-toolstrip-divider" />
+      {!isFlowerLab && (
+        <>
+          <button
+            type="button"
+            className="td-tool"
+            data-testid="tool-sketchmode"
+            title="Sketch mode — doodle wood + leaves, then Convert to Tree"
+            onClick={() => actions.setSketchMode(true)}
+          >
+            <Icon name="sketch" />
+            <span>Sketch</span>
+          </button>
+          <div className="td-toolstrip-divider" />
+        </>
+      )}
       {tools.map((tool) => (
         <button
           key={tool.id}
@@ -148,9 +159,11 @@ export function ToolStrip({ actions, state }) {
           className="td-tool"
           data-active={state.tool === tool.id || (tool.id === 'thicken' && state.tool === 'thin')}
           data-testid={`tool-${tool.id}`}
-          disabled={!isTree}
-          title={isTree
-            ? `${tool.label} — click again to put the tool down`
+          disabled={!acceptsDrawingTools}
+          title={acceptsDrawingTools
+            ? `${isFlowerLab && FLOWER_TOOL_COPY[tool.id]
+              ? FLOWER_TOOL_COPY[tool.id].title
+              : tool.label} — click again to put the tool down`
             : 'Sketch tools work on trees — switch Type to Tree first.'}
           // Toggle semantics: re-clicking the active tool puts it down and
           // you're back to default camera navigation.
@@ -161,14 +174,16 @@ export function ToolStrip({ actions, state }) {
           )}
         >
           <Icon name={tool.icon} />
-          <span>{TOOL_CAPTIONS[tool.id]}</span>
+          <span>{isFlowerLab && FLOWER_TOOL_COPY[tool.id]
+            ? FLOWER_TOOL_COPY[tool.id].caption
+            : TOOL_CAPTIONS[tool.id]}</span>
         </button>
       ))}
     </div>
   );
 }
 
-export function OptionsBar({ actions, state }) {
+export function OptionsBar({ actions, labKind = 'tree', state }) {
   const { brush, sketch, tool } = state;
 
   if (tool === 'move') {
@@ -192,7 +207,7 @@ export function OptionsBar({ actions, state }) {
   if (tool === 'trunk' || tool === 'branch') {
     return (
       <div className="td-optionsbar" data-testid="options-bar">
-        <span>{tool === 'trunk' ? '🪵 Trunk' : '✏️ Branch'}</span>
+        <span>{tool === 'trunk' ? `🪵 ${labKind === 'flower' ? 'Stem' : 'Trunk'}` : '✏️ Branch'}</span>
         <span>Size</span>
         <Slider
           defaultValue={0.07}
@@ -243,13 +258,18 @@ export function OptionsBar({ actions, state }) {
     );
   }
   if (tool === 'crown') {
+    const isFlowerLab = labKind === 'flower';
     return (
       <div className="td-optionsbar" data-testid="options-bar">
-        <span>🔵 Crown</span>
-        <span style={{ opacity: 0.6 }}>Draw a closed outline around the crown</span>
+        <span>🔵 {isFlowerLab ? 'Silhouette' : 'Crown'}</span>
+        <span style={{ opacity: 0.6 }}>
+          {isFlowerLab
+            ? 'Draw a closed outline around the supporting plant shape'
+            : 'Draw a closed outline around the crown'}
+        </span>
         {sketch.crownBlobs.length > 0 && (
           <Button kind="ghost" onClick={() => actions.clearCrownBlobs()} testId="clear-crown">
-            Clear drawn crown
+            Clear drawn {isFlowerLab ? 'silhouette' : 'crown'}
           </Button>
         )}
       </div>

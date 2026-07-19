@@ -41,6 +41,7 @@
       <nav class="home-nav">
         <a href="/" aria-current="page">Labs</a>
         <a href="/gallery/">Gallery</a>
+        <a href="/docs/">Docs</a>
         <a href="/settings/">Settings</a>
         <a href="https://github.com/call-me-sensei/toonlab" target="_blank" rel="noreferrer">GitHub</a>
       </nav>
@@ -56,19 +57,53 @@
         </h1>
         <p class="home-sub">
           The open-source stylized toolkit for Three.js — WebGPU first, WebGL fallback.
-          Fourteen labs for shading, worldbuilding and feel; every one exports
-          <b>straight into your game</b>.
+          Eleven authoring labs and six playable demos for shading, assets,
+          worldbuilding and feel.
         </p>
       </div>
 
-      <div id="labGrid" class="lab-grid" data-reveal-stagger></div>
+      <section class="home-section home-section--first">
+        <div data-reveal>
+          <div class="tl-kicker">
+            シェーダー <span class="jp">外観</span> Shader labs
+          </div>
+          <h2 class="sec-title home-section-title">
+            Define the look <span class="dim">— shared across compatible assets.</span>
+          </h2>
+        </div>
+        <div id="shaderLabGrid" class="lab-grid" data-reveal-stagger></div>
+      </section>
+
+      <section class="home-section">
+        <div data-reveal>
+          <div class="tl-kicker">
+            アセット <span class="jp">造形</span> Asset labs
+          </div>
+          <h2 class="sec-title home-section-title">
+            Build the content <span class="dim">— geometry, species, and surfaces.</span>
+          </h2>
+        </div>
+        <div id="assetLabGrid" class="lab-grid" data-reveal-stagger></div>
+      </section>
+
+      <section class="home-section">
+        <div data-reveal>
+          <div class="tl-kicker">
+            システム <span class="jp">世界</span> World systems
+          </div>
+          <h2 class="sec-title home-section-title">
+            Author runtime systems <span class="dim">— rendering, simulation, and interaction.</span>
+          </h2>
+        </div>
+        <div id="worldSystemGrid" class="lab-grid" data-reveal-stagger></div>
+      </section>
 
       <section class="home-section">
         <div data-reveal>
           <div class="tl-kicker">
             遊び場 <span class="jp">デモ</span> Playgrounds &amp; demos
           </div>
-          <h2 class="sec-title" style="font-size: clamp(22px, 3vw, 32px);">
+          <h2 class="sec-title home-section-title">
             Walkable scenes <span class="dim">— the systems, in play.</span>
           </h2>
         </div>

@@ -14,6 +14,10 @@ import { StylizedGrassField } from './vegetation/stylizedGrass.js';
 import { StylizedFlowerField } from './vegetation/stylizedFlowers.js';
 import { StylizedForest } from './vegetation/stylizedForest.js';
 import {
+  applyVegetationShader,
+  createVegetationShaderSettings,
+} from './vegetation/vegetationShaders.js';
+import {
   combineMasks,
   createSlopeMask,
   createWaterMask,
@@ -61,6 +65,15 @@ function cleanObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function sunColorArray(value, fallback) {
+  if (value?.isColor) return [value.r, value.g, value.b];
+  if (Array.isArray(value) && value.length >= 3) {
+    const next = value.slice(0, 3).map(Number);
+    if (next.every(Number.isFinite)) return next;
+  }
+  return fallback.slice();
+}
+
 /**
  * Assembles a stylized outdoor world from a world preset.
  *
@@ -86,6 +99,9 @@ function cleanObject(value) {
  *   overrides over the world preset, or `false` to skip.
  * @param {Object|false} [options.grass] Same shape as trees, or `false`.
  * @param {Object|false} [options.flowers] `{ scatter, settings }`; off unless given.
+ * @param {Object|string} [options.vegetationShader] One IP-wide vegetation
+ *   shader profile/settings object. Albedo, construction, and live world
+ *   values remain owned by trees/grass/flowers and the host scene.
  * @param {Object3D} [options.followTarget] Character root: water ripple
  *   window + interactor splashes/wakes, grass push-away.
  * @param {Object|false} [options.cloudShadows] `{ strength, coverage, scale,
@@ -97,8 +113,10 @@ function cleanObject(value) {
  * @param {boolean} [options.applyCamera] Apply preset camera planes (default true).
  * @param {Object} [options.environment] Extra `applyEnvironmentShader`
  *   options merged last (features/parameters/roleOverrides/...).
- * @returns {Promise<Object>} `{ update, dispose, sky, water, sunRig, grass,
- *   flowerField, trees, treeGroup, masks, worldPreset, classification }`
+ * @returns {Promise<Object>} `{ update, dispose, sky, water, sunRig, sunState,
+ *   setSun, grass, flowerField, forest, masks, worldPreset, classification }`.
+ *   `setSun({ direction, color, sky })` is the transient scene-light adapter
+ *   used by Lighting and Weather; it does not rewrite portable asset presets.
  */
 export async function createStylizedWorld({
   renderer,
@@ -118,6 +136,7 @@ export async function createStylizedWorld({
   trees = {},
   grass = {},
   flowers = false,
+  vegetationShader = {},
   followTarget = null,
   cloudShadows = null,
   sun = true,
@@ -131,6 +150,7 @@ export async function createStylizedWorld({
 
   const worldPreset = resolveWorldPreset(preset);
   if (!worldPreset) throw new Error(`Unknown world preset "${preset}".`);
+  let vegetationShaderSettings = createVegetationShaderSettings(vegetationShader);
 
   // terrain.size accepts a number (square), { width, depth }, or { x, z }
   // (the shape createStylizedTerrain returns as meshExtent) — silently
@@ -310,6 +330,15 @@ export async function createStylizedWorld({
       } : {}),
     })
     : null;
+  const sunDirectionState = Array.isArray(skySunDirection)
+    ? new THREE.Vector3(...skySunDirection)
+    : (sunRig?.light
+      ? sunRig.light.position.clone().sub(sunRig.light.target.position)
+      : new THREE.Vector3(0.35, 0.8, 0.45));
+  if (sunDirectionState.lengthSq() < 1e-8) sunDirectionState.set(0.35, 0.8, 0.45);
+  sunDirectionState.normalize();
+  const sunColorState = [1, 0.96, 0.84];
+  const sunSkyColorState = [0.62, 0.78, 0.95];
 
   // Shadows are ON by default — a character that casts nothing on the grass
   // is the fastest way for a stylized world to read fake. The renderer's
@@ -351,14 +380,7 @@ export async function createStylizedWorld({
       // elevation by the terrain box's aspect ratio — a 2 km × 200 m box
       // squashes a 2 PM sun nearly horizontal, and shadows land tens of
       // meters away from their casters.)
-      const direction = Array.isArray(skySunDirection)
-        ? new THREE.Vector3(
-          skySunDirection[0],
-          Math.max(skySunDirection[1], 0.15),
-          skySunDirection[2],
-        )
-        : light.position.clone().sub(environmentBox.getCenter(new THREE.Vector3()));
-      sunShadowOffset = direction.normalize().multiplyScalar(shadowArea * 3 + 120);
+      sunShadowOffset = sunDirectionState.clone().multiplyScalar(shadowArea * 3 + 120);
       scene.add(light.target);
     }
   }
@@ -381,6 +403,46 @@ export async function createStylizedWorld({
     sunRig.light.target.updateMatrixWorld();
   };
   followSunShadow();
+
+  // One scene-input adapter keeps the actual DirectionalLight, shadow follow,
+  // and every custom vegetation shader on the same sun/sky values. These are
+  // transient scene values: authored Grass/Flower/Tree settings stay intact.
+  const setSun = ({ direction, color, sky: skyColor } = {}) => {
+    if (direction !== undefined) {
+      const channels = direction?.isVector3
+        ? [direction.x, direction.y, direction.z]
+        : direction;
+      if (Array.isArray(channels) && channels.length >= 3) {
+        const next = channels.slice(0, 3).map(Number);
+        if (next.every(Number.isFinite)) sunDirectionState.fromArray(next);
+      }
+      if (sunDirectionState.lengthSq() < 1e-8) sunDirectionState.set(0.35, 0.8, 0.45);
+      sunDirectionState.normalize();
+    }
+    if (color !== undefined) sunColorState.splice(0, 3, ...sunColorArray(color, sunColorState));
+    if (skyColor !== undefined) sunSkyColorState.splice(0, 3, ...sunColorArray(skyColor, sunSkyColorState));
+
+    // A direction is not an environment-relative point. The rig owns a true
+    // direction adapter so non-square worlds and shadows:false remain aligned.
+    sunRig?.setDirection?.(sunDirectionState);
+    sunRig?.setState?.({ color: new THREE.Color().setRGB(...sunColorState) });
+    if (sunShadowOffset) {
+      sunShadowOffset.copy(sunDirectionState).multiplyScalar(shadowArea * 3 + 120);
+      followSunShadow();
+    }
+
+    const current = {
+      color: sunColorState.slice(),
+      direction: sunDirectionState.toArray(),
+      sky: sunSkyColorState.slice(),
+    };
+    grassField?.setSun?.(current);
+    flowerField?.setSun?.(current);
+    forest?.setSun?.(current);
+    ambientFx?.setSun?.({ direction: current.direction });
+    return current;
+  };
+  const setSunDirection = (value) => setSun({ direction: value }).direction;
 
   // Sky dome — the water's reflection fallback, so it comes before water.
   const sky = new StylizedSky({
@@ -503,6 +565,7 @@ export async function createStylizedWorld({
       // merged-geometry impostors (~12k verts/tree) that get redrawn by the
       // main, water, and shadow passes — the difference between 20 and 60 fps.
       renderer,
+      vegetationShader: vegetationShaderSettings,
       settings: {
         ...cleanObject(worldPreset.trees?.settings),
         ...cleanObject(treeOptions.settings),
@@ -547,6 +610,7 @@ export async function createStylizedWorld({
       preset: worldPreset.grass?.preset,
       ...cleanObject(worldPreset.grass?.settings),
       ...cleanObject(grassOptions.settings),
+      vegetationShader: vegetationShaderSettings,
       placements,
     });
     field.setDistanceFade({ end: grassState.radius * 0.98, start: grassState.radius * 0.62 });
@@ -592,6 +656,7 @@ export async function createStylizedWorld({
     if (placements.length > 0) {
       flowerField = new StylizedFlowerField({
         ...cleanObject(flowerOptions.settings),
+        vegetationShader: vegetationShaderSettings,
         placements,
       });
       scene.add(flowerField);
@@ -654,6 +719,14 @@ export async function createStylizedWorld({
     scene.add(ambientFx.root);
   }
 
+  // Align all scene consumers with the authored Sky before Weather or an
+  // optional LightingSystem adds transient layers.
+  setSun({
+    color: sky.renderedSettings?.sunColor ?? sky.settings?.sunColor,
+    direction: sunDirectionState,
+    sky: sky.renderedSettings?.horizonColor ?? sky.settings?.horizonColor,
+  });
+
   // Walkability: circle blockers on a spatial hash, tree trunks
   // pre-registered, so characters can't walk through the world ToonLab just
   // built. Hosts add their own blockers (rocks, props) via
@@ -680,6 +753,7 @@ export async function createStylizedWorld({
     setEnvironmentCloudShadow(field);
     waterSurface?.setCloudShadow(field);
     grassField?.setCloudShadow(field);
+    flowerField?.setCloudShadow(field);
     forest?.setCloudShadow(field);
     faunaSystem?.setCloudShadow?.(field);
   };
@@ -710,6 +784,11 @@ export async function createStylizedWorld({
       flowers: flowerField,
       followTarget,
       forest: () => forest,
+      getSun: () => ({
+        color: sunColorState.slice(),
+        direction: sunDirectionState.toArray(),
+        sky: sunSkyColorState.slice(),
+      }),
       grass: () => grassField,
       groundHeightAt: heightAt,
       precipitationFloorY: environmentBox.min.y,
@@ -718,6 +797,7 @@ export async function createStylizedWorld({
       scene,
       seed: Number(weatherOptions.seed) || 1,
       setCloudShadow: applyCloudShadow,
+      setSun,
       settings: {
         ...weatherSettings,
         atmosphere: {
@@ -755,6 +835,7 @@ export async function createStylizedWorld({
     flowerField,
     fog: sceneFog,
     forest,
+    environmentRoot: terrainRoot,
     get grass() { return grassField; },
     ambientFx,
     fauna: faunaSystem,
@@ -762,10 +843,37 @@ export async function createStylizedWorld({
     paths: pathsSystem,
     pois: poiList,
     setCloudShadow: applyCloudShadow,
+    setSun,
+    setSunDirection,
+    setVegetationShader(profile) {
+      vegetationShaderSettings = createVegetationShaderSettings(profile);
+      const reports = [
+        applyVegetationShader(grassField, vegetationShaderSettings),
+        applyVegetationShader(flowerField, vegetationShaderSettings),
+        forest?.setVegetationShader?.(vegetationShaderSettings)
+          ?? applyVegetationShader(forest, vegetationShaderSettings),
+      ];
+      return {
+        applied: reports.reduce((sum, report) => sum + (report?.applied ?? 0), 0),
+        reports,
+        requiresForestImpostorRebake: Boolean(reports[2]?.requiresImpostorRebake),
+        settings: vegetationShaderSettings,
+        unsupported: reports.flatMap((report) => report?.unsupported ?? []),
+        writes: reports.reduce((sum, report) => sum + (report?.writes ?? 0), 0),
+      };
+    },
     setWeather(presetOrSettings, options) {
       return weatherSystem?.transitionTo(presetOrSettings, options) ?? null;
     },
     sky,
+    get sunState() {
+      return {
+        color: sunColorState.slice(),
+        direction: sunDirectionState.toArray(),
+        sky: sunSkyColorState.slice(),
+      };
+    },
+    get sunDirection() { return sunDirectionState.toArray(); },
     sunRig,
     weather: weatherSystem,
     /** Call once per frame before rendering. */

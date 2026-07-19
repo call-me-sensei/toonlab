@@ -26,9 +26,11 @@ import { SchemaGroup } from '../../shared/ui/schema/SchemaGroup.jsx';
 import { downloadBlob, pickFile } from '../../shared/download.js';
 import { WALK_PREVIEW_TITLE } from '../../shared/walkPreview.js';
 import {
+  GRASS_COLOR_PALETTES,
   getGrassPresetOptions,
   GRASS_SETTING_FIELD_SCHEMA,
   GRASS_SETTING_GROUPS,
+  matchGrassColorPalette,
 } from '../../../src/vegetation/stylizedGrass.js';
 import { GRASS_PREVIEW_MODES } from './engine.js';
 
@@ -53,10 +55,13 @@ const WORKSPACE_SECTIONS = Object.freeze(
 );
 
 function PresetRow({ actions, state }) {
+  const localIds = new Set(state.localPresets.map((entry) => entry.id));
   const options = [
     ...(state.presetId === null ? [{ label: 'Custom…', value: '' }] : []),
-    ...getGrassPresetOptions().map((entry) => ({ label: entry.label, value: entry.value ?? entry.id })),
-    ...state.localPresets.map((entry) => ({ label: `${entry.label} · saved`, value: entry.id })),
+    ...getGrassPresetOptions().map((entry) => ({
+      label: `${entry.label}${localIds.has(entry.id) ? ' · saved' : ''}`,
+      value: entry.value ?? entry.id,
+    })),
   ];
   const isLocal = state.localPresets.some((entry) => entry.id === state.presetId);
   return (
@@ -165,6 +170,43 @@ function SectionRail({ activeSection, onSectionChange }) {
   );
 }
 
+function grassColorCss(value) {
+  return `rgb(${value.map((channel) => Math.round(channel * 255)).join(', ')})`;
+}
+
+function GrassPaletteSection({ actions, state }) {
+  const active = matchGrassColorPalette(state.settings);
+  return (
+    <section className="tk-section gr-palette-section" data-testid="grass-palette-section">
+      <div className="tk-section-title">Preset Palettes</div>
+      <div className="tk-section-caption">
+        Each palette is a coordinated base, tip, and shadow-tint set. Selecting
+        one also changes the grass color in shadow; fine-tune Shadow Tint under Shadows.
+      </div>
+      <div className="gr-palette-grid">
+        {GRASS_COLOR_PALETTES.map((palette) => (
+          <button
+            key={palette.id}
+            type="button"
+            aria-pressed={active?.id === palette.id}
+            data-active={active?.id === palette.id}
+            data-testid={`grass-palette-${palette.id}`}
+            title={`${palette.description} Sets Base Color, Tip Color, and Shadow Tint together.`}
+            onClick={() => actions.applyColorPalette(palette)}
+          >
+            <span className="gr-palette-swatches" aria-hidden="true">
+              {['baseColor', 'tipColor', 'shadowTint'].map((key) => (
+                <span key={key} style={{ background: grassColorCss(palette[key]) }} />
+              ))}
+            </span>
+            <span className="gr-palette-label">{palette.label}</span>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function Inspector({ actions, sectionId, state }) {
   const section = WORKSPACE_SECTIONS.find((entry) => entry.id === sectionId) ?? WORKSPACE_SECTIONS[0];
   const group = GRASS_SETTING_GROUPS.find((entry) => entry.id === section.id);
@@ -173,11 +215,12 @@ function Inspector({ actions, sectionId, state }) {
       <PresetRow actions={actions} state={state} />
       <h2 className="gr-inspector-header" data-testid="inspector-title">{section.label}</h2>
       <p className="gr-inspector-caption">{section.description}</p>
+      {group?.id === 'palette' && <GrassPaletteSection actions={actions} state={state} />}
       {group && (
         <SchemaGroup
           fields={GRASS_SETTING_FIELD_SCHEMA[group.id]}
           getValue={(field) => state.settings[field.key]}
-          group={group}
+          group={group.id === 'palette' ? { ...group, label: 'Fine Tune' } : group}
           onChange={(field, value) => actions.setSetting(field.key, value)}
           showCaption={false}
         />
@@ -192,7 +235,7 @@ function GrassPreviewBar({ actions, engine, state }) {
       hint={state.view.walkPreview
         ? 'WASD/arrows move · Shift runs · Space jumps — blades part around you'
         : 'Left-drag rotate · wheel zoom · right-drag pan'}
-      title="Preview only — planting, scene lights, and walking are never saved into your grass preset."
+      title="Preview only — planting, light, weather, and interaction are never saved into your grass preset."
     >
       <SegmentedControl
         onChange={(mode) => actions.setView({ mode })}
@@ -208,6 +251,17 @@ function GrassPreviewBar({ actions, engine, state }) {
         <span>Amb</span>
         <Slider max={1.2} min={0} onChange={(ambientIntensity) => actions.setView({ ambientIntensity })} step={0.02} value={state.view.ambientIntensity} />
       </span>
+      <span className="tk-previewbar-slider" title="Current scene wind strength — multiplied by the grass asset's Wind Response.">
+        <span>Wind</span>
+        <Slider max={0.6} min={0} onChange={(windStrength) => actions.setView({ windStrength })} step={0.01} value={state.view.windStrength} />
+      </span>
+      <PreviewToggle
+        checked={state.view.cloudShadowStrength > 0}
+        label="Cloud"
+        onChange={(enabled) => actions.setView({ cloudShadowStrength: enabled ? 0.45 : 0 })}
+        testId="cloud-shadow-preview"
+        title="Current scene cloud-shadow field — preview only, not part of the grass asset."
+      />
       <PreviewToggle
         checked={state.view.walkPreview}
         label="Walk"

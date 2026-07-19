@@ -6,6 +6,11 @@ weather coordinates the temporary state that many systems must share:
 clouds, fog, sun and ambient light, wind, precipitation, lightning, water
 agitation, wetness, snow cover, and ice.
 
+Sky Lab owns the reusable baseline sky appearance; Weather owns the current
+condition and only modulates that baseline. Lighting remains authoritative for
+the real directional light and shadow policy. See
+[Lab responsibilities](lab-architecture.md).
+
 Open the standalone editor at `/weather-lab/`. It exposes the complete
 schema, smooth preset transitions, a lightning test, local saves, and
 portable JSON import/export.
@@ -31,12 +36,23 @@ world.setWeather('thunderstorm', { duration: 5 });
 
 // Keep calling the normal composed-world update.
 world.update(delta);
+
+// Optional authored day cycle. This binds Sky, Water, the world-owned sun
+// direction, environment materials, and Weather's modulation bridge.
+const lighting = createLightingSystem({ renderer, scene, style: 'call-me-sensei' });
+lighting.attachWorld(world);
 ```
 
 The coordinator automatically adapts the world sky, sun rig, scene fog,
 ambient lights, cloud shadows, grass, flowers, trees, fauna, ambient VFX,
 and water when those systems are present. `followTarget` centers the GPU
 precipitation window; otherwise it follows the camera.
+
+Without a Lighting system, Weather writes the world sun/ambient/fog fallback
+directly. `lighting.attachWorld(world)` calls `weather.setLightingSystem()`
+automatically; from then on Lighting is the sole writer and Weather supplies
+sun tint/intensity, ambient, and fog-color modulation. Detaching Lighting hands
+the same current condition back to Weather without a visible ownership race.
 
 Pass `weather: false` for an indoor or fully host-managed scene. Indoor and
 outdoor are not separate weather implementations: a building, cave, or
@@ -87,6 +103,14 @@ const weather = createWeatherSystem({
   forest,
   fauna,
   ambientFx,
+  // Optional whole-world scene-light adapter supplied by your host. This
+  // keeps custom vegetation inputs aligned when Lighting is absent.
+  getSun: readSceneSun,
+  setSun: applySceneSun,
+  // Needed only when an opaque host adapter cannot be inspected. These are
+  // the exact values restored by dispose().
+  cloudShadowBaseline: currentCloudShadow,
+  surfaceBaseline: currentSurfaceState,
   onSurfaceChange: ({ wetness, snowCover, ice }) => {
     terrainMaterial.uniforms.wetness.value = wetness;
     terrainMaterial.uniforms.snowCover.value = snowCover;
@@ -107,6 +131,14 @@ Water Lab can provide only `water`; an indoor material lab can consume only
 the normalized surface outputs. This keeps each lab focused while using the
 same preset document and transition semantics.
 
+`getSun` / `setSun` form the preferred standalone world-light bridge. The
+state is `{ direction, color, sky }`; Weather captures the getter once, applies
+temporary tint/darkening through the setter, and restores that baseline on
+teardown. `setCloudShadow` and `onSurfaceChange` are write-only adapters, so
+pass `cloudShadowBaseline` / `surfaceBaseline` when their current values are
+not otherwise inspectable. `createStylizedWorld` wires these responsibilities
+for its own systems.
+
 ## Settings groups
 
 `WEATHER_SETTING_FIELD_SCHEMA` is the canonical UI schema. Settings are
@@ -121,9 +153,22 @@ grouped into:
 - `surface`: water wave/ripple response plus host-facing wetness, snow, and
   ice targets
 
-Weather multiplies the captured sky and sun baseline, so time of day remains
-independent. For example, `rain` at noon and `rain` at sunset share the same
-condition while retaining their different underlying sun colors and angles.
+Weather multiplies the current lower-priority Lighting result, so time of day
+remains independent. For example, `rain` at noon and `rain` at sunset share the
+same condition while retaining their different underlying sun colors and
+angles. On `StylizedSky`, Weather owns a private priority-200 resolver layer;
+on `WaterSurface`, it owns a private layer that adds `waterWaveBoost` over the
+authored wave baseline. `sky.settings` and `water.settings` therefore remain
+portable, while their `renderedSettings` expose the current composition.
+
+`weather.dispose()` clears only Weather-owned Sky and Water layers, resets
+Lighting modulation, and restores the captured sun, cloud-shadow, vegetation
+wind, wetness/snow, Ambient FX wind, and host surface baselines. Disposed
+coordinators ignore later refresh/update calls, so teardown cannot resurrect
+stale world state. The visible dome-cloud pattern
+and projected cloud-shadow field are intentionally separate angular/spatial
+procedures; Weather coordinates their condition and motion policy but does not
+claim texel-identical registration.
 
 ## Lightning, thunder, and surface events
 
@@ -153,4 +198,3 @@ Use `createWeatherPresetDocument`, `parseWeatherPresetDocument`, and
 imported document with `registerWeatherPresetDocument(document)`; all labs
 that read `getWeatherPresetOptions()` can then expose it without maintaining
 a second preset list.
-

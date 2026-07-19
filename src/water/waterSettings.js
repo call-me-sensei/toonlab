@@ -127,8 +127,9 @@ export const DEFAULT_WATER_SETTINGS = Object.freeze({
   preset: 'lake',
   colorTone: 'classic',
 
-  // Master dial: 0 = glassy mirror, 1 = storm swell. Scales wave amplitude,
-  // steepness, and phase speed before the per-wave spectrum is built.
+  // Authored baseline: 0 = glassy mirror, 1 = storm swell. Scales wave
+  // amplitude, steepness, and phase speed before the per-wave spectrum is
+  // built. Scene weather may transiently override it on WaterSurface.
   waveIntensity: 0.25,
   waterLevel: 0.36,
 
@@ -228,7 +229,8 @@ export const DEFAULT_WATER_SETTINGS = Object.freeze({
   whitecapAmount: 0.05,
   rippleFoamStrength: 0.8,
 
-  // Lighting.
+  // Authored lighting/reflection fallback. A scene rig may transiently replace
+  // the sun and sky fields on WaterSurface without editing this water asset.
   sunDirection: [0.35, 0.8, 0.45],
   sunColor: [1.0, 0.96, 0.86],
   specularStrength: 0.8,
@@ -1020,14 +1022,14 @@ export const WATER_SETTING_GROUPS = Object.freeze([
   Object.freeze({ id: 'waves', label: 'Waves', description: 'Gerstner swell and detail ripple shaping.' }),
   Object.freeze({ id: 'surface', label: 'Surface', description: 'Water body color, refraction, and caustics.' }),
   Object.freeze({ id: 'foam', label: 'Foam', description: 'Shoreline foam, whitecaps, and wake foam.' }),
-  Object.freeze({ id: 'lighting', label: 'Lighting', description: 'Sun glints, sparkles, fresnel, and reflections.' }),
+  Object.freeze({ id: 'lighting', label: 'Lighting', description: 'Authored fallback sun/sky plus water-specific glint, fresnel, and reflection response.' }),
   Object.freeze({ id: 'ripples', label: 'Ripples', description: 'Interactive ripple simulation response.' }),
   Object.freeze({ id: 'splashes', label: 'Splashes', description: 'Procedural splash droplets, spray, and rings.' }),
   Object.freeze({ id: 'quality', label: 'Quality', description: 'Shader quality tier gating caustics, sparkles, and noise octaves.' }),
 ]);
 
 const FIELD_METADATA = {
-  waveIntensity: { group: 'waves', label: 'Wave Intensity', min: 0, max: 1, step: 0.01, description: 'Master dial from glassy mirror (0) to storm swell (1).' },
+  waveIntensity: { group: 'waves', label: 'Wave Intensity', min: 0, max: 1, step: 0.01, description: 'Authored baseline from glassy mirror (0) to storm swell (1); scene weather can transiently modulate it without changing the preset.' },
   waterLevel: { group: 'waves', label: 'Water Level', min: 0, max: 4, step: 0.01, description: 'World-space rest height of the surface; waves and run-up displace around it.' },
   waveAmplitude: { group: 'waves', label: 'Wave Amplitude', min: 0, max: 5, step: 0.01, description: 'Largest wave amplitude in meters at full intensity; 5 gives a 10 m crest-to-trough swell.' },
   shoalingDepth: { group: 'waves', label: 'Shoaling Depth', min: 0.05, max: 12, step: 0.05, description: 'Column depth in meters at which waves reach full height; shallower water shrinks them (needs a bed height sampler).' },
@@ -1094,8 +1096,8 @@ const FIELD_METADATA = {
   whitecapAmount: { group: 'foam', label: 'Whitecaps', min: 0, max: 1, step: 0.01, description: 'Coverage of breaking crests on open water.' },
   rippleFoamStrength: { group: 'foam', label: 'Wake Foam', min: 0, max: 3, step: 0.01, description: 'Foam intensity left behind by interactive ripples and wakes.' },
 
-  sunDirection: { group: 'lighting', label: 'Sun Direction', type: 'vector3', description: 'World-space direction toward the sun.' },
-  sunColor: { group: 'lighting', label: 'Sun Color', type: 'color', description: 'Sun tint used by glints, sparkles, and caustics.' },
+  sunDirection: { group: 'lighting', label: 'Sun Direction', type: 'vector3', description: 'Authored fallback direction toward the sun when no live scene-light override is connected.' },
+  sunColor: { group: 'lighting', label: 'Sun Color', type: 'color', description: 'Authored fallback sun tint for glints, sparkles, and caustics; a live scene rig may replace it transiently.' },
   specularStrength: { group: 'lighting', label: 'Specular', min: 0, max: 3, step: 0.01, description: 'Toon sun-glint intensity.' },
   specularShininess: { group: 'lighting', label: 'Shininess', min: 4, max: 2000, step: 1, description: 'Glint tightness; higher is smaller and sharper.' },
   specularStretch: { group: 'lighting', label: 'Glint Stretch', min: 0, max: 0.95, step: 0.01, description: 'Elongates glints along the sun azimuth into a sparkling sun path.' },
@@ -1108,8 +1110,8 @@ const FIELD_METADATA = {
   fresnelPower: { group: 'lighting', label: 'Fresnel Power', min: 0.5, max: 12, step: 0.1, description: 'Falloff of the fresnel band toward the horizon.' },
   fresnelBias: { group: 'lighting', label: 'Fresnel Bias', min: 0, max: 0.6, step: 0.01, description: 'Sky-tint floor at steep angles; higher reads more anime-blue.' },
   fresnelColor: { group: 'lighting', label: 'Fresnel Color', type: 'color', description: 'Additive rim tint at grazing angles.' },
-  skyZenithColor: { group: 'lighting', label: 'Sky Zenith', type: 'color', description: 'Procedural sky reflection color overhead.' },
-  skyHorizonColor: { group: 'lighting', label: 'Sky Horizon', type: 'color', description: 'Procedural sky reflection color at the horizon.' },
+  skyZenithColor: { group: 'lighting', label: 'Sky Zenith', type: 'color', description: 'Authored fallback procedural sky-reflection color overhead when no live scene sky is connected.' },
+  skyHorizonColor: { group: 'lighting', label: 'Sky Horizon', type: 'color', description: 'Authored fallback procedural sky-reflection color at the horizon when no live scene sky is connected.' },
   reflectionStrength: { group: 'lighting', label: 'Reflection', min: 0, max: 1.5, step: 0.01, description: 'Planar/sky reflection mix, weighted by fresnel.' },
   reflectionDistortion: { group: 'lighting', label: 'Reflection Ripple', min: 0, max: 0.3, step: 0.005, description: 'How much waves shatter the reflection.' },
   reflectionSoftness: { group: 'lighting', label: 'Reflection Softness', min: 0, max: 1, step: 0.01, description: 'Blends sharp planar reflections toward the soft procedural sky (milky anime look).' },

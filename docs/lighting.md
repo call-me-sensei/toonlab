@@ -55,13 +55,27 @@ touching built-ins.
 
 ### Working with worlds
 
-`lighting.attachWorld(world)` binds a `createStylizedWorld` result: the style
-drives the world sun rig's color, intensity, and accent opacities, plus fog
-and exposure. Sun *position* stays world-owned (the world's shadow-follow
-translates the sun each frame); pass `driveSunPosition: true` only in
-standalone scenes. Weather should modulate through
-`lighting.setWeatherModulation({ sunIntensityScale, ambientScale, fogColorTint, ... })`
-so lights, fog, and exposure keep a single writer.
+`lighting.attachWorld(world)` binds a `createStylizedWorld` result. The style
+drives its world-owned sun-direction adapter (so the visible disc, directional
+light, cast shadows, Grass/Flower/Tree shader inputs, and Water highlight
+agree), sun color/intensity/accents, environment-material sky/fog tints, scene
+fog, exposure, and private
+priority-100 Sky and Water layers.
+
+If `world.weather` exists, `attachWorld` also calls
+`weather.setLightingSystem(lighting)`. Lighting remains the sole writer for
+sun, ambient, and fog color; Weather supplies normalized modulation and owns
+higher-priority Sky/Water layers. `detach()` restores the prior world sun
+direction and removes only Lighting's layers, leaving standalone Weather
+active. The world bridge is `getSun`/`setSun({ direction, color, sky })` (with
+`getSunDirection`/`setSunDirection` retained for direction-only compatibility).
+In custom integrations, the equivalent Weather bridge is
+`lighting.setWeatherModulation({ sunIntensityScale, sunColorTint,
+ambientScale, fogColorOverride, ... })`.
+
+Sun translation remains world-owned because the shadow-follow window moves the
+light and target around the player. Standalone scenes without a world adapter
+may pass `driveSunPosition: true` instead.
 
 ### Generating styles and fixtures
 
@@ -97,8 +111,11 @@ that itself yields endless placement variety.
   textures to load (`area-ltc-pending` in diagnostics) instead of crashing the
   node backends; `ensureAreaLightSupport()` preloads them.
 - `stats()` / `toJSON()` / `reset()` / `dispose()` follow the standard runtime
-  contract; `dispose()` restores the fog color, exposure, and sun state it
-  captured at attach time.
+  contract; `dispose()` restores fog, exposure, the complete world/physical sun
+  state, and every environment tint it captured, unbinds Weather, and clears
+  only its own Sky/Water layers. Dispose order is safe: if Weather is removed
+  first, Lighting restores Weather's pre-condition sun baseline when it later
+  detaches.
 
 ### Known integration limits (v1)
 
@@ -605,8 +622,10 @@ overlays from the same report without importing lab code.
 ## Lighting Lab
 
 Run the dedicated editor at `/lighting-lab/`. It is the authoring and
-diagnostics surface for this module; Shader Lab remains focused on how one
-material responds to light.
+diagnostics surface for this module. Character Shader Lab remains focused on
+how character materials respond to light, while Sky Lab authors the visible
+sky baseline rather than the scene's actual light and shadow policy. See
+[Lab responsibilities](lab-architecture.md).
 
 The Lighting Lab provides:
 

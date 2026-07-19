@@ -1,4 +1,4 @@
-// Tree Lab store: framework-agnostic document + session state with
+// Shared Tree/Flower Lab store: framework-agnostic document + session state with
 // undo/redo, persistence, and change bookkeeping. The three.js engine and
 // the UI (vanilla glue in P1, React from P2) both consume it through
 // getState/subscribe; every mutation goes through an action here.
@@ -29,18 +29,48 @@ import {
 const UNDO_CAP = 50;
 const TRUNK_VALUE_KEYS = ['height', 'radiusBottom', 'bend', 'lean', 'twist', 'gnarl'];
 const SEED_RANGE = TREE_SETTING_FIELD_SCHEMA.plant.seed.range;
+export const FLOWER_STATE_STORAGE_KEY = 'toonlab.flowerDesigner.state.v1';
 
 const round4 = (value) => Math.round(value * 10000) / 10000;
 
-export function createDesignerStore({ urlParams = new URLSearchParams(window.location.search) } = {}) {
-  const boot = bootState(urlParams);
+export function createDesignerStore({
+  labKind = 'tree',
+  storageKey = labKind === 'flower' ? FLOWER_STATE_STORAGE_KEY : undefined,
+  urlParams = new URLSearchParams(window.location.search),
+} = {}) {
+  const isFlowerLab = labKind === 'flower';
+  const presetParam = isFlowerLab ? 'flowerPreset' : 'treePreset';
+  let boot = bootState(urlParams, { presetParam, storageKey });
+  // Each lab owns one authoring scope. A stale/cross-lab document must not
+  // silently turn the Flower Lab back into the Tree Lab (or vice versa).
+  // Legacy flower deep links in Tree Lab remain readable for compatibility,
+  // but every new/open/import action below enforces the current lab scope.
+  if (isFlowerLab && boot.settings.plant.type !== 'flower') {
+    const fallback = findTreePreset('species_daisy_clump', loadLocalTreePresets());
+    boot = {
+      ...boot,
+      animation: null,
+      barkTexture: null,
+      flowers: null,
+      leafShape: fallback?.options?.leafShape ?? null,
+      leafStyle: fallback?.options?.leafStyle ?? null,
+      presetId: '',
+      roots: null,
+      settings: settingsFromRecipe(fallback),
+      sketch: sketchFromOptions(fallback?.options),
+      trunkProfile: null,
+      woodDetails: null,
+    };
+  }
   const undoStack = [];
   const redoStack = [];
+
+  const acceptsType = (type) => isFlowerLab ? type === 'flower' : type !== 'flower';
 
   const store = createStore({
     // document slice (persisted + undoable)
     animation: boot.animation, // { preset, intensity } | null — engine-side particles
-    flowers: boot.flowers, // { preset, ... } | null — ground flower patch
+    flowers: boot.flowers, // { preset, ... } | null — attached tree blossoms
     roots: boot.roots, // { preset } | null — surface root tubes
     trunkProfile: boot.trunkProfile, // { outline } | null — drawn trunk cross-section
     barkTexture: boot.barkTexture, // { id, dataUrl? } | null — wood surface texture
@@ -140,7 +170,7 @@ export function createDesignerStore({ urlParams = new URLSearchParams(window.loc
       woodDetails: current.woodDetails,
     };
     mutate(draft);
-    persistState(draft);
+    persistState(draft, storageKey);
     const next = {
       ...draft,
       canRedo: redoStack.length > 0,
@@ -200,8 +230,13 @@ export function createDesignerStore({ urlParams = new URLSearchParams(window.loc
     // ---- document lifecycle -------------------------------------------------
     applyPreset(presetId) {
       const preset = findTreePreset(presetId, loadLocalTreePresets());
-      if (!preset) {
+      if (!preset || !acceptsType(preset.type)) {
         store.setState({ presetDirty: false, presetId: '' });
+        if (preset) {
+          store.setState({ status: isFlowerLab
+            ? 'That recipe belongs in Tree Lab.'
+            : 'That flower recipe belongs in Flower Lab.' });
+        }
         return false;
       }
       commitDocument((draft) => {
@@ -218,7 +253,7 @@ export function createDesignerStore({ urlParams = new URLSearchParams(window.loc
         draft.woodDetails = preset.options.woodDetails ?? null;
       }, { immediate: true, reframe: true });
       const url = new URL(window.location.href);
-      url.search = `?treePreset=${encodeURIComponent(preset.id)}`;
+      url.search = `?${presetParam}=${encodeURIComponent(preset.id)}`;
       window.history.replaceState(null, '', url);
       actions.setStatus(`Loaded “${preset.label}”.`);
       return true;
@@ -230,7 +265,7 @@ export function createDesignerStore({ urlParams = new URLSearchParams(window.loc
       try {
         const saved = upsertLocalTreePreset({ ...actions.getRecipeDocument(), id, label: trimmed });
         store.setState({ presetDirty: false, presetId: saved.id });
-        persistState(state());
+        persistState(state(), storageKey);
         actions.setStatus(`Saved “${saved.label}” locally.`);
         return { ok: true, preset: saved };
       } catch (error) {
@@ -248,6 +283,11 @@ export function createDesignerStore({ urlParams = new URLSearchParams(window.loc
       }
       const result = validateTreeRecipeDocument(parsed);
       if (!result.ok) return { errors: result.errors, ok: false };
+      if (!acceptsType(result.value.type)) {
+        return { errors: [isFlowerLab
+          ? 'Flower Lab only opens flower recipes.'
+          : 'Flower recipes open in Flower Lab.'], ok: false };
+      }
       commitDocument((draft) => {
         draft.settings = settingsFromRecipe(result.value);
         draft.sketch = sketchFromOptions(result.value.options);
@@ -268,6 +308,11 @@ export function createDesignerStore({ urlParams = new URLSearchParams(window.loc
     setRecipe(recipe) {
       const result = validateTreeRecipeDocument(recipe);
       if (!result.ok) throw new Error(result.errors.join(' '));
+      if (!acceptsType(result.value.type)) {
+        throw new Error(isFlowerLab
+          ? 'Flower Lab only opens flower recipes.'
+          : 'Flower recipes open in Flower Lab.');
+      }
       commitDocument((draft) => {
         draft.settings = settingsFromRecipe(result.value);
         draft.sketch = sketchFromOptions(result.value.options);
@@ -283,7 +328,7 @@ export function createDesignerStore({ urlParams = new URLSearchParams(window.loc
       }, { immediate: true });
       return true;
     },
-    newTree({ drawn }) {
+    newTree({ drawn, randomize = true }) {
       // A new document starts a fresh history — undo must never step back
       // across the document boundary into the previous tree.
       undoStack.length = 0;
@@ -300,7 +345,16 @@ export function createDesignerStore({ urlParams = new URLSearchParams(window.loc
         draft.trunkProfile = null;
         draft.barkTexture = null;
         draft.woodDetails = null;
-        if (drawn) {
+        if (isFlowerLab) {
+          const templates = BUILT_IN_TREE_PRESETS.filter((preset) => preset.type === 'flower');
+          const template = randomize
+            ? templates[Math.floor(Math.random() * templates.length)]
+            : (findTreePreset('species_daisy_clump') ?? templates[0]);
+          draft.settings = settingsFromRecipe(template);
+          draft.settings.plant.seed = randomize
+            ? SEED_RANGE.min + Math.floor(Math.random() * (SEED_RANGE.max - SEED_RANGE.min))
+            : draft.settings.plant.seed;
+        } else if (drawn) {
           draft.settings.skeleton.generator = 'drawn';
         } else {
           // Surprise me rolls a random ARCHETYPE (any built-in tree template:
@@ -317,13 +371,15 @@ export function createDesignerStore({ urlParams = new URLSearchParams(window.loc
             + Math.floor(Math.random() * (SEED_RANGE.max - SEED_RANGE.min));
         }
       }, { immediate: true, reframe: true, snapshot: false });
-      actions.setTool(drawn ? 'branch' : 'orbit');
-      actions.setStatus(drawn
-        ? 'Blank canvas — drag ✏️ from the ground up to draw the trunk, then scribble 🍃 loops for leaves.'
-        : 'Fresh procedural tree — tweak the sliders or hit 🎲 for variants.');
+      actions.setTool(!isFlowerLab && drawn ? 'branch' : 'orbit');
+      actions.setStatus(isFlowerLab
+        ? 'Fresh procedural flower — tune its bloom, stem, leaves, and structure.'
+        : drawn
+          ? 'Blank canvas — drag ✏️ from the ground up to draw the trunk, then scribble 🍃 loops for leaves.'
+          : 'Fresh procedural tree — tweak the sliders or hit 🎲 for variants.');
     },
     resetLab() {
-      clearStoredState();
+      clearStoredState(storageKey);
       window.location.href = window.location.pathname;
     },
     getRecipeDocument() {

@@ -7,6 +7,7 @@
 // classic warm tint; painted canvases author their own color and take white.
 
 import * as THREE from 'three';
+import { createWoodySurfaceNodeMaterial } from '../../../src/vegetation/index.js';
 
 import treeTrunkTextureUrl from '../../shared/textures/tree-trunk-texture.jpg';
 import rockTextureUrl from '../../shared/textures/rock-texture.jpg';
@@ -183,9 +184,14 @@ export function barkTextureFor(id, dataUrl) {
   return barkTextureCache.get(key);
 }
 
-export function createBarkMaterial(choice = {}) {
+export function createBarkMaterial(choice = {}, { height = 1, vegetationShader = null } = {}) {
   const id = choice?.id ?? 'classic';
   const map = id === 'none' ? null : barkTextureFor(id, choice?.dataUrl);
   const tint = BARK_TEXTURE_PRESETS[id]?.tint ?? 0xc9ab8a;
-  return new THREE.MeshToonMaterial({ color: map ? tint : 0xc9ab8a, map });
+  return createWoodySurfaceNodeMaterial({
+    color: map ? tint : 0xc9ab8a,
+    height,
+    map,
+    vegetationShader,
+  });
 }

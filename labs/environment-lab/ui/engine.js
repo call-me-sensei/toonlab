@@ -1,4 +1,4 @@
-// Environment Lab engine: a focused stage for customizing the environment
+// Environment Shader Lab engine: a focused stage for customizing the environment
 // shader. Renders either a built-in procedural courtyard (always available —
 // a fresh clone needs zero private assets) or a discovered assets-local
 // drop-in environment, converts it with applyEnvironmentShader, re-applies

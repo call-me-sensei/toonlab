@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { createFlowerNodeMaterial } from '../shaders-tsl/flower.js';
+import { applyVegetationShader } from './vegetationShaders.js';
 
 function setSrgbColor(color, rgb) {
   color.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
@@ -254,7 +255,7 @@ export const FLOWER_SETTING_FIELD_SCHEMA = Object.freeze(
 // existing callers keep working unchanged.
 export class StylizedFlowerField extends THREE.Mesh {
   constructor(options = {}) {
-    const { placements = [] } = cleanObject(options);
+    const { placements = [], vegetationShader = null } = cleanObject(options);
     const settings = createFlowerSettings(options);
     const { sizeRange } = settings;
 
@@ -283,7 +284,7 @@ export class StylizedFlowerField extends THREE.Mesh {
     geometry.instanceCount = placements.length;
     geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
 
-    const material = createFlowerNodeMaterial(settings);
+    const material = createFlowerNodeMaterial(settings, vegetationShader);
     setSrgbColor(material.uniforms.uPetalColor.value, settings.petalColor);
     setSrgbColor(material.uniforms.uCenterColor.value, settings.centerColor);
 
@@ -324,12 +325,52 @@ export class StylizedFlowerField extends THREE.Mesh {
   }
 
   setWind({ direction, speed, strength } = {}) {
-    this.applySettings({
-      windDirection: direction,
-      windSpeed: speed,
-      windStrength: strength,
-    });
+    const uniforms = this.material.uniforms;
+    if (direction !== undefined) {
+      const next = vectorArray(direction, this.settings.windDirection, 2);
+      uniforms.uWindDirection.value.set(next[0], next[1]);
+    }
+    if (speed !== undefined) uniforms.uWindSpeed.value = finiteNumber(speed, uniforms.uWindSpeed.value);
+    if (strength !== undefined) uniforms.uWindStrength.value = finiteNumber(strength, uniforms.uWindStrength.value, { min: 0 });
     return this;
+  }
+
+  setSun({ direction, color, sky } = {}) {
+    const uniforms = this.material.uniforms;
+    if (direction !== undefined && uniforms.uSunDirection) {
+      const next = vectorArray(direction, [0.35, 0.72, 0.42], 3);
+      uniforms.uSunDirection.value.set(...next).normalize();
+    }
+    if (color !== undefined && uniforms.uSunColor) setSrgbColor(uniforms.uSunColor.value, colorArray(color, [1, 0.96, 0.84]));
+    if (sky !== undefined && uniforms.uSkyColor) setSrgbColor(uniforms.uSkyColor.value, colorArray(sky, [0.62, 0.78, 0.95]));
+    return this;
+  }
+
+  setCloudShadow({ strength, coverage, scale, velocity } = {}) {
+    const uniforms = this.material.uniforms;
+    if (strength !== undefined) uniforms.uCloudShadowStrength.value = finiteNumber(strength, uniforms.uCloudShadowStrength.value, { min: 0, max: 1 });
+    if (coverage !== undefined) uniforms.uCloudShadowCoverage.value = finiteNumber(coverage, uniforms.uCloudShadowCoverage.value, { min: 0, max: 1 });
+    if (scale !== undefined) uniforms.uCloudShadowScale.value = finiteNumber(scale, uniforms.uCloudShadowScale.value, { min: 0.0001 });
+    if (velocity !== undefined) {
+      const next = vectorArray(velocity, [0.02, 0.006], 2);
+      uniforms.uCloudShadowVelocity.value.set(next[0], next[1]);
+    }
+    return this;
+  }
+
+  setSurfaceWeather({ wetness, snowCover } = {}) {
+    const uniforms = this.material.uniforms;
+    if (uniforms.uWetness && wetness !== undefined) {
+      uniforms.uWetness.value = finiteNumber(wetness, uniforms.uWetness.value, { min: 0, max: 1 });
+    }
+    if (uniforms.uSnowCover && snowCover !== undefined) {
+      uniforms.uSnowCover.value = finiteNumber(snowCover, uniforms.uSnowCover.value, { min: 0, max: 1 });
+    }
+    return this;
+  }
+
+  setVegetationShader(profile) {
+    return applyVegetationShader(this, profile);
   }
 
   update(delta) {

@@ -151,7 +151,9 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
       recipeFromSettings(settings), sketch,
       { animation, flowers, leafShape, leafStyle, roots, trunkProfile, woodDetails });
     plant = createPlantFromRecipe(recipe, {
-      trunkMaterial: createBarkMaterial(store.getState().barkTexture),
+      trunkMaterial: createBarkMaterial(store.getState().barkTexture, {
+        height: settings.trunk.height,
+      }),
     });
     plant.setSun({ direction: sunDirection, color: [1.0, 0.96, 0.86], sky: [0.72, 0.87, 1.0] });
     applyLiveWind();
@@ -241,9 +243,11 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
     // WebGPU backends boot asynchronously; the loop waits for init.
     await whenRendererReady(renderer);
     let firstFrame = true;
-    const clock = new THREE.Clock();
-    renderer.setAnimationLoop(() => {
-      const delta = clock.getDelta();
+    const timer = new THREE.Timer();
+    timer.connect(document);
+    renderer.setAnimationLoop((timestamp) => {
+      timer.update(timestamp);
+      const delta = Math.min(timer.getDelta(), 0.05);
       plant?.update(delta);
       for (const listener of frameListeners) listener(delta);
       controls.update();

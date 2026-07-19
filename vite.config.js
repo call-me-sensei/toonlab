@@ -26,6 +26,7 @@ export default defineConfig(({ mode }) => {
   // them server-side (they never reach client code or bundles).
   const env = { ...loadEnv(mode, __dirname, ''), ...process.env };
   const polyPizzaKey = env.TOONLAB_POLYPIZZA_KEY ?? env.POLYPIZZA_API_KEY ?? '';
+  const assetApiUserAgent = 'ToonLab/0.2 (+https://toonlab.io; contact=jack@hyperbond.studio)';
 
   return {
   // Fast Refresh for the React HUD (labs/**/ui). Vanilla .js modules —
@@ -44,6 +45,15 @@ export default defineConfig(({ mode }) => {
     // wins), and followRedirects is required — /get 302s to their CDN,
     // which the browser could not follow cross-origin.
     proxy: {
+      // Poly Haven requires a unique application User-Agent on every API
+      // request. Browsers cannot set it, so metadata calls go through this
+      // identifying proxy; asset bytes still download from their CORS CDN.
+      '/api/polyhaven': {
+        changeOrigin: true,
+        headers: { 'user-agent': assetApiUserAgent },
+        rewrite: (path) => path.replace(/^\/api\/polyhaven/, ''),
+        target: 'https://api.polyhaven.com',
+      },
       '/api/ambientcg-get': {
         changeOrigin: true,
         followRedirects: true,
@@ -84,10 +94,12 @@ export default defineConfig(({ mode }) => {
         shaderLab: resolve(__dirname, 'shader-lab/index.html'),
         environmentLab: resolve(__dirname, 'environment-lab/index.html'),
         grassLab: resolve(__dirname, 'grass-lab/index.html'),
+        vegetationShaderLab: resolve(__dirname, 'vegetation-shader-lab/index.html'),
         shaderLabLegacy: resolve(__dirname, 'shader-lab/legacy/index.html'),
         playground: resolve(__dirname, 'playground/index.html'),
         rockLab: resolve(__dirname, 'rock-lab/index.html'),
         treeLab: resolve(__dirname, 'tree-lab/index.html'),
+        flowerLab: resolve(__dirname, 'flower-lab/index.html'),
         debrisLab: resolve(__dirname, 'debris-lab/index.html'),
         propLab: resolve(__dirname, 'prop-lab/index.html'),
         buildingLab: resolve(__dirname, 'building-lab/index.html'),
@@ -96,10 +108,12 @@ export default defineConfig(({ mode }) => {
         // Gallery detail page + the unlisted embed stage it iframes.
         assetPage: resolve(__dirname, 'asset/index.html'),
         assetLab: resolve(__dirname, 'asset-lab/index.html'),
+        skyLab: resolve(__dirname, 'sky-lab/index.html'),
         waterLab: resolve(__dirname, 'water-lab/index.html'),
         lightingLab: resolve(__dirname, 'lighting-lab/index.html'),
         weatherLab: resolve(__dirname, 'weather-lab/index.html'),
         settings: resolve(__dirname, 'settings/index.html'),
+        docs: resolve(__dirname, 'docs/index.html'),
         vfxLab: resolve(__dirname, 'vfx-lab/index.html'),
         treeDesignerLegacy: resolve(__dirname, 'tree-designer/index.html'),
         outdoorWorld: resolve(__dirname, 'examples/outdoor-world/index.html'),

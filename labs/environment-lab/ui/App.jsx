@@ -1,4 +1,4 @@
-// Environment Lab workspace: the Character Shader chrome (top bar, workflow
+// Environment Shader Lab workspace: the Character Shader Lab chrome (top bar, workflow
 // rail, focused schema groups in the right inspector, floating stage bar,
 // status bar) pointed at the environment shader — customize your own
 // environment look, save it as a preset, walk it at character scale.
@@ -179,7 +179,7 @@ function TopBar({ actions, state }) {
   const [menuAnchor, setMenuAnchor] = useState(null);
   return (
     <header className="el-topbar tk">
-      <BrandLockup labName="Environment Lab" />
+      <BrandLockup labName="Environment Shader Lab" />
       <button
         type="button"
         className="el-title"
@@ -327,7 +327,7 @@ export function App({ engine, store }) {
   const { actions } = store;
   const [sectionId, setSectionId] = useState('features');
 
-  useEffect(() => { document.title = `${state.name} — Environment Lab`; }, [state.name]);
+  useEffect(() => { document.title = `${state.name} — Environment Shader Lab`; }, [state.name]);
 
   return (
     <div className="tk">

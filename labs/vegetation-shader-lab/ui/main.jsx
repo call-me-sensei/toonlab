@@ -1,0 +1,49 @@
+import { createRoot } from 'react-dom/client';
+
+import '../../shared/ui/tokens.css';
+import '../../shared/ui/kit.css';
+import './app.css';
+
+import { createVegetationShaderLabEngine } from './engine.js';
+import { createVegetationShaderLabStore } from './store.js';
+import { App } from './App.jsx';
+
+if (!window.__vegetationShaderLabBooted) {
+  window.__vegetationShaderLabBooted = true;
+  const urlParams = new URLSearchParams(window.location.search);
+  const hudHidden = urlParams.get('hud') === '0';
+  const store = createVegetationShaderLabStore({ urlParams });
+  const engine = createVegetationShaderLabEngine({
+    mount: document.getElementById('stage'),
+    store,
+  });
+  window.__vegetationShaderLab = { engine, store };
+
+  window.addEventListener('keydown', (event) => {
+    const target = event.target;
+    const typing = target instanceof HTMLInputElement
+      || target instanceof HTMLTextAreaElement
+      || target instanceof HTMLSelectElement;
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
+      if (typing) return;
+      event.preventDefault();
+      if (event.shiftKey) store.actions.redo();
+      else store.actions.undo();
+      return;
+    }
+    if (!typing && !event.metaKey && !event.ctrlKey && !event.altKey
+      && event.key.toLowerCase() === 'c') engine.resetCamera();
+  });
+
+  engine.start().catch((error) => {
+    console.error('Vegetation Shader Lab failed to start:', error);
+    document.body.dataset.modelReady = 'error';
+  });
+
+  if (hudHidden) {
+    document.body.dataset.hideHud = 'true';
+  } else {
+    createRoot(document.getElementById('app')).render(<App engine={engine} store={store} />);
+    requestAnimationFrame(() => { document.body.dataset.uiReady = 'true'; });
+  }
+}

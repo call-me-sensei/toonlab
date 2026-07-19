@@ -5,6 +5,7 @@
 // assets, so imports always render in the active style set.
 
 import * as THREE from 'three';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 import { readZipEntries } from './zip.js';
@@ -16,7 +17,7 @@ import { readZipEntries } from './zip.js';
  * LoadingManager URL modifier rewrites each request by suffix match, which
  * also covers URL-encoded variants.
  */
-export async function loadImportedModel({ url, resources = {} }) {
+export async function loadImportedModel({ url, resources = {}, dracoDecoderPath = '/draco/gltf/' }) {
   const manager = new THREE.LoadingManager();
   const byPath = Object.entries(resources);
   manager.setURLModifier((requested) => {
@@ -27,7 +28,16 @@ export async function loadImportedModel({ url, resources = {} }) {
     }
     return requested;
   });
-  const gltf = await new GLTFLoader(manager).loadAsync(url);
+  const loader = new GLTFLoader(manager);
+  const dracoLoader = new DRACOLoader(manager);
+  dracoLoader.setDecoderPath(dracoDecoderPath);
+  loader.setDRACOLoader(dracoLoader);
+  let gltf;
+  try {
+    gltf = await loader.loadAsync(url);
+  } finally {
+    dracoLoader.dispose();
+  }
   const object = gltf.scene ?? gltf.scenes?.[0];
   if (!object) throw new Error('loadImportedModel: glTF contained no scene.');
   object.traverse((child) => {

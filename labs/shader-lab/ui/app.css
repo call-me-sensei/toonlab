@@ -1,4 +1,4 @@
-/* Character Shader layout chrome (cs- prefix). Controls come from the shared
+/* Character Shader Lab layout chrome (cs- prefix). Controls come from the shared
    kit (tk-); only layout and lab-specific widgets live here. */
 
 #app { position: fixed; inset: 0; pointer-events: none; z-index: 10; }

@@ -2,7 +2,12 @@
 // scroll-reveal. The legacy-URL redirect runs inline in index.html <head>
 // (before paint) so this module only ever executes for real home visits.
 
-import { DEMOS_SHOWCASE, LABS_SHOWCASE } from './labsShowcase.js';
+import {
+  ASSET_LABS_SHOWCASE,
+  DEMOS_SHOWCASE,
+  SHADER_LABS_SHOWCASE,
+  WORLD_SYSTEMS_SHOWCASE,
+} from './labsShowcase.js';
 
 const SHOTS_BASE = '/home/shots/';
 
@@ -62,7 +67,9 @@ function renderGrid(gridId, entries) {
   for (const entry of entries) grid.appendChild(renderCard(entry));
 }
 
-renderGrid('labGrid', LABS_SHOWCASE);
+renderGrid('shaderLabGrid', SHADER_LABS_SHOWCASE);
+renderGrid('assetLabGrid', ASSET_LABS_SHOWCASE);
+renderGrid('worldSystemGrid', WORLD_SYSTEMS_SHOWCASE);
 renderGrid('demoGrid', DEMOS_SHOWCASE);
 
 // Scroll reveal: single elements carry data-reveal; grids carry

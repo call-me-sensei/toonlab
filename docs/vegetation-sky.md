@@ -1,18 +1,19 @@
-# Vegetation and sky
+# Vegetation
 
-Procedural stylized vegetation (`@call-me-sensei/toonlab/vegetation`) and sky
-(`@call-me-sensei/toonlab/sky`). No texture assets — geometry and shading are generated;
-animation runs in the vertex shaders.
+Procedural stylized vegetation from
+`@call-me-sensei/toonlab/vegetation`. Geometry and shading are generated;
+animation runs in the vertex shaders. The runtime sky now has its own
+[Sky system](sky.md) guide.
 
-Vegetation and sky materials now use the shared TSL renderer stack: native
+Vegetation materials use the shared TSL renderer stack: native
 WebGPU by default, with `?renderer=webgl` for the WebGL2 fallback.
 
-All four systems follow the same settings pattern as the rest of the
-library: a `DEFAULT_*` settings object, a `create*Settings(options)`
-normalizer, `*_SETTING_GROUPS` + `*_SETTING_FIELD_SCHEMA` for UIs, and a
-runtime `applySettings(options)` method on the class. Every field is listed
-in the [settings reference](settings-reference.md), and the schemas plug
-straight into the [debug panel](debug-panel.md).
+Geometry systems follow the same settings pattern as the rest of the library:
+a `DEFAULT_*` settings object, a `create*Settings(options)` normalizer,
+`*_SETTING_GROUPS` + `*_SETTING_FIELD_SCHEMA` for UIs, and a runtime
+`applySettings(options)` method on the class. The IP-wide shading treatment
+is a separate `VegetationShaderProfile`; it must not absorb asset identity or
+the scene's current state.
 
 Each system also has a preset registry (`register*Preset` /
 `get*PresetOptions`, resolved via `preset:` in `create*Settings` and the
@@ -22,20 +23,112 @@ community presets register alongside them. For placing vegetation across
 terrain (forests, meadows, slope/water masks), see the scatter helpers in
 [world-scale.md](world-scale.md#distribution-helpers).
 
+## One vegetation shader profile
+
+Use one versioned `VegetationShaderProfile` for an IP, not unrelated grass,
+tree, and flower shader copies. The profile is dispatched by semantic material
+role (`grassBlade`, `foliageCard`, `flowerPetal`, `flowerCenter`,
+`woodySurface`, `herbaceousStem`), while mesh/cutout/billboard/procedural are
+only technical variants. This gives specialized controls without losing one
+coherent art direction.
+
+| Scope | Owns | Does not own |
+|---|---|---|
+| Vegetation shader profile | shared light treatment, thin-surface response, weather response curves, and role-specific grass/foliage/flower/bark/stem shading | albedo, textures, species, geometry, current weather |
+| Asset/material | purple/green/autumn albedo, texture maps, alpha cutoff, species palette | the IP's shared lighting rules |
+| Scene/world | current sun/sky, cloud field, wind, wetness, snow coverage | persistent shader response coefficients |
+| Instance/interaction | placement, seed, scale, bend target, local retention/response multipliers | the reusable shader definition |
+
+The same profile therefore works unchanged for purple grass or ten differently
+colored grass assets. Color remains material data; the shader defines how that
+color responds to the world.
+
+```js
+import {
+  StylizedGrassField,
+  createVegetationShaderSettings,
+} from '@call-me-sensei/toonlab/vegetation';
+
+const vegetationShader = createVegetationShaderSettings({
+  preset: 'call_me_sensei',
+  grass: { bandSoftness: 0.08 },
+  bark: { bandCount: 3 },
+});
+
+const purpleGrass = new StylizedGrassField({
+  baseColor: [0.28, 0.12, 0.48],
+  tipColor: [0.76, 0.38, 0.96],
+  placements,
+  vegetationShader,
+});
+
+// Host-owned current state; neither value changes the saved profile.
+purpleGrass.setWind({ strength: currentWind });
+purpleGrass.setSurfaceWeather({ wetness: currentWetness, snowCover: currentSnow });
+```
+
+Vegetation Shader Lab exports the same versioned profile document consumed by
+the npm runtime:
+
+```js
+import {
+  createVegetationShaderPresetDocument,
+  parseVegetationShaderPresetDocument,
+  registerSerializedVegetationShaderPreset,
+  serializeVegetationShaderPreset,
+} from '@call-me-sensei/toonlab/vegetation-shaders';
+
+const document = createVegetationShaderPresetDocument('violet_world', {
+  label: 'Violet World',
+  settings: vegetationShader,
+});
+const json = serializeVegetationShaderPreset(document);
+const parsed = parseVegetationShaderPresetDocument(json);
+if (parsed.ok) registerSerializedVegetationShaderPreset(json, { overwrite: true });
+```
+
+Portable documents use `toonlab/vegetation-shader-preset`.
+`getVegetationShaderPresetOptions()` lists built-in and project-registered
+profiles; `validateVegetationShaderPresetDocument()` validates an already
+parsed object. The focused `vegetation-shaders` subpath and the main
+`vegetation` barrel expose the same bindings.
+
+`applyVegetationShader(root, profile)` updates only materials tagged with the
+semantic contract and returns coverage/unsupported-uniform diagnostics.
+`createStylizedWorld({ vegetationShader })` passes the profile into trees,
+grass, and flowers. `world.setVegetationShader(profile)` updates live near
+materials; a texture-baked far forest reports that its impostors require a
+rebuild.
+
+The labs intentionally split by responsibility:
+
+- Grass Lab authors grass geometry, palette, planting, and grass material data.
+- Tree Lab authors trees/bushes and blossoms attached to their canopies.
+- Flower Lab authors standalone flower plants and fields.
+- Vegetation Shader Lab authors the one cross-asset IP shader profile,
+  including bark/trunk and herbaceous stems.
+
 ## Construction-time vs. runtime settings
 
-Each class takes its full settings object in the constructor. After
-construction, `applySettings()` re-tunes everything that lives in uniforms
-(wind, colors, shadows, cloud shadows...) live — but **geometry-shaping
-settings are construction-only**: they are stored on `instance.settings` but
-do not rebuild existing meshes. Build a new instance to change them.
+Each class takes asset/construction settings and an optional
+`vegetationShader` in the constructor. `applySettings()` remains the
+compatibility path for system-specific material and construction settings;
+`setVegetationShader()` applies the IP treatment, while `setWind()`,
+`setSun()`, `setCloudShadow()`, and `setSurfaceWeather()` carry current world
+state. Geometry-shaping settings remain construction-only.
 
-| Class | Runtime via `applySettings` | Construction-only |
+In a composed world, `world.setSun({ direction, color, sky })` is the single
+scene-light adapter. It forwards the same transient values to Grass, Flowers,
+near Forest variants, Ambient FX direction, the physical directional light,
+and shadow-follow logic without mutating any portable vegetation preset.
+`lighting.attachWorld(world)` drives that adapter; standalone Weather uses the
+same adapter and restores its captured baseline on disposal.
+
+| Class | Live after construction | Construction-only |
 |---|---|---|
-| `StylizedGrassField` | wind, palette, sun, scene/cloud shadows, backlit, push radius | `placements`, `bladeHeightRange`, `bladeWidthRange` (baked into instance attributes) |
-| `StylizedFlowerField` | wind, colors | placements, flower geometry |
-| `StylizedTree` | `foliage.*` uniforms (wind, sun, alpha cutoff, scene/cloud shadow, backlit), canopy palette re-derivation | `size`, `seed`, `canopyWidth/Depth/Scale/Layout`, `leafDensity`, `leafPlacement`, trunk/skeleton topology |
-| `StylizedSky` | everything (colors, sun, clouds, stars, horizon scattering) | dome geometry |
+| `StylizedGrassField` | asset palette through `applySettings`; current wind/sun/scene/cloud/weather through setters; IP look through `setVegetationShader` | `placements`, `bladeHeightRange`, `bladeWidthRange` (baked into instance attributes) |
+| `StylizedFlowerField` | asset colors through `applySettings`; current wind/sun/cloud/weather through setters; IP look through `setVegetationShader` | placements, flower geometry |
+| `StylizedTree` | current wind/sun/cloud/weather through setters; IP look through `setVegetationShader`; canopy palette re-derivation through `applySettings` | `size`, `seed`, `canopyWidth/Depth/Scale/Layout`, `leafDensity`, `leafPlacement`, trunk/skeleton topology |
 
 ## Grass
 
@@ -44,24 +137,67 @@ import { StylizedGrassField } from '@call-me-sensei/toonlab/vegetation';
 
 const grass = new StylizedGrassField({
   placements: points.map((p) => ({ x: p.x, y: terrainHeight(p), z: p.z })),
-  windStrength: 0.25,
+  windResponse: 1.35, // species flexibility relative to the current world wind
+  gustResponse: 0.8,
 });
 scene.add(grass);
 grass.setPushTarget(characterObject3D); // blades bend away from the character
+grass.setPushRadius(0.9);               // current scene/instance interaction field
+grass.setWind({ direction: [1, 0.3], speed: 1, strength: 0.25 });
+grass.setCloudShadow({ strength: 0.5, coverage: 0.45 });
 
 // per frame:
 grass.update(delta);
 
-// live re-tune (flat settings, see DEFAULT_GRASS_SETTINGS):
-grass.applySettings({ windStrength: 0.3, cloudShadowStrength: 0.5 });
+// live asset re-tune (flat settings, see DEFAULT_GRASS_SETTINGS):
+grass.applySettings({ windResponse: 1.6, gustResponse: 0.65 });
 ```
 
 One draw call for the whole field. Convenience setters mirror common groups:
 `setWind`, `setSun`, `setSceneShadow({ strength, tint })` (blades darken
 under tree/character shadow maps), `setCloudShadow`, `setDistanceFade({
-start, end })` (collapse blades the fog has swallowed), `setPushTarget`.
+start, end })` (collapse blades the fog has swallowed), `setPushTarget`, and
+`setPushRadius`.
 Backlit translucency (`backlitStrength`) gives tips a warm glow against the
 sun.
+
+Portable grass presets separate asset response from current world state.
+`windResponse` and `gustResponse` belong to the species/asset; wind direction,
+speed, strength, gust field, cloud-shadow field, sun/sky, push target, and push
+radius belong to the active scene or instance. Constructor options and
+`applySettings()` still accept those legacy runtime keys for compatibility,
+but portable preset schema v2 does not serialize them. When a v1 preset is
+loaded, its authored `windStrength` becomes `windResponse` relative to the
+historical `0.16` default.
+
+Grass Lab includes coordinated color palettes. A palette is asset/material
+data, not a new shader: it updates `baseColor`, `tipColor`, and `shadowTint`
+as one set so purple, autumn, dry, and fantasy grass retain an authored shadow
+color. It does not change `shadowStrength`, asset motion response, current
+weather, or the IP-wide `VegetationShaderProfile`.
+
+```js
+import {
+  applyGrassColorPalette,
+  createGrassSettings,
+  serializeGrassPreset,
+} from '@call-me-sensei/toonlab/vegetation';
+
+const settings = createGrassSettings(
+  applyGrassColorPalette(currentSettings, 'wisteria'),
+);
+const json = serializeGrassPreset('violet_meadow', {
+  label: 'Violet Meadow',
+  settings,
+});
+```
+
+`GRASS_COLOR_PALETTES`, `resolveGrassColorPalette`, and
+`matchGrassColorPalette` support custom UIs. Portable Grass Lab documents use
+`toonlab/grass-preset`; the public API mirrors the other systems with
+`createGrassPresetDocument`, `validateGrassPresetDocument`,
+`parseGrassPresetDocument`, and `registerSerializedGrassPreset`. These
+documents currently use schema version 2.
 
 ## Flowers
 
@@ -101,7 +237,8 @@ Curved trunk (`createTreeTrunkGeometry`, `TREE_TRUNK_STYLES`) + leaf-card
 canopy (`stylizedTreeFoliage.js`) in one `THREE.Group`. Settings are grouped
 (`DEFAULT_STYLIZED_TREE_SETTINGS`, `STYLIZED_TREE_SETTING_GROUPS`, 58
 fields). `STYLIZED_TREE_EXAMPLES` + `layoutTreeRow` power the Tree Lab
-(`/tree-lab/`).
+(`/tree-lab/`), whose authoring scope is trees, bushes, and optional blossoms
+attached to a tree canopy.
 
 Trees are serializable: `treeRecipe.js` defines a versioned recipe document
 (`recipeFromSettings` / `settingsFromRecipe` /
@@ -109,28 +246,16 @@ Trees are serializable: `treeRecipe.js` defines a versioned recipe document
 `treeExport.js` bakes a tree into plain exportable meshes
 (`prepareTreeForExport`, crossed-card or baked foliage) for use outside the
 library shaders. `StylizedBush` reuses the foliage system as a standalone
-bush.
+bush. `StylizedFlower` uses the same versioned plant recipe contract while
+the Flower Lab (`/flower-lab/`) gives standalone flowers their own document
+storage, preset gallery, and bloom-focused workflow.
 
 ## Sky
 
-```js
-import { StylizedSky } from '@call-me-sensei/toonlab/sky';
-
-const sky = new StylizedSky();
-scene.add(sky);
-
-// per frame:
-sky.update(delta, camera);
-
-sky.applySettings({ horizonScattering: 0.7, cloudCoverage: 0.5 });
-```
-
-Procedural dome: vertical gradient, sun disk with glow, painterly clouds,
-stars at night, and a warm sun-side horizon-scattering wedge
-(`horizonScattering`, `0` restores a plain gradient). The dome is what the
-water's reflections fall back to, so water and sky stay consistent.
-Low-level API: `createSkyMaterial(options)` +
-`applySkySettingsToMaterial(material, options)`.
+Sky settings, portable preset documents, runtime ownership, and Sky Lab are
+documented in [Sky system](sky.md). Sky and vegetation share current sun,
+cloud-shadow, and weather inputs, but neither saved artifact owns that scene
+state.
 
 ## Shared atmosphere hooks
 

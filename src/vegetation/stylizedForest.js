@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { applyVegetationShader } from './vegetationShaders.js';
 import { MeshBasicNodeMaterial } from 'three/webgpu';
 import {
   clamp, exp, length, max, mix, positionView, positionWorld, texture, uniform, vec4, vertexColor,
@@ -90,12 +91,14 @@ export class StylizedForest extends THREE.Group {
     castShadow = true,          // near live clones cast; anchors the forest to the ground
     renderer = null,            // enables texture-baked billboard impostors (strongly recommended)
     impostorTextureSize = 256,  // billboard bake resolution per variant
+    vegetationShader = null,
   } = {}) {
     super();
     this.name = 'StylizedForest';
     this.detailDistance = detailDistance;
     this.detailCount = detailCount;
     this.updateInterval = updateInterval;
+    this.hasBakedImpostors = Boolean(renderer);
     this._timer = updateInterval; // force an assignment on the first update
 
     const variantCount = Math.max(1, Math.min(variants, Math.max(placements.length, 1)));
@@ -113,7 +116,7 @@ export class StylizedForest extends THREE.Group {
       if (Array.isArray(canopyColors) && canopyColors.length > 0) {
         variantSettings.tree.canopyColor = canopyColors[i % canopyColors.length];
       }
-      const tree = new StylizedTree({ preset, seed, ...variantSettings });
+      const tree = new StylizedTree({ preset, seed, ...variantSettings, vegetationShader });
       this.variantTrees.push(tree);
       this._bakedVariants.push(prepareTreeForExport(tree));
     }
@@ -404,6 +407,31 @@ export class StylizedForest extends THREE.Group {
   setCloudShadow(options) {
     for (const tree of this.variantTrees) tree.setCloudShadow?.(options);
     return this;
+  }
+
+  setWind(options) {
+    for (const tree of this.variantTrees) tree.setWind?.(options);
+    return this;
+  }
+
+  /** Keeps every live near-LOD tree on the current scene sun/sky inputs. */
+  setSun(options) {
+    for (const tree of this.variantTrees) tree.setSun?.(options);
+    return this;
+  }
+
+  setSurfaceWeather(options) {
+    for (const tree of this.variantTrees) tree.setSurfaceWeather?.(options);
+    return this;
+  }
+
+  setVegetationShader(profile) {
+    const report = applyVegetationShader(this.variantTrees, profile);
+    // Far LODs are rasterized from variant trees at construction time. Live
+    // materials update immediately; hosts that expose runtime style editing
+    // should rebuild the forest to bake matching impostors.
+    report.requiresImpostorRebake = this.hasBakedImpostors;
+    return report;
   }
 
   /**

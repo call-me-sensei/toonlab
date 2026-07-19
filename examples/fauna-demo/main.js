@@ -133,7 +133,7 @@ async function main() {
   const dpr = Number(params.get('dpr')) || Math.min(window.devicePixelRatio, 2);
   renderer.setPixelRatio(dpr);
   renderer.setSize(window.innerWidth, window.innerHeight);
-  document.body.appendChild(renderer.domElement);
+  (window.__toonlabHostMount ?? document.body).appendChild(renderer.domElement);
   await renderer.init();
 
   const scene = new THREE.Scene();

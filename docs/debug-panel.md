@@ -116,10 +116,11 @@ by the panel and exported for custom UIs:
 
 ## How the labs use it
 
-The Shader Lab builds its Character tab (23 groups, ~290 controls) and
-Environment tab (72 controls) with two `createSettingsPanel` calls — the
-panel code in the lab is a thin consumer that wires `getValue`/`onChange` to
-its preset store and to `applyToonSettingsToMaterial` /
-`applyEnvironmentSettingsToMaterial` for live uniform-safe edits. Preset
-switching calls `panel.refresh()` to re-pull every control. The same
-pattern drives the water and tree HUDs.
+Character Shader Lab and Environment Shader Lab consume their respective
+schemas independently. Each lab's panel is a thin consumer that wires
+`getValue`/`onChange` to its preset store and to
+`applyToonSettingsToMaterial` or `applyEnvironmentSettingsToMaterial` for
+live uniform-safe edits. Preset switching refreshes the controls from the
+normalized package settings. The same schema-consumer pattern drives Water,
+Sky, Grass, Tree, and Flower Labs; no lab keeps a private copy of its runtime
+parameter contract.

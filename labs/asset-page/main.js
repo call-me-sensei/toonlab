@@ -1,7 +1,8 @@
 // /asset/?id=…&kind=… — mirror of toonlab.io/asset/:id (game character-screen
 // showcase: full-bleed live stage, wipe, floating stats panel), with the OSS
 // twist: every fact and file comes live from the source's public API (Poly
-// Haven), never from a ToonLab backend, and downloads need no account.
+// Haven or Smithsonian 3D), never from a ToonLab backend, and downloads need
+// no account.
 //
 // Textures/models render live through the same unlisted /asset-lab/ embed the
 // Pro page iframes (engine contract: __assetLabEngine, body.dataset.modelReady,
@@ -9,11 +10,16 @@
 // by that engine, so they show the source's tonemapped render instead.
 
 import { downloadPolyhavenAsset } from '../shared/polyhavenDownload.js';
+import {
+  fetchSmithsonianAsset,
+  isSmithsonianGalleryReady,
+} from '../../src/assetlib/smithsonian.js';
 
 const params = new URLSearchParams(window.location.search);
 const assetId = (params.get('id') ?? '').replace(/[^a-z0-9_-]/gi, '');
-const SOURCE_LABEL = 'Poly Haven';
-const SOURCE_PAGE = `https://polyhaven.com/a/${assetId}`;
+const assetSource = params.get('src') === 'smithsonian' ? 'smithsonian' : 'polyhaven';
+let sourceLabel = assetSource === 'smithsonian' ? 'Smithsonian 3D Open Access' : 'Poly Haven';
+let sourcePage = assetSource === 'smithsonian' ? 'https://3d.si.edu' : `https://polyhaven.com/a/${assetId}`;
 const KIND_BY_TYPE = { 0: 'hdri', 1: 'texture', 2: 'model' };
 
 const els = {
@@ -53,7 +59,7 @@ function stat(key, value) {
 function fail(title, hint) {
   els.name.textContent = title;
   els.desc.textContent = hint;
-  els.crumbSource.textContent = SOURCE_LABEL;
+  els.crumbSource.textContent = sourceLabel;
 }
 
 if (!assetId) {
@@ -61,12 +67,16 @@ if (!assetId) {
 } else {
   boot().catch((error) => {
     console.error('Asset page failed:', error);
-    fail('Asset sources unreachable', 'Could not reach the Poly Haven API — check your connection and reload.');
+    fail('Asset source unreachable', `Could not reach the ${sourceLabel} API — check your connection and reload.`);
   });
 }
 
 async function boot() {
-  const res = await fetch(`https://api.polyhaven.com/info/${assetId}`);
+  if (assetSource === 'smithsonian') {
+    await bootSmithsonian();
+    return;
+  }
+  const res = await fetch(`/api/polyhaven/info/${assetId}`);
   if (!res.ok) {
     fail('Asset not found', `Poly Haven has no asset “${assetId}”.`);
     return;
@@ -78,12 +88,12 @@ async function boot() {
   const authors = Object.keys(info.authors ?? {});
 
   document.title = `${info.name} — ToonLab`;
-  els.crumbSource.textContent = SOURCE_LABEL;
+  els.crumbSource.textContent = sourceLabel;
   els.name.textContent = info.name;
 
   // ----- stats (same rows as Pro, minus account-bound ratings) -----
-  const sourceLink = el('a', null, `${SOURCE_LABEL} ↗`);
-  sourceLink.href = SOURCE_PAGE;
+  const sourceLink = el('a', null, `${sourceLabel} ↗`);
+  sourceLink.href = sourcePage;
   sourceLink.target = '_blank';
   sourceLink.rel = 'noreferrer';
   els.stats.append(stat('Source', sourceLink), stat('License', 'CC0 — free for any use'), stat('Type', kind));
@@ -94,7 +104,7 @@ async function boot() {
   }
   els.stats.append(stat('Source downloads', Number(info.download_count ?? 0).toLocaleString()));
 
-  els.desc.textContent = `${info.name} by ${authors.join(', ') || SOURCE_LABEL} on ${SOURCE_LABEL}. Attribution isn't required by CC0 — the makers earn it anyway.`;
+  els.desc.textContent = `${info.name} by ${authors.join(', ') || sourceLabel} on ${sourceLabel}. Attribution isn't required by CC0 — the makers earn it anyway.`;
 
   for (const tag of [...(info.tags ?? []), ...(info.categories ?? [])].slice(0, 10)) {
     const a = el('a', null, tag);
@@ -112,11 +122,46 @@ async function boot() {
   setupStage(kind);
 }
 
+async function bootSmithsonian() {
+  const ref = await fetchSmithsonianAsset(assetId);
+  if (!ref || !isSmithsonianGalleryReady(ref)) {
+    fail('Asset not found', `Smithsonian 3D has no gallery-ready asset “${assetId}”.`);
+    return;
+  }
+  sourcePage = ref.pageUrl;
+  document.title = `${ref.name} — ToonLab`;
+  els.crumbSource.textContent = sourceLabel;
+  els.name.textContent = ref.name;
+
+  const sourceLink = el('a', null, `${sourceLabel} ↗`);
+  sourceLink.href = sourcePage;
+  sourceLink.target = '_blank';
+  sourceLink.rel = 'noreferrer';
+  els.stats.append(
+    stat('Source', sourceLink),
+    stat('License', 'CC0 — free for any use'),
+    stat('Type', 'model'),
+    stat('Format', 'GLB · browser-ready'),
+  );
+  els.desc.textContent = `${ref.name} from Smithsonian 3D Open Access, previewed live in ToonLab. Attribution isn't required by CC0; the source link preserves the museum record and context.`;
+  for (const tag of [...ref.tags, ...ref.categories].slice(0, 10)) {
+    const a = el('a', null, tag);
+    a.href = `/gallery/?src=smithsonian&q=${encodeURIComponent(tag)}`;
+    els.tags.appendChild(a);
+  }
+  setupDownload('model', ref.download);
+  setupStage('model', ref);
+}
+
 // ----- live stage (texture/model): same embed contract as the Pro page -----
 
-function setupStage(kind) {
-  const labUrl = `/asset-lab/?source=polyhaven&asset=${encodeURIComponent(assetId)}&kind=${kind}&style=call_me_sensei`;
-  els.stage.style.backgroundImage = `url("https://cdn.polyhaven.com/asset_img/thumbs/${assetId}.png?width=1280&height=960")`;
+function setupStage(kind, directRef = null) {
+  const labUrl = directRef
+    ? `/asset-lab/?url=${encodeURIComponent(directRef.download.url)}&asset=${encodeURIComponent(assetId)}&kind=model&style=call_me_sensei`
+    : `/asset-lab/?source=polyhaven&asset=${encodeURIComponent(assetId)}&kind=${kind}&style=call_me_sensei`;
+  const stageThumb = directRef?.thumbnailUrl
+    ?? `https://cdn.polyhaven.com/asset_img/thumbs/${assetId}.png?width=1280&height=960`;
+  els.stage.style.backgroundImage = `url("${stageThumb.replace(/"/g, '%22')}")`;
 
   const frame = document.createElement('iframe');
   frame.src = `${labUrl}&hud=0&embed=1&compare=1&split=0.2`;
@@ -136,8 +181,8 @@ function setupStage(kind) {
 
   const errorBox = el('div', 'asset-loading asset-loading--error');
   const errorText = el('span');
-  const sourceOut = el('a', null, `view it on ${SOURCE_LABEL} ↗`);
-  sourceOut.href = SOURCE_PAGE;
+  const sourceOut = el('a', null, `view it on ${sourceLabel} ↗`);
+  sourceOut.href = sourcePage;
   sourceOut.target = '_blank';
   sourceOut.rel = 'noreferrer';
   const retry = el('button', null, 'Retry preview');
@@ -316,7 +361,7 @@ function setupRetexture(frameWin) {
   let index = null;
   async function textureIndex() {
     if (!index) {
-      const res = await fetch('https://api.polyhaven.com/assets?type=textures');
+      const res = await fetch('/api/polyhaven/assets?type=textures');
       if (!res.ok) throw new Error(`polyhaven textures → HTTP ${res.status}`);
       index = Object.entries(await res.json())
         .map(([id, a]) => ({
@@ -378,11 +423,11 @@ function setupRetexture(frameWin) {
 // ----- download CTA — no account, fetched straight off the source CDN and
 // saved directly (multi-file sets are zipped in the browser) -----
 
-function setupDownload(kind) {
+function setupDownload(kind, directDownload = null) {
   const idle = `Download ${kind} ↓`;
   els.download.textContent = idle;
   // Real href kept for middle-click/copy-link; plain clicks download in place.
-  els.download.href = SOURCE_PAGE;
+  els.download.href = directDownload?.url ?? sourcePage;
   els.download.target = '_blank';
   els.download.rel = 'noreferrer';
   els.download.hidden = false;
@@ -393,16 +438,31 @@ function setupDownload(kind) {
     if (busy) return;
     busy = true;
     try {
-      await downloadPolyhavenAsset({
-        id: assetId,
-        kind,
-        onProgress: (done, total, phase) => {
-          els.download.textContent = phase === 'pack' ? 'Packing zip…' : `Downloading ${done}/${total}…`;
-        },
-      });
+      if (directDownload?.url) {
+        els.download.textContent = 'Downloading…';
+        const response = await fetch(directDownload.url);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const objectUrl = URL.createObjectURL(await response.blob());
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        anchor.download = `${els.name.textContent.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '') || assetId}.glb`;
+        anchor.hidden = true;
+        document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      } else {
+        await downloadPolyhavenAsset({
+          id: assetId,
+          kind,
+          onProgress: (done, total, phase) => {
+            els.download.textContent = phase === 'pack' ? 'Packing zip…' : `Downloading ${done}/${total}…`;
+          },
+        });
+      }
     } catch (error) {
       console.error('Direct download failed:', error);
-      window.open(SOURCE_PAGE, '_blank', 'noopener'); // fallback: source's picker
+      window.open(sourcePage, '_blank', 'noopener'); // fallback: source's picker
     }
     els.download.textContent = idle;
     busy = false;

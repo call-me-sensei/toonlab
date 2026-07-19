@@ -12,15 +12,12 @@ export const SCENE_HUB_OPTIONS = Object.freeze([
   // The Shader Lab moved off the root page when the Labs home landed there.
   Object.freeze({
     id: 'character',
-    label: 'Character Shader',
+    label: 'Character Shader Lab',
     path: '/shader-lab/',
     search: '',
   }),
-  // Walkable indoor environment scene with the schema-driven environment
-  // settings HUD. Renders the first environment discovered in the gitignored
-  // assets-local/environments/ drop-in (bring your own scene — see
-  // docs/environment.md); without one it surfaces a load banner. (The Shader
-  // Lab's static environment view is still reachable directly via /?env=1.)
+  // Specialized vegetation authoring surfaces. Asset/species labs stay
+  // separate from the one cross-asset IP shader profile.
   Object.freeze({
     id: 'grassLab',
     label: 'Grass Lab',
@@ -28,11 +25,22 @@ export const SCENE_HUB_OPTIONS = Object.freeze([
     search: '',
   }),
   Object.freeze({
+    id: 'vegetationShaderLab',
+    label: 'Vegetation Shader Lab',
+    path: '/vegetation-shader-lab/',
+    search: '',
+  }),
+  Object.freeze({
     id: 'environmentLab',
-    label: 'Environment Lab',
+    label: 'Environment Shader Lab',
     path: '/environment-lab/',
     search: '',
   }),
+  // Walkable indoor environment scene with the schema-driven environment
+  // settings HUD. Renders the first environment discovered in the gitignored
+  // assets-local/environments/ drop-in (bring your own scene — see
+  // docs/environment.md); without one it surfaces a load banner. (The Shader
+  // Lab's static environment view is still reachable directly via /?env=1.)
   Object.freeze({
     id: 'environmentWalkable',
     label: 'Indoor Playground (walkable)',
@@ -48,6 +56,12 @@ export const SCENE_HUB_OPTIONS = Object.freeze([
   // The standalone schema-driven water editor; the walkable beach diorama
   // stays reachable as the Water Playground below (and doubles as the Water
   // Lab's "Preview in scene" target).
+  Object.freeze({
+    id: 'skyLab',
+    label: 'Sky Lab',
+    path: '/sky-lab/',
+    search: '',
+  }),
   Object.freeze({
     id: 'waterLab',
     label: 'Water Lab',
@@ -72,6 +86,12 @@ export const SCENE_HUB_OPTIONS = Object.freeze([
     id: 'treeLab',
     label: 'Tree Lab',
     path: '/tree-lab/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'flowerLab',
+    label: 'Flower Lab',
+    path: '/flower-lab/',
     search: '',
   }),
   Object.freeze({
@@ -186,13 +206,16 @@ export function resolveSceneHubId(params = new URLSearchParams(window.location.s
     return (params.has('env') || params.has('environment')) ? 'environmentLab' : 'character';
   }
   if (pathname.startsWith('/tree-lab') || pathname.startsWith('/tree-designer')) return 'treeLab';
+  if (pathname.startsWith('/flower-lab')) return 'flowerLab';
   if (pathname.startsWith('/debris-lab')) return 'debrisLab';
   if (pathname.startsWith('/texture-lab')) return 'textureLab';
+  if (pathname.startsWith('/sky-lab')) return 'skyLab';
   if (pathname.startsWith('/water-lab')) return 'waterLab';
   if (pathname.startsWith('/lighting-lab')) return 'lightingLab';
   if (pathname.startsWith('/weather-lab')) return 'weatherLab';
   if (pathname.startsWith('/environment-lab')) return 'environmentLab';
   if (pathname.startsWith('/grass-lab')) return 'grassLab';
+  if (pathname.startsWith('/vegetation-shader-lab')) return 'vegetationShaderLab';
   if (pathname.startsWith('/prop-lab')) return 'propLab';
   if (pathname.startsWith('/building-lab')) return 'buildingLab';
   if (pathname.startsWith('/settings')) return 'settings';

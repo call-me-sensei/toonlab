@@ -1,14 +1,13 @@
-// Flowers stage: ground flowers around the tree — tulip-style stems with
-// preset or hand-drawn petal silhouettes. "Draw one flower, grow a patch."
+// Tree Lab blossom stage: optional petal heads attached to real canopy cards.
+// Standalone stems and flower assets are authored in Flower Lab.
 
 import { useState } from 'react';
-import { ColorWell, Slider } from '../../../shared/ui/index.js';
+import { ColorWell } from '../../../shared/ui/index.js';
 import { FLOWER_PLACEMENTS, FLOWER_SPECIES } from '../../engine/flowerPatch.js';
 import { CustomShapeDialog } from '../LeafStylePanel.jsx';
 
 const DEFAULT_FLOWERS = {
   color: [0.93, 0.4, 0.45],
-  height: 0.35,
   petal: { preset: 'tulip' },
   preset: 'none',
 };
@@ -27,9 +26,8 @@ export function FlowersPanel({ actions, state }) {
       <section className="tk-section" data-testid="flowers-section">
         <div className="tk-section-title">Placement</div>
         <div className="tk-section-caption">
-          Blossoms attach to the tree's own canopy (sakura, magnolia); the
-          Ground modes grow tulip-style stems instead. Draw one petal — the
-          whole tree blooms with it.
+          Blossoms attach to the tree&apos;s own canopy (sakura, magnolia).
+          Choose the coverage, then draw or select the petal repeated across it.
         </div>
         <div className="td-leaf-grid">
           <button
@@ -51,7 +49,7 @@ export function FlowersPanel({ actions, state }) {
               data-testid={`flowers-${placement.id}`}
               onClick={() => patch({ preset: placement.id })}
             >
-              <span className="td-leaf-draw-hint">{placement.onTree ? '🌸' : '🌷'}</span>
+              <span className="td-leaf-draw-hint">🌸</span>
               <span>{placement.label}</span>
             </button>
           ))}
@@ -59,7 +57,7 @@ export function FlowersPanel({ actions, state }) {
       </section>
       {state.flowers && (
         <section className="tk-section">
-          <div className="tk-section-title">Flower</div>
+          <div className="tk-section-title">Blossom</div>
           <div className="td-leaf-grid">
             {FLOWER_SPECIES.map((species) => (
               <button
@@ -70,7 +68,6 @@ export function FlowersPanel({ actions, state }) {
                 data-testid={`petal-${species.id}`}
                 onClick={() => patch({
                   color: [...species.color],
-                  height: species.height,
                   petal: { preset: species.id },
                 })}
               >
@@ -95,19 +92,6 @@ export function FlowersPanel({ actions, state }) {
               onChange={(color) => patch({ color })}
               testId="flower-color"
               value={Array.isArray(current.color) ? current.color : [0.93, 0.4, 0.45]}
-            />
-            <span />
-          </div>
-          <div className="tk-field">
-            <span className="tk-field-label"><span className="tk-field-label-text">Height</span></span>
-            <Slider
-              defaultValue={0.35}
-              max={1}
-              min={0.1}
-              onChange={(height) => patch({ height })}
-              step={0.05}
-              testId="flower-height"
-              value={current.height ?? 0.35}
             />
             <span />
           </div>

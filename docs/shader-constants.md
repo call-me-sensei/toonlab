@@ -9,7 +9,8 @@ break.
 Everything that *is* meant to be tuned lives in the settings schemas
 (`TOON_SETTING_FIELD_SCHEMA`, `WATER_SETTING_FIELD_SCHEMA`,
 `ENVIRONMENT_SETTING_FIELD_SCHEMA`, `POST_PROCESSING_SETTING_FIELD_SCHEMA`,
-`GRASS/FLOWER/STYLIZED_TREE/SKY_SETTING_FIELD_SCHEMA`) and renders in the
+`VEGETATION_SHADER_FIELD_SCHEMA`, and the
+`GRASS/FLOWER/STYLIZED_TREE/SKY_SETTING_FIELD_SCHEMA` families) and renders in the
 `@call-me-sensei/toonlab/debug` panel.
 
 ## Water
@@ -55,6 +56,9 @@ are now settings — see the vegetation/sky schemas. What remains fixed:
 |---|---|---|
 | Grass blade segment count / geometry proportions | `stylizedGrass.js` geometry builder | Baked into instanced geometry at construction; density/height ARE settings (construction-time). |
 | Tree trunk ring/segment tessellation | `stylizedTree.js` | Geometry topology; regenerating is the designed path (see the tree recipe system). |
+| Sky far-plane clip epsilon and horizon branch guards | `src/shaders-tsl/sky.js` | Numerical/render-order safeguards, not art direction. Dome radius remains constructor-compatible but is visually invariant because the vertex stage pins the dome to the far plane. |
+| Sky FBM implementation and deployment octave tiers | `src/shaders-tsl/sky.js`, `src/sky/skyQuality.js`, `chunks/water-common.js` | Noise/hash internals define deterministic parity. Shipped quality tiers compile 2/3/4 octaves (`low`/`medium`/`high`), with 1–5 custom; quality stays outside the portable art preset while cloud shape, seed, projection, softness, shading, and motion are exposed. |
+| Sky coverage calibration and projection singularity guards | `src/shaders-tsl/sky.js` | Stable mapping from the authored coverage/altitude controls to safe procedural thresholds. All visually meaningful colors, curve shapes, sun/glow terms, cloud treatment, and star treatment are schema fields. |
 
 ## Post-processing
 

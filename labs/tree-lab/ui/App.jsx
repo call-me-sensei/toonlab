@@ -1,12 +1,12 @@
-// Tree Lab workspace shell: top bar, workflow rail, right inspector /
-// power drawer, floating tool strip + options bar, status bar, and the
-// modal/popover layers. Pure view over the designer store; the engine
-// renders underneath.
+// Shared Tree/Flower workspace shell: top bar, workflow rail, right inspector
+// / power drawer, floating tool strip + options bar, status bar, and modal
+// layers. labKind narrows vocabulary and authoring scope; the engine renders
+// underneath.
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  Badge, BrandLockup, Button, Icon, IconButton, Modal, Popover, PresetRowShell,
-  PreviewBar, PreviewToggle, RendererToggle, SegmentedControl, Select, Slider,
+  Badge, BrandLockup, Button, Icon, IconButton, Modal, Popover,
+  PreviewBar, PreviewToggle, RendererToggle, Select, Slider,
   TextField, ToastStack, useStoreState,
 } from '../../shared/ui/index.js';
 import { ScrubValue } from '../../shared/ui/components/Slider.jsx';
@@ -14,39 +14,8 @@ import { WEATHER_PRESETS } from '../engine/skyWeather.js';
 import { BARK_TEXTURE_PRESETS } from '../engine/barkTextures.js';
 import { WALK_PREVIEW_TITLE } from '../../shared/walkPreview.js';
 import { findTreePreset } from '../treePresetStore.js';
-import { STAGES } from './stageMap.js';
+import { stagesForLab } from './stageMap.js';
 import { TREE_SETTING_FIELD_SCHEMA } from '../../../src/vegetation/treeRecipe.js';
-import { applyBarkShader, applyFlowerShader, applyFoliageShader, applyGrassShader, VEGETATION_SHADERS } from '../../../src/vegetation/vegetationShaders.js';
-import { SchemaGroup } from '../../shared/ui/schema/SchemaGroup.jsx';
-
-// Two editing contexts, never mixed: ASSETS is the creation lab (the recipe
-// you export); SHADER edits the vegetation shaders. Within Shader mode the
-// rail lists each vegetation shader — its own sections and fields.
-const LAB_MODES = Object.freeze([
-  Object.freeze({ label: 'Shader', value: 'shader' }),
-  Object.freeze({ label: 'Assets', value: 'assets' }),
-]);
-
-const SHADER_ICONS = Object.freeze({ bark: 'stage-wood', flower: 'stage-flowers', foliage: 'stage-leaves', grass: 'tool-leaves' });
-const SHADER_STORAGE_KEY = 'toonlab.vegetationShaders.v1';
-
-function loadShaderDocuments() {
-  try {
-    const raw = window.localStorage?.getItem(SHADER_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function saveShaderDocuments(documents) {
-  try {
-    window.localStorage?.setItem(SHADER_STORAGE_KEY, JSON.stringify(documents));
-  } catch {
-    // Private modes may reject storage — the lab keeps working unsaved.
-  }
-}
 import { StagePanel } from './panels/StagePanel.jsx';
 import { PowerDrawer } from './panels/PowerDrawer.jsx';
 import { ExportDialog } from './panels/ExportDialog.jsx';
@@ -129,10 +98,11 @@ function EnvironmentMenu({ actions, anchor, onClose, state }) {
   );
 }
 
-function TopBar({ actions, engine, mode, onModeChange, state }) {
+function TopBar({ actions, labKind, state }) {
   const [menuAnchor, setMenuAnchor] = useState(null);
   const preset = state.presetId ? findTreePreset(state.presetId) : null;
-  const title = preset?.label ?? 'Untitled tree';
+  const isFlowerLab = labKind === 'flower';
+  const title = preset?.label ?? (isFlowerLab ? 'Untitled flower' : 'Untitled tree');
 
   async function share() {
     const url = new URL(window.location.href);
@@ -148,7 +118,7 @@ function TopBar({ actions, engine, mode, onModeChange, state }) {
 
   return (
     <header className="td-topbar tk">
-      <BrandLockup labName="Vegetation Lab" />
+      <BrandLockup labName={isFlowerLab ? 'Flower Lab' : 'Tree Lab'} />
       <button
         type="button"
         className="td-topbar-title"
@@ -161,9 +131,6 @@ function TopBar({ actions, engine, mode, onModeChange, state }) {
       </button>
       <IconButton disabled={!state.canUndo} icon="undo" label="Undo (⌘Z)" onClick={() => actions.undo()} testId="undo" />
       <IconButton disabled={!state.canRedo} icon="redo" label="Redo (⇧⌘Z)" onClick={() => actions.redo()} testId="redo" />
-      <span className="td-sublab" data-testid="mode-switch" title="Assets is the creation lab (recipes you export); Shader edits the vegetation shaders. The two are never edited at the same time.">
-        <SegmentedControl onChange={onModeChange} options={[...LAB_MODES]} value={mode} />
-      </span>
       <span className="td-topbar-spacer" />
       <RendererToggle />
       <Button icon="link" kind="ghost" onClick={share} testId="share">Share</Button>
@@ -188,27 +155,8 @@ function TopBar({ actions, engine, mode, onModeChange, state }) {
   );
 }
 
-function StageRail({ actions, activeShader, mode, onShaderChange, state }) {
-  if (mode === 'shader') {
-    return (
-      <nav className="td-rail tk" data-testid="stage-rail">
-        {VEGETATION_SHADERS.map((master) => (
-          <button
-            key={master.id}
-            type="button"
-            className="td-rail-stage"
-            data-active={activeShader === master.id}
-            data-testid={`shader-${master.id}`}
-            title={`${master.label} — ${master.description}`}
-            onClick={() => onShaderChange(master.id)}
-          >
-            <Icon name={SHADER_ICONS[master.id]} />
-            <span>{master.label}</span>
-          </button>
-        ))}
-      </nav>
-    );
-  }
+function StageRail({ actions, labKind, state }) {
+  const stages = stagesForLab(labKind);
   return (
     <nav className="td-rail tk" data-testid="stage-rail">
       {/* Move is a UTILITY, not a stage: it shows whether your hands are on
@@ -233,7 +181,7 @@ function StageRail({ actions, activeShader, mode, onShaderChange, state }) {
         <span>Move</span>
       </button>
       <div style={{ height: 1, width: 36, background: 'var(--border-subtle)' }} />
-      {STAGES.map((stage) => (
+      {stages.map((stage) => (
         <button
           key={stage.id}
           type="button"
@@ -334,14 +282,16 @@ function BarkTextureSection({ actions, state }) {
   );
 }
 
-function TrunkShapeSection({ actions, state }) {
+function TrunkShapeSection({ actions, labKind, state }) {
   const [drawing, setDrawing] = useState(false);
+  const isFlowerLab = labKind === 'flower';
   return (
     <section className="tk-section" data-testid="trunk-shape-section">
-      <div className="tk-section-title">Trunk shape</div>
+      <div className="tk-section-title">{isFlowerLab ? 'Stem shape' : 'Trunk shape'}</div>
       <div className="tk-section-caption">
-        Draw the trunk&apos;s cross-section — the grounded stems sweep it
-        instead of a circle (buttress, fluted, gnarled bases).
+        {isFlowerLab
+          ? 'Draw the stem cross-section used by this flower and its secondary stems.'
+          : 'Draw the trunk cross-section — the grounded stems sweep it instead of a circle (buttress, fluted, gnarled bases).'}
       </div>
       <div style={{ display: 'flex', gap: 8, margin: '0 4px' }}>
         <Button kind="secondary" onClick={() => setDrawing(true)} testId="trunk-shape-draw">
@@ -360,7 +310,7 @@ function TrunkShapeSection({ actions, state }) {
             actions.setTrunkProfile({ outline });
             setDrawing(false);
           }}
-          title="Draw the trunk cross-section"
+          title={`Draw the ${isFlowerLab ? 'stem' : 'trunk'} cross-section`}
         />
       )}
     </section>
@@ -550,59 +500,30 @@ function RootsSection({ actions, state }) {
   );
 }
 
-function ShaderInspector({ activeShader, onShaderSetting, onShaderPreset, shaderState }) {
-  const master = VEGETATION_SHADERS.find((entry) => entry.id === activeShader) ?? VEGETATION_SHADERS[0];
-  const current = shaderState[master.id];
-  return (
-    <aside className="td-inspector tk" data-testid="inspector">
-      <PresetRowShell title={`The ${master.label.toLowerCase()} shader preset you are editing — treatment only; albedo stays on the asset, light stays on the scene.`}>
-        <Select
-          onChange={(id) => { if (id) onShaderPreset(master.id, id); }}
-          options={[
-            ...(current.presetId === null ? [{ label: 'Custom…', value: '' }] : []),
-            ...master.getPresetOptions(),
-          ]}
-          testId="shader-preset-select"
-          value={current.presetId ?? ''}
-        />
-      </PresetRowShell>
-      <h2 style={{ font: 'var(--type-title)', margin: 'var(--space-1)' }} data-testid="inspector-title">{master.label} shader</h2>
-      <p style={{ color: 'var(--text-tertiary)', font: 'var(--type-caption)', margin: '0 var(--space-1) var(--space-3)' }}>
-        {master.description}
-      </p>
-      <SchemaGroup
-        fields={master.fieldSchema}
-        getValue={(field) => current.settings[field.key]}
-        group={{ description: master.description, id: master.id, label: `${master.label} treatment` }}
-        onChange={(field, value) => onShaderSetting(master.id, field.key, value)}
-        showCaption={false}
-      />
-    </aside>
-  );
-}
-
-function Inspector({ actions, state }) {
+function Inspector({ actions, labKind, state }) {
+  const isFlowerLab = labKind === 'flower';
   if (state.view.drawer) {
     return (
       <aside className="td-inspector tk" data-drawer="true" data-testid="inspector">
-        <PowerDrawer actions={actions} state={state} />
+        <PowerDrawer actions={actions} labKind={labKind} state={state} />
       </aside>
     );
   }
-  const stage = STAGES.find((entry) => entry.id === state.stage) ?? STAGES[0];
+  const stages = stagesForLab(labKind);
+  const stage = stages.find((entry) => entry.id === state.stage) ?? stages[0];
   return (
     <aside className="td-inspector tk" data-testid="inspector">
       <div className="td-inspector-header">{stage.label}</div>
       <div className="td-inspector-caption">{stage.description}</div>
-      {stage.id === 'animation' && <AnimationPanel actions={actions} state={state} />}
-      {stage.id === 'flowers' && <FlowersPanel actions={actions} state={state} />}
+      {stage.id === 'animation' && !isFlowerLab && <AnimationPanel actions={actions} state={state} />}
+      {stage.id === 'flowers' && !isFlowerLab && <FlowersPanel actions={actions} state={state} />}
       {stage.id === 'look' && <LeafStyleSection actions={actions} state={state} />}
       {stage.id === 'look' && <LeafPaletteSection actions={actions} state={state} />}
-      {stage.id === 'look' && <BarkTextureSection actions={actions} state={state} />}
-      {stage.id === 'wood' && <TrunkShapeSection actions={actions} state={state} />}
-      {stage.id === 'wood' && <WoodDetailsSection actions={actions} state={state} />}
-      {stage.id === 'wood' && <RootsSection actions={actions} state={state} />}
-      <StagePanel actions={actions} groupIds={stage.groups} state={state} />
+      {stage.id === 'look' && !isFlowerLab && <BarkTextureSection actions={actions} state={state} />}
+      {stage.id === 'wood' && <TrunkShapeSection actions={actions} labKind={labKind} state={state} />}
+      {stage.id === 'wood' && !isFlowerLab && <WoodDetailsSection actions={actions} state={state} />}
+      {stage.id === 'wood' && !isFlowerLab && <RootsSection actions={actions} state={state} />}
+      <StagePanel actions={actions} groupIds={stage.groups} labKind={labKind} state={state} />
     </aside>
   );
 }
@@ -688,64 +609,18 @@ function TreePreviewBar({ actions, state }) {
   );
 }
 
-export function App({ dressing, engine, sketchBindings, store }) {
+export function App({ engine, labKind = 'tree', sketchBindings, store }) {
   const state = useStoreState(store);
   const { actions } = store;
-  const [mode, setMode] = useState('assets');
-  const [activeShader, setActiveShader] = useState('foliage');
-  // Per-master shader preset state: { presetId, settings }, persisted.
-  const [shaderState, setShaderState] = useState(() => {
-    const saved = loadShaderDocuments();
-    return Object.fromEntries(VEGETATION_SHADERS.map((master) => {
-      const entry = saved[master.id];
-      return [master.id, {
-        presetId: entry?.presetId ?? 'call_me_sensei',
-        settings: master.createSettings(entry?.settings ?? { preset: 'call_me_sensei' }),
-      }];
-    }));
-  });
 
-  function applyShaderToScene(masterId, settings) {
-    const plantRoot = engine.scene;
-    if (masterId === 'foliage') applyFoliageShader(plantRoot, settings);
-    if (masterId === 'grass' && dressing?.grass) applyGrassShader(dressing.grass, settings);
-    if (masterId === 'flower') applyFlowerShader(plantRoot, settings);
-    if (masterId === 'bark') applyBarkShader(plantRoot, settings);
-  }
-
-  function commitShaderState(next) {
-    setShaderState(next);
-    saveShaderDocuments(Object.fromEntries(Object.entries(next).map(([id, entry]) => [id, entry])));
-  }
-
-  function handleShaderSetting(masterId, key, value) {
-    const master = VEGETATION_SHADERS.find((entry) => entry.id === masterId);
-    const settings = master.createSettings({ ...shaderState[masterId].settings, [key]: value });
-    applyShaderToScene(masterId, settings);
-    commitShaderState({ ...shaderState, [masterId]: { presetId: null, settings } });
-  }
-
-  function handleShaderPreset(masterId, presetId) {
-    const master = VEGETATION_SHADERS.find((entry) => entry.id === masterId);
-    const settings = master.createSettings({ preset: presetId });
-    applyShaderToScene(masterId, settings);
-    commitShaderState({ ...shaderState, [masterId]: { presetId, settings } });
-  }
-
-  // Apply on mount and re-apply after every rebuild — rebuilds replace
-  // materials, so treatment must survive edits and plant switches.
   useEffect(() => {
-    const applyAll = () => {
-      for (const master of VEGETATION_SHADERS) applyShaderToScene(master.id, shaderState[master.id].settings);
-    };
-    applyAll();
-    return engine.onRebuilt?.(applyAll);
-  }, [engine, shaderState]);
+    document.title = labKind === 'flower' ? 'Flower Lab · Toon Lab' : 'Tree Lab · Toon Lab';
+  }, [labKind]);
 
   if (state.view.gallery) {
     return (
       <div className="tk">
-        <GalleryScreen actions={actions} state={state} />
+        <GalleryScreen actions={actions} labKind={labKind} state={state} />
         <ToastStack />
       </div>
     );
@@ -754,26 +629,17 @@ export function App({ dressing, engine, sketchBindings, store }) {
   return (
     <div className="tk">
       <div className="td-root">
-        <TopBar actions={actions} engine={engine} mode={mode} onModeChange={setMode} state={state} />
-        <StageRail actions={actions} activeShader={activeShader} mode={mode} onShaderChange={setActiveShader} state={state} />
-        {mode === 'shader'
-          ? (
-            <ShaderInspector
-              activeShader={activeShader}
-              onShaderPreset={handleShaderPreset}
-              onShaderSetting={handleShaderSetting}
-              shaderState={shaderState}
-            />
-          )
-          : <Inspector actions={actions} state={state} />}
+        <TopBar actions={actions} labKind={labKind} state={state} />
+        <StageRail actions={actions} labKind={labKind} state={state} />
+        <Inspector actions={actions} labKind={labKind} state={state} />
         <StatusBar actions={actions} engine={engine} state={state} />
       </div>
       {state.sketchMode
         ? <SketchModeBar actions={actions} sketchBindings={sketchBindings} state={state} />
         : (
           <>
-            <ToolStrip actions={actions} state={state} />
-            <OptionsBar actions={actions} state={state} />
+            <ToolStrip actions={actions} labKind={labKind} state={state} />
+            <OptionsBar actions={actions} labKind={labKind} state={state} />
           </>
         )}
       <TreePreviewBar actions={actions} state={state} />

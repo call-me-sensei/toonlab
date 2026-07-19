@@ -138,15 +138,21 @@ function rgbHex(rgb, shade = 1) {
   return `#${rgb.map((channel) => channelHex(channel * shade)).join('')}`;
 }
 
-function paintGeometry(geometry, [r, g, b]) {
+function paintGeometry(geometry, [r, g, b], role = 0) {
   const count = geometry.getAttribute('position').count;
   const colors = new Float32Array(count * 3);
+  const roles = new Float32Array(count);
   for (let i = 0; i < count; i += 1) {
     colors[i * 3] = r;
     colors[i * 3 + 1] = g;
     colors[i * 3 + 2] = b;
+    roles[i] = role;
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  // 0 = petal, 1 = center. The shared flower shader uses this semantic
+  // attribute instead of guessing from color, so recoloring never changes
+  // the center/petal lighting relationship.
+  geometry.setAttribute('flowerRole', new THREE.BufferAttribute(roles, 1));
   return geometry;
 }
 
@@ -199,7 +205,7 @@ export function createFlowerHeadGeometry({ species, color } = {}) {
         .makeRotationZ(azimuth)
         .multiply(new THREE.Matrix4().makeTranslation(0, petalBase, 0))
         .multiply(new THREE.Matrix4().makeRotationX(lift)));
-      pieces.push(paintGeometry(petal, petalColor));
+      pieces.push(paintGeometry(petal, petalColor, 0));
     }
   }
 
@@ -207,7 +213,7 @@ export function createFlowerHeadGeometry({ species, color } = {}) {
     const dome = new THREE.SphereGeometry(centerRadius, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2);
     dome.rotateX(Math.PI / 2);
     dome.scale(1, 1, 0.45);
-    pieces.push(paintGeometry(dome, toRgb(spec.center.color)));
+    pieces.push(paintGeometry(dome, toRgb(spec.center.color), 1));
   }
 
   const merged = mergeGeometries(pieces);
@@ -256,5 +262,11 @@ export function createFlowerHeadTexture({ color, petal }) {
   }
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
+  // Semantic asset metadata for composite flower-head materials. The shader
+  // uses this mask radius to shade center and petal roles independently; it
+  // must not infer the role from color because every palette is valid.
+  texture.userData.toonlabFlower = {
+    centerRadius: center ? center.radius / canvas.width : 0,
+  };
   return texture;
 }

@@ -337,7 +337,7 @@ async function main() {
   // retina displays (dpr 2 = 4× the pixels of dpr 1).
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, Number(params.get('dpr')) || 2));
   renderer.shadowMap.enabled = true;
-  document.body.appendChild(renderer.domElement);
+  (window.__toonlabHostMount ?? document.body).appendChild(renderer.domElement);
   await renderer.init();
 
   const scene = new THREE.Scene();

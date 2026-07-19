@@ -1,13 +1,18 @@
-// window.__treeDesigner — the Playwright/test contract, now backed by the
-// store + engine. Semantics preserved from the legacy designer:
+// window.__treeDesigner / window.__flowerDesigner — the Playwright/test
+// contract, backed by the shared store + engine. Semantics preserved from
+// the legacy designer:
 // setRecipe rebuilds SYNCHRONOUSLY (tests call geometryHash immediately
 // after), and every hook works with ?hud=0 (no React mounted).
 
 import { BUILT_IN_TREE_PRESETS } from '../treePresetStore.js';
 
-export function installTestHooks({ engine, store }) {
-  window.__treeDesigner = {
-    getBuiltInPresetIds: () => BUILT_IN_TREE_PRESETS.map((preset) => preset.id),
+export function installTestHooks({ engine, labKind = 'tree', store }) {
+  const isFlowerLab = labKind === 'flower';
+  const hookName = isFlowerLab ? '__flowerDesigner' : '__treeDesigner';
+  window[hookName] = {
+    getBuiltInPresetIds: () => BUILT_IN_TREE_PRESETS
+      .filter((preset) => isFlowerLab ? preset.type === 'flower' : preset.type !== 'flower')
+      .map((preset) => preset.id),
     getRecipe: () => store.actions.getRecipeDocument(),
     getSettings: () => JSON.parse(JSON.stringify(store.getState().settings)),
     setRecipe: (recipe) => store.actions.setRecipe(recipe),

@@ -4,7 +4,9 @@
 // HDRIs are a single .hdr; textures zip their map set; models zip the glTF
 // bundle (gltf + bin + textures, relative paths preserved).
 
-const API = 'https://api.polyhaven.com';
+// Browser JavaScript cannot override User-Agent. The dev/host proxy attaches
+// ToonLab's identifying header before forwarding these metadata requests.
+const API = '/api/polyhaven';
 
 // Bundle/scene formats — not part of a texture's per-map file set.
 const BUNDLE_KEYS = new Set(['blend', 'gltf', 'mtlx', 'usd', 'fbx']);

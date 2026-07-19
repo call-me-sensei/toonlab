@@ -1,4 +1,4 @@
-// Document utilities for the Tree Lab store: sketch normalization,
+// Document utilities for the shared Tree/Flower Lab store: sketch normalization,
 // recipe assembly, boot precedence, and localStorage persistence. Pure
 // functions — no DOM, no three.js, no store coupling — so both the store
 // and tests can use them directly.
@@ -99,9 +99,9 @@ export function recipeDocumentFor(settings, sketch, presetId, extras = {}) {
   return recipe;
 }
 
-export function readStoredState() {
+export function readStoredState(storageKey = STATE_STORAGE_KEY) {
   try {
-    const raw = window.localStorage?.getItem(STATE_STORAGE_KEY);
+    const raw = window.localStorage?.getItem(storageKey);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     return parsed && typeof parsed === 'object' ? parsed : null;
@@ -114,10 +114,10 @@ export function readStoredState() {
 export function persistState({
   animation, barkTexture, flowers, leafShape, leafStyle, presetId, roots, settings, sketch,
   trunkProfile, woodDetails,
-}) {
+}, storageKey = STATE_STORAGE_KEY) {
   try {
     window.localStorage?.setItem(
-      STATE_STORAGE_KEY,
+      storageKey,
       // Additive keys after presetId: pre-redesign payloads still parse.
       JSON.stringify({
         settings, sketch, presetId, leafShape, leafStyle, animation, roots, flowers, trunkProfile,
@@ -142,18 +142,21 @@ function cleanSideChannels(source = {}) {
   };
 }
 
-export function clearStoredState() {
+export function clearStoredState(storageKey = STATE_STORAGE_KEY) {
   try {
-    window.localStorage?.removeItem(STATE_STORAGE_KEY);
+    window.localStorage?.removeItem(storageKey);
   } catch { /* storage unavailable */ }
 }
 
 /**
- * Boot precedence: explicit ?recipe= > ?treePreset= > persisted state >
- * defaults. `bootSource` also tells the UI whether to open the gallery
- * ('fresh') or the workspace.
+ * Boot precedence: explicit ?recipe= > the configured preset param >
+ * persisted state > defaults. `bootSource` also tells the UI whether to open
+ * the gallery ('fresh') or the workspace.
  */
-export function bootState(urlParams) {
+export function bootState(urlParams, {
+  presetParam = 'treePreset',
+  storageKey = STATE_STORAGE_KEY,
+} = {}) {
   if (urlParams.has('recipe')) {
     try {
       const result = validateTreeRecipeDocument(JSON.parse(urlParams.get('recipe')));
@@ -171,8 +174,8 @@ export function bootState(urlParams) {
       console.warn('Unparseable ?recipe= param:', error);
     }
   }
-  if (urlParams.has('treePreset')) {
-    const preset = findTreePreset(urlParams.get('treePreset'), loadLocalTreePresets());
+  if (urlParams.has(presetParam)) {
+    const preset = findTreePreset(urlParams.get(presetParam), loadLocalTreePresets());
     if (preset) {
       return {
         bootSource: 'preset',
@@ -183,7 +186,7 @@ export function bootState(urlParams) {
       };
     }
   }
-  const stored = readStoredState();
+  const stored = readStoredState(storageKey);
   if (stored?.settings) {
     // Group-level merge over the defaults so documents persisted before a
     // schema gained a group (e.g. `flower`) still hydrate every group.

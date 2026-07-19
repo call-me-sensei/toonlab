@@ -35,7 +35,7 @@ if (!window.__environmentLabBooted) {
   });
 
   engine.start().catch((error) => {
-    console.error('Environment Lab failed to start:', error);
+    console.error('Environment Shader Lab failed to start:', error);
     document.body.dataset.modelReady = 'error';
   });
 

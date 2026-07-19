@@ -80,8 +80,7 @@ Labs home (`/`) presents them by the artifact they author:
 Supporting editors remain available by direct URL: Weather Lab
 (`/weather-lab/`) coordinates current atmosphere, wind, precipitation,
 lightning, and surface state; Lighting Lab (`/lighting-lab/`) authors light
-rigs and budgets; Prop Lab (`/prop-lab/`) and Building Lab
-(`/building-lab/`) expose the broader procedural library; Gallery
+rigs and budgets; Gallery
 (`/gallery/`) searches supported open-asset sources. The procedural Catalog
 is exposed through `@call-me-sensei/toonlab/catalog`. See
 [Lab responsibilities](docs/lab-architecture.md) for the scope rules and
@@ -121,12 +120,10 @@ Point any model-aware lab at your own model with the Model URL input or
 | Water | `@call-me-sensei/toonlab/water` | Fully procedural integrated water system: Gerstner wave stack with a calm→storm dial, wave sets, plunging breakers you can surf, three-stop absorption color, refraction/caustics/foam, GPU ripple sim, splashes, wakes, rain, kelp, underwater view, construction-time quality, and a CPU mirror of the whole spectrum for buoyancy. [Docs](docs/water.md) |
 | Vegetation | `@call-me-sensei/toonlab/vegetation` | Instanced grass and flower fields, procedural trees/flowers with serializable recipes, coordinated grass palettes (base, tip, and shadow tint), and one semantic-role `VegetationShaderProfile` shared across grass, foliage, flowers, bark, and stems. Asset identity and current wind/weather remain separate. [Docs](docs/vegetation-sky.md) |
 | Paths, roads & bridges | `@call-me-sensei/toonlab/pathgen` | Seeded path networks routed over any `heightAt`: cost-field router (slope/water aware), hand-drawn ribbon overlay in dirt/stone/planks, arched plank bridges with collision, stepped stone climbs, flattened `paths.heightAt` for walkability, scatter exclusion mask, minimap overlay. |
-| Props & placement | `@call-me-sensei/toonlab/propgen` | The universal placement pipeline (the PropAsset contract: grounded, collided, instanced, hi/lo LOD by true 3D distance) + 12 seeded prop generators across fences, lanterns, signposts, stairs, milestones, wells, crates, firewood, torii, piers, stone walls, benches. `propAssetFromObject` drops any imported GLB into the same pipeline. |
-| Buildings | `@call-me-sensei/toonlab/buildinggen` | Shape-grammar stylized exteriors (cottage/shed/farmhouse/watchtower/shrine): seeded recipes, timber facades with windows that never intersect beams, always-overhanging roofs (gable/hip/shed/pagoda-ish), buried foundation skirts for slopes, ≤ 6 draw calls per building, grammar invariants asserted across 1000 seeds. |
-| Villages & POIs | `@call-me-sensei/toonlab/villagegen` | Seeded settlements composed from paths + props + buildings: site scoring, main-street layout with parcels facing the street, archetypes as data (village, fishing hamlet, shrine, campsite, ruin), seeded place names, world `pois` option that roads everything together. |
+| Asset placement | `@call-me-sensei/toonlab/propgen` | The universal placement pipeline (the PropAsset contract: grounded, collided, instanced, hi/lo LOD by true 3D distance). `propAssetFromObject` drops any imported GLB — e.g. a CC0 model found through MCP — into the pipeline. |
 | Fauna | `@call-me-sensei/toonlab/fauna` | Instanced GPU-animated ambient creatures: flocking birds that perch and flush, butterflies over flower masks, hovering dragonflies, schooling koi — staggered boids, hard population budgets, ≤ 1 ms CPU at defaults. |
 | Ambient VFX | `@call-me-sensei/toonlab/ambientfx` | One GPU particle backbone, five effects: falling petals and leaves, dusk fireflies, backlit pollen, shoreline mist — follow-window emission, shared wind with grass, time-of-day gates, 3 draw calls total. |
-| Asset catalog | `@call-me-sensei/toonlab/catalog` | Every recipe/preset as a searchable manifest with one headline call: `catalog.spawn(id, { seed })` → a placeable PropAsset for props, buildings, trees, rocks, and debris. `catalog.addSource(url)` mounts remote registries. |
+| Asset catalog | `@call-me-sensei/toonlab/catalog` | Every recipe/preset as a searchable manifest with one headline call: `catalog.spawn(id, { seed })` → a placeable PropAsset for trees, rocks, and debris. `catalog.addSource(url)` mounts remote registries. |
 | Sky | `@call-me-sensei/toonlab/sky` | Integrated gradient/sun/painterly-cloud/star system with exactly 46 portable art fields, named live scene layers, compile-time quality tiers/custom 1–5 cloud octaves, meaningful built-in looks, and water-reflection compatibility. [Docs](docs/sky.md) |
 | Post-processing | `@call-me-sensei/toonlab/post` | Optional single-pipeline compositor: character-aware bloom, color grade, LUT, vignette, screen outline, depth cue — schema-driven, preset-serializable. [Docs](docs/post-processing.md) |
 | Camera | `@call-me-sensei/toonlab/camera` | Extensible camera operator stack, generated recipe/preset documents, follow/framing/collision/damping/noise/impulse behavior, and a director for blending reusable rigs. [Style domain docs](docs/style-labs.md#camera) |
@@ -356,9 +353,9 @@ from spawn to the shoreline and swim.
 
 ```text
 Use the ToonLab MCP server to find CC0 props for a small fishing village —
-lanterns, crates, a pier — then place them with the propgen placement
-pipeline so they are grounded, collided, and LOD'd. Add a torii gate near
-the spawn using catalog.spawn.
+lanterns, crates, a pier, a torii gate — then place every import with
+propAssetFromObject so they are grounded, collided, and LOD'd. Tell me what
+came from where with licenses.
 ```
 
 ```text

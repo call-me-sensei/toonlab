@@ -1,6 +1,6 @@
 {
   "name": "@call-me-sensei/toonlab",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Stylized (anime/toon) game starter kit for Three.js: character and environment shading, lighting, weather, water, vegetation, sky, and post-processing",
   "license": "MIT",
   "author": "Hyperbond Studio PTE. LTD. (Call Me Sensei)",

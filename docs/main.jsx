@@ -88,8 +88,8 @@ function Overview() {
             <code>@call-me-sensei/toonlab</code>
           </a>
           : toon and environment shading, water, sky, weather, vegetation, lighting, post, camera,
-          game feel, and seeded generators for rocks, props, buildings, paths, and villages.
-          MIT-licensed, WebGPU-first with a WebGL2 fallback, zero bundled textures.
+          game feel, and procedural rocks, paths, and textures. MIT-licensed, WebGPU-first with a
+          WebGL2 fallback, zero bundled textures.
         </li>
         <li>
           <strong>The labs</strong> — visual editors served by <code>npm run dev</code> (or hosted
@@ -210,10 +210,10 @@ import { propAssetFromObject } from '@call-me-sensei/toonlab/propgen';
 
 // Procedural catalog: every recipe/preset as a searchable manifest.
 const catalog = createCatalog();
-const lantern = catalog.spawn('prop/lantern/stone-toro', { seed: 7 }); // grounded, collided, LOD'd
+const tree = catalog.spawn('tree/broadleaf/sensei', { seed: 7 }); // grounded, collided, LOD'd
 
-// Any imported GLB (e.g. a CC0 model imported through the local MCP server)
-// joins the same placement pipeline:
+// Imported models (e.g. a CC0 model imported through the local MCP server)
+// join the same placement pipeline — grounded, collided, instanced, LOD'd:
 const shrine = propAssetFromObject(importedGltf.scene);`;
 
 const TEXGEN_SNIPPET = `import {
@@ -300,7 +300,7 @@ function Library() {
             <tr><td>/lighting</td><td>Versioned light recipes, budgets, runtime realization, and a data-only UE5 handoff.</td></tr>
             <tr><td>/post, /camera, /game-feel</td><td>Compositor pipeline, camera operator stack + director, and hit-stop/punch/flash game feel.</td></tr>
             <tr><td>/texgen</td><td>Seamless CPU-baked PBR texture generator with 60+ presets and a natural-language recipe mapper.</td></tr>
-            <tr><td>/rockgen, /propgen, /buildinggen, /pathgen, /villagegen</td><td>Seeded generators for rocks, 12 prop families, building exteriors, road networks, and settlements.</td></tr>
+            <tr><td>/rockgen, /pathgen</td><td>Seeded rock generation and road/bridge networks routed over any terrain.</td></tr>
             <tr><td>/vfxgen, /ambientfx, /fauna</td><td>Gameplay VFX (trails, impacts, weapons), ambient particles (petals, fireflies), and GPU-animated creatures.</td></tr>
             <tr><td>/catalog, /loaders, /debug</td><td>Searchable asset manifest with <code>catalog.spawn</code>, model loaders (GLB/VRM/PMX/FBX), and the schema-driven tuning panel.</td></tr>
           </tbody>
@@ -505,8 +505,8 @@ and swim.`}
         title="CC0 import via the local server"
         prompt={`Use the toonlab-local MCP server to furnish the fishing village: search
 CC0 sources for lanterns, crates, barrels, and a pier (search_cc0_assets),
-import the best fits with import_cc0_asset, and place them with the propgen
-placement pipeline so they are grounded, collided, and LOD'd. Show me what
+import the best fits with import_cc0_asset, and place every import with
+propAssetFromObject so they are grounded, collided, and LOD'd. Show me what
 came from where with attribution.`}
         note="import_cc0_asset writes the files and an attribution manifest into .toonlab/imports for direct use by the project."
       />
@@ -519,9 +519,10 @@ path should flatten heightAt and register collision.`}
       />
       <PromptBlock
         title="Seeded recipes from the catalog"
-        prompt={`With the toonlab-local MCP server, generate three lantern recipe variations
-(generate_asset from the catalog entry, different seeds), save them as
-creations, and spawn them along the pier so I can compare them in the game.`}
+        prompt={`With the toonlab-local MCP server, generate three broadleaf tree recipe
+variations (generate_asset from the catalog entry, different seeds), save
+them as creations, and spawn them along the shore so I can compare them in
+the game.`}
       />
 
       <h2>Textures and style</h2>
@@ -606,11 +607,23 @@ function slugify(text) {
     .replace(/\s+/g, '-');
 }
 
+// Systems intentionally undocumented until their output meets the quality bar.
+const HIDDEN_REFERENCE_SECTIONS = ['Buildings'];
+
+function stripHiddenSections(markdown) {
+  for (const title of HIDDEN_REFERENCE_SECTIONS) {
+    markdown = markdown
+      .replace(new RegExp(`\\n## ${title}\\n[\\s\\S]*?(?=\\n## |$)`), '\n')
+      .replace(new RegExp(`- \\[${title}\\]\\(#[\\w-]+\\)\\n`), '');
+  }
+  return markdown;
+}
+
 let referenceHtmlCache = null;
 
 function referenceHtml() {
   if (referenceHtmlCache) return referenceHtmlCache;
-  let html = marked.parse(settingsReferenceRaw, { async: false });
+  let html = marked.parse(stripHiddenSections(settingsReferenceRaw), { async: false });
   html = html.replace(
     /<h([123])>([^<]+)<\/h\1>/g,
     (_m, level, text) => `<h${level} id="${slugify(text)}">${text}</h${level}>`,

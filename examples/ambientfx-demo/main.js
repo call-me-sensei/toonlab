@@ -84,7 +84,7 @@ async function main() {
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, numberParam('dpr', 2)));
   renderer.shadowMap.enabled = true;
-  document.body.appendChild(renderer.domElement);
+  (window.__toonlabHostMount ?? document.body).appendChild(renderer.domElement);
   await renderer.init();
 
   const scene = new THREE.Scene();

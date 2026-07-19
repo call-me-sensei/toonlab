@@ -1,4 +1,4 @@
-/* Environment Lab layout chrome (el- prefix). Controls come from the shared
+/* Environment Shader Lab layout chrome (el- prefix). Controls come from the shared
    kit (tk-); only layout and lab-specific widgets live here. */
 
 #app { position: fixed; inset: 0; pointer-events: none; z-index: 10; }
@@ -164,4 +164,3 @@ body[data-hide-hud='true'] #app { display: none; }
 .el-stagebar-select--debug { width: 132px; }
 
 /* --- preview accent: everything amber is never saved ----------------------- */
-

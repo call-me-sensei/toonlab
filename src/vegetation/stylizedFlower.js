@@ -90,6 +90,7 @@ export class StylizedFlower extends StylizedTree {
       trunkMaterial: createFlowerStemNodeMaterial({
         color: stemColor,
         height: trunk.height,
+        vegetationShader: treeOptions.vegetationShader,
       }),
     });
     this.name = 'StylizedFlower';
@@ -169,6 +170,7 @@ export class StylizedFlower extends StylizedTree {
     // bloom faces up-and-out along its twig like a real flower head instead
     // of tracking the camera.
     const headMaterial = createFlowerBloomNodeMaterial({
+      vegetationShader: treeOptions.vegetationShader,
       windSpeed: 1.1,
       windStrength: headSize * 0.04,
     });
@@ -203,6 +205,86 @@ export class StylizedFlower extends StylizedTree {
       type: 'flower',
       options: serializableTreeOptions(this.config),
     };
+  }
+
+  setWind(options = {}) {
+    super.setWind(options);
+    for (const material of [this.headsMesh?.material, this.trunkMesh?.material]) {
+      const uniforms = material?.uniforms;
+      if (!uniforms) continue;
+      if (options.speed !== undefined && uniforms.uWindSpeed) uniforms.uWindSpeed.value = Number(options.speed) || 0;
+      if (options.strength !== undefined && uniforms.uWindStrength) uniforms.uWindStrength.value = Math.max(Number(options.strength) || 0, 0);
+      if (options.direction !== undefined && uniforms.uWindDirection) {
+        const direction = Array.isArray(options.direction)
+          ? options.direction
+          : [options.direction.x, options.direction.y ?? options.direction.z];
+        uniforms.uWindDirection.value.set(Number(direction[0]) || 0, Number(direction[1]) || 0);
+      }
+    }
+    return this;
+  }
+
+  setSun(options = {}) {
+    super.setSun(options);
+    const uniforms = this.headsMesh?.material?.uniforms;
+    if (!uniforms) return this;
+    if (options.direction !== undefined && uniforms.uSunDirection) {
+      const direction = Array.isArray(options.direction)
+        ? options.direction
+        : [options.direction.x, options.direction.y, options.direction.z];
+      uniforms.uSunDirection.value.set(...direction).normalize();
+    }
+    if (options.color !== undefined && uniforms.uSunColor) {
+      const color = Array.isArray(options.color)
+        ? options.color
+        : [options.color.r, options.color.g, options.color.b];
+      uniforms.uSunColor.value.setRGB(...color, THREE.SRGBColorSpace);
+    }
+    if (options.sky !== undefined && uniforms.uSkyColor) {
+      const sky = Array.isArray(options.sky)
+        ? options.sky
+        : [options.sky.r, options.sky.g, options.sky.b];
+      uniforms.uSkyColor.value.setRGB(...sky, THREE.SRGBColorSpace);
+    }
+    return this;
+  }
+
+  setCloudShadow(options = {}) {
+    super.setCloudShadow(options);
+    for (const material of [this.headsMesh?.material, this.trunkMesh?.material]) {
+      const uniforms = material?.uniforms;
+      if (!uniforms) continue;
+      if (options.strength !== undefined && uniforms.uCloudShadowStrength) {
+        uniforms.uCloudShadowStrength.value = THREE.MathUtils.clamp(Number(options.strength) || 0, 0, 1);
+      }
+      if (options.coverage !== undefined && uniforms.uCloudShadowCoverage) {
+        uniforms.uCloudShadowCoverage.value = THREE.MathUtils.clamp(Number(options.coverage) || 0, 0, 1);
+      }
+      if (options.scale !== undefined && uniforms.uCloudShadowScale) {
+        uniforms.uCloudShadowScale.value = Math.max(Number(options.scale) || 0.0001, 0.0001);
+      }
+      if (options.velocity !== undefined && uniforms.uCloudShadowVelocity) {
+        const velocity = Array.isArray(options.velocity)
+          ? options.velocity
+          : [options.velocity.x, options.velocity.y];
+        uniforms.uCloudShadowVelocity.value.set(Number(velocity[0]) || 0, Number(velocity[1]) || 0);
+      }
+    }
+    return this;
+  }
+
+  setSurfaceWeather(options = {}) {
+    super.setSurfaceWeather?.(options);
+    for (const material of [this.headsMesh?.material, this.trunkMesh?.material]) {
+      const uniforms = material?.uniforms;
+      if (uniforms?.uWetness && options.wetness !== undefined) {
+        uniforms.uWetness.value = THREE.MathUtils.clamp(Number(options.wetness) || 0, 0, 1);
+      }
+      if (uniforms?.uSnowCover && options.snowCover !== undefined) {
+        uniforms.uSnowCover.value = THREE.MathUtils.clamp(Number(options.snowCover) || 0, 0, 1);
+      }
+    }
+    return this;
   }
 
   dispose() {

@@ -24,9 +24,9 @@
 
 export const ASSET_REF_KINDS = Object.freeze(['model', 'texture', 'hdri']);
 
-/** Identify-yourself header value the Poly Haven API ToS asks for (Node
- * callers only — browsers send the page Referer instead and cannot set UA). */
-export const ASSETLIB_USER_AGENT = 'toonlab-assetlib (+https://github.com/call-me-sensei/toonlab)';
+/** Identify server-side asset API requests. Browsers cannot override their
+ * User-Agent, so browser integrations use the identifying dev/host proxy. */
+export const ASSETLIB_USER_AGENT = 'ToonLab/0.2 (+https://toonlab.io; contact=jack@hyperbond.studio)';
 
 /** Source-native ids → catalog-safe id segments ("ArmChair_01" → "armchair-01"). */
 export function slugifyAssetId(id) {

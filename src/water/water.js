@@ -9,6 +9,7 @@
 //   water.update(renderer, scene, camera, delta);
 
 export * from './waterSettings.js';
+export * from './sceneOverrideLayers.js';
 export * from './waterMaterial.js';
 export * from './waterCurrentField.js';
 export * from './waterNearshorePhase.js';

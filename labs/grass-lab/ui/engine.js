@@ -2,8 +2,9 @@
 // preview mode chooses the planting — a single blade, a tuft, a patch, or a
 // meadow — so blade shape reads at every scale. Blade-geometry settings
 // rebuild the field (per-instance heights bake at construction); everything
-// else re-tunes live via applySettings. The walk mannequin doubles as the
-// grass push target, so blades part around it.
+// else is an authored asset value. The preview rig supplies current light,
+// wind, cloud shadow, and interaction independently. The walk mannequin
+// doubles as the grass push target, so blades part around it.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -82,7 +83,8 @@ export function createGrassLabEngine({ mount, store }) {
   );
   scene.add(ground);
 
-  const clock = new THREE.Clock();
+  const timer = new THREE.Timer();
+  timer.connect(document);
   const frameCallbacks = new Set();
   let grass = null;
   let disposed = false;
@@ -134,11 +136,30 @@ export function createGrassLabEngine({ mount, store }) {
     const direction = sun.position.clone().normalize();
     const sunScale = Math.min(store.getState().view.sunIntensity ?? 1.2, 2.5) / 1.2;
     const ambientScale = Math.min(store.getState().view.ambientIntensity ?? 0.5, 1.2) / 0.5;
-    grass.applySettings({
-      skyColor: [0.62 * ambientScale, 0.78 * ambientScale, 0.95 * ambientScale].map((v) => Math.min(v, 1)),
-      sunColor: [1.0 * sunScale, 0.96 * sunScale, 0.84 * sunScale].map((v) => Math.min(v, 1.4)),
-      sunDirection: [direction.x, direction.y, direction.z],
+    grass.setSun({
+      sky: [0.62 * ambientScale, 0.78 * ambientScale, 0.95 * ambientScale].map((v) => Math.min(v, 1)),
+      color: [1.0 * sunScale, 0.96 * sunScale, 0.84 * sunScale].map((v) => Math.min(v, 1.4)),
+      direction: [direction.x, direction.y, direction.z],
     });
+  }
+
+  function applySceneStateToGrass() {
+    if (!grass) return;
+    const { view } = store.getState();
+    grass.setWind({
+      direction: view.windDirection,
+      gustFrequency: view.gustFrequency,
+      gustSpeed: view.gustSpeed,
+      speed: view.windSpeed,
+      strength: view.windStrength,
+    });
+    grass.setCloudShadow({
+      coverage: view.cloudShadowCoverage,
+      scale: view.cloudShadowScale,
+      strength: view.cloudShadowStrength,
+      velocity: view.cloudShadowVelocity,
+    });
+    grass.setPushRadius(view.pushRadius);
   }
 
   function rebuildGrass() {
@@ -152,6 +173,7 @@ export function createGrassLabEngine({ mount, store }) {
     if (mannequin) grass.setPushTarget?.(mannequin);
     scene.add(grass);
     applySceneLightToGrass();
+    applySceneStateToGrass();
     store.actions.adoptEngineState({ bladeCount: placements.length });
     document.body.dataset.modelReady = 'true';
   }
@@ -179,6 +201,7 @@ export function createGrassLabEngine({ mount, store }) {
     sun.intensity = state.view.sunIntensity ?? sun.intensity;
     ambient.intensity = state.view.ambientIntensity ?? ambient.intensity;
     applySceneLightToGrass();
+    applySceneStateToGrass();
     if (state.view.mode !== appliedMode) {
       appliedMode = state.view.mode;
       rebuildGrass();
@@ -194,10 +217,11 @@ export function createGrassLabEngine({ mount, store }) {
     if (mannequin) mannequin.visible = state.view.walkPreview;
   });
 
-  function animate() {
+  function animate(timestamp) {
     if (disposed) return;
     requestAnimationFrame(animate);
-    const delta = Math.min(clock.getDelta(), 0.05);
+    timer.update(timestamp);
+    const delta = Math.min(timer.getDelta(), 0.05);
     if (store.getState().view.walkPreview) mixer?.update(delta);
     grass?.update?.(delta);
     for (const callback of frameCallbacks) callback(delta);
@@ -226,6 +250,7 @@ export function createGrassLabEngine({ mount, store }) {
     dispose() {
       disposed = true;
       window.removeEventListener('resize', handleResize);
+      timer.dispose();
       renderer.dispose?.();
     },
     resetCamera,
@@ -233,7 +258,7 @@ export function createGrassLabEngine({ mount, store }) {
       await whenRendererReady(renderer);
       rebuildGrass();
       frameMode(store.getState().view.mode);
-      animate();
+      requestAnimationFrame(animate);
     },
   };
 }

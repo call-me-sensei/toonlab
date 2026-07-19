@@ -3,13 +3,17 @@ import { Fn, uniform, vec4 } from 'three/tsl';
 import { NodeMaterial } from 'three/webgpu';
 
 import { setEnvironmentCloudShadow } from '../environment/environmentShaderMaterials.js';
+import { environmentSharedUniformNodes } from '../shaders-tsl/environment.js';
 import { createWeatherPresetDocument, resolveWeatherSettings } from './weatherPresets.js';
 import {
+  DEFAULT_WEATHER_SETTINGS,
   createWeatherSettings,
   interpolateWeatherSettings,
   mergeWeatherSettings,
 } from './weatherSettings.js';
 import { WeatherPrecipitation } from './weatherPrecipitation.js';
+import { SKY_SCENE_OVERRIDE_PRIORITIES } from '../sky/sceneOverrideLayers.js';
+import { WATER_SCENE_OVERRIDE_PRIORITIES } from '../water/sceneOverrideLayers.js';
 
 const scratchCenter = new THREE.Vector3();
 const scratchCamera = new THREE.Vector3();
@@ -21,6 +25,138 @@ function resolveTarget(value) {
 
 function copySettings(settings) {
   return createWeatherSettings(settings);
+}
+
+function finiteValue(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function vectorValue(value, size, { srgb = false } = {}) {
+  if (value?.isColor) {
+    const color = value.clone();
+    if (srgb) color.convertLinearToSRGB();
+    return [color.r, color.g, color.b].slice(0, size);
+  }
+  if (Array.isArray(value)) {
+    const channels = value.slice(0, size).map(Number);
+    return channels.length === size && channels.every(Number.isFinite) ? channels : null;
+  }
+  if (value && typeof value === 'object') {
+    const keys = size === 2 ? ['x', 'y'] : ['x', 'y', 'z'];
+    const channels = keys.map((key, index) => Number(value[key] ?? value[['r', 'g', 'b'][index]]));
+    return channels.every(Number.isFinite) ? channels : null;
+  }
+  return null;
+}
+
+function representativeTarget(target) {
+  return target?.variantTrees?.[0] ?? target;
+}
+
+function targetUniformMaps(target) {
+  const source = representativeTarget(target);
+  return [
+    source?.material?.uniforms,
+    source?.canopyMesh?.material?.uniforms,
+    source?.trunkMesh?.material?.uniforms,
+  ].filter(Boolean);
+}
+
+function targetSettingsSources(target) {
+  const source = representativeTarget(target);
+  return [
+    source?.settings?.shared,
+    source?.settings?.foliage,
+    source?.settings,
+  ].filter((value) => value && typeof value === 'object');
+}
+
+function readUniform(target, name) {
+  for (const uniforms of targetUniformMaps(target)) {
+    if (uniforms[name]?.value !== undefined) return uniforms[name].value;
+  }
+  return undefined;
+}
+
+function readSetting(target, key) {
+  for (const settings of targetSettingsSources(target)) {
+    if (settings[key] !== undefined) return settings[key];
+  }
+  return undefined;
+}
+
+function firstVector(...candidates) {
+  for (const [value, size, options] of candidates) {
+    const resolved = vectorValue(value, size, options);
+    if (resolved) return resolved;
+  }
+  return null;
+}
+
+function firstNumber(...values) {
+  for (const value of values) {
+    const resolved = finiteValue(value);
+    if (resolved !== null) return resolved;
+  }
+  return null;
+}
+
+function snapshotWeatherTarget(target) {
+  if (!target || (typeof target !== 'object' && typeof target !== 'function')) return null;
+  const statsWind = target.stats?.wind ?? null;
+  const wind = {
+    direction: firstVector(
+      [readUniform(target, 'uWindDirection'), 2],
+      [statsWind?.direction, 2],
+      [readSetting(target, 'windDirection'), 2],
+    ),
+    gustFrequency: firstNumber(readUniform(target, 'uGustFrequency'), readSetting(target, 'gustFrequency')),
+    gustSpeed: firstNumber(readUniform(target, 'uGustSpeed'), readSetting(target, 'gustSpeed')),
+    speed: firstNumber(readUniform(target, 'uWindSpeed'), statsWind?.speed, readSetting(target, 'windSpeed')),
+    strength: firstNumber(readUniform(target, 'uWindStrength'), statsWind?.strength, readSetting(target, 'windStrength')),
+  };
+  const cloudShadow = {
+    coverage: firstNumber(readUniform(target, 'uCloudShadowCoverage'), readSetting(target, 'cloudShadowCoverage')),
+    scale: firstNumber(readUniform(target, 'uCloudShadowScale'), readSetting(target, 'cloudShadowScale')),
+    strength: firstNumber(readUniform(target, 'uCloudShadowStrength'), readSetting(target, 'cloudShadowStrength')),
+    velocity: firstVector(
+      [readUniform(target, 'uCloudShadowVelocity'), 2],
+      [readSetting(target, 'cloudShadowVelocity'), 2],
+    ),
+  };
+  const surfaceWeather = {
+    snowCover: firstNumber(readUniform(target, 'uSnowCover')),
+    wetness: firstNumber(readUniform(target, 'uWetness')),
+  };
+  const sun = {
+    color: firstVector(
+      [readUniform(target, 'uSunColor'), 3, { srgb: true }],
+      [readSetting(target, 'sunColor'), 3],
+    ),
+    direction: firstVector(
+      [readUniform(target, 'uSunDirection'), 3],
+      [readSetting(target, 'sunDirection'), 3],
+    ),
+    sky: firstVector(
+      [readUniform(target, 'uSkyColor'), 3, { srgb: true }],
+      [readSetting(target, 'skyColor'), 3],
+    ),
+  };
+  return { cloudShadow, sun, surfaceWeather, wind };
+}
+
+function completeSunState(source, fallback = {}) {
+  const input = source && typeof source === 'object' ? source : {};
+  const color = firstVector([input.color, 3], [fallback.color, 3]);
+  const direction = firstVector([input.direction, 3], [fallback.direction, 3]);
+  const sky = firstVector([input.sky, 3], [fallback.sky, 3]);
+  return color && direction && sky ? { color, direction, sky } : null;
+}
+
+function definedEntries(source) {
+  return Object.fromEntries(Object.entries(source).filter(([, value]) => value !== null && value !== undefined));
 }
 
 function seededRandom(seed) {
@@ -91,20 +227,24 @@ function createLightningFlash() {
 }
 
 /**
- * Cross-system weather coordinator. It owns only precipitation and lightning;
- * every other visual response is applied through the existing public APIs.
+ * Cross-system weather coordinator. It constructs precipitation/lightning and
+ * temporarily owns its named runtime layers; every other response goes through
+ * public adapters whose captured baseline is restored on disposal.
  */
 export class WeatherSystem extends THREE.EventDispatcher {
   constructor({
     ambientFx = null,
     camera = null,
+    cloudShadowBaseline = null,
     environmentRoot = null,
     fauna = null,
     flowers = null,
     followTarget = null,
     forest = null,
+    getSun = null,
     grass = null,
     groundHeightAt = null,
+    lighting = null,
     onLightning = null,
     onSurfaceChange = null,
     onThunder = null,
@@ -114,8 +254,10 @@ export class WeatherSystem extends THREE.EventDispatcher {
     scene = null,
     seed = 1,
     setCloudShadow = null,
+    setSun = null,
     settings = {},
     sky = null,
+    surfaceBaseline = null,
     sunRig = null,
     water = null,
   } = {}) {
@@ -125,10 +267,12 @@ export class WeatherSystem extends THREE.EventDispatcher {
     this.camera = camera;
     this.followTarget = followTarget;
     this.environmentRoot = environmentRoot;
-    this.targets = { ambientFx, fauna, flowers, forest, grass, sky, sunRig, water };
+    this.targets = { ambientFx, fauna, flowers, forest, grass, lighting, sky, sunRig, water };
     this.groundHeightAt = typeof groundHeightAt === 'function' ? groundHeightAt : null;
     this.precipitationFloorY = Number(precipitationFloorY) || 0;
     this.setCloudShadowAdapter = typeof setCloudShadow === 'function' ? setCloudShadow : null;
+    this.getSunAdapter = typeof getSun === 'function' ? getSun : null;
+    this.setSunAdapter = typeof setSun === 'function' ? setSun : null;
     this.onSurfaceChange = typeof onSurfaceChange === 'function' ? onSurfaceChange : null;
     this.random = seededRandom(seed);
     this.root = new THREE.Group();
@@ -145,6 +289,8 @@ export class WeatherSystem extends THREE.EventDispatcher {
     this._lightningCountdown = 0;
     this._flashRemaining = 0;
     this._thunderQueue = [];
+    this._disposed = false;
+    this._targetBaselines = new WeakMap();
 
     const precipitation = new WeatherPrecipitation({
       maxParticles: this.settings.precipitation.maxParticles,
@@ -170,18 +316,124 @@ export class WeatherSystem extends THREE.EventDispatcher {
 
     const skyTarget = resolveTarget(sky);
     this._baseSky = skyTarget?.settings ? structuredClone(skyTarget.settings) : null;
+    this._skyOverrideLayer = Symbol('ToonLab WeatherSystem sky layer');
     this._baseSun = snapshotSunRig(resolveTarget(sunRig));
     const waterTarget = resolveTarget(water);
     this._baseWaterWaveIntensity = Number(waterTarget?.settings?.waveIntensity) || 0;
+    this._waterOverrideLayer = Symbol('ToonLab WeatherSystem water layer');
+    this._baseEnvironmentCloudShadow = {
+      coverage: environmentSharedUniformNodes.cloudShadowCoverage.value,
+      scale: environmentSharedUniformNodes.cloudShadowScale.value,
+      strength: environmentSharedUniformNodes.cloudShadowStrength.value,
+      velocity: vectorValue(environmentSharedUniformNodes.cloudShadowVelocity.value, 2),
+    };
+    this._baseCloudShadow = cloudShadowBaseline && typeof cloudShadowBaseline === 'object'
+      ? structuredClone(cloudShadowBaseline)
+      : (this.setCloudShadowAdapter ? { strength: 0 } : structuredClone(this._baseEnvironmentCloudShadow));
+    this._baseSurfaceState = {
+      ...DEFAULT_WEATHER_SETTINGS.surface,
+      ...(surfaceBaseline && typeof surfaceBaseline === 'object' ? structuredClone(surfaceBaseline) : {}),
+    };
     this._ambientLights = new Map();
     scene?.traverse?.((object) => {
       if (object.isAmbientLight || object.isHemisphereLight) this._ambientLights.set(object, object.intensity);
+    });
+
+    for (const target of this._currentTransientTargets()) this._rememberTarget(target);
+    let adapterSun = null;
+    try {
+      adapterSun = this.getSunAdapter?.() ?? null;
+    } catch {
+      // A host getter is optional; target/Sky settings below remain a safe fallback.
+    }
+    const firstTargetSun = this._currentTransientTargets()
+      .map((target) => this._targetBaselines.get(target)?.sun)
+      .find((value) => value?.color && value?.direction && value?.sky);
+    this._baseSceneSun = completeSunState(adapterSun, firstTargetSun ?? {
+      color: this._baseSky?.sunColor,
+      direction: this._baseSky?.sunDirection,
+      sky: this._baseSky?.zenithColor,
     });
 
     if (onLightning) this.addEventListener('lightning', onLightning);
     if (onThunder) this.addEventListener('thunder', onThunder);
     scene?.add?.(this.root);
     this._applyFrame(this.settings);
+  }
+
+  _currentTransientTargets() {
+    return [...new Set([
+      resolveTarget(this.targets.ambientFx),
+      resolveTarget(this.targets.fauna),
+      resolveTarget(this.targets.flowers),
+      resolveTarget(this.targets.forest),
+      resolveTarget(this.targets.grass),
+      resolveTarget(this.targets.water),
+    ].filter(Boolean))];
+  }
+
+  _rememberTarget(target) {
+    if (target && !this._targetBaselines.has(target)) {
+      this._targetBaselines.set(target, snapshotWeatherTarget(target));
+    }
+    return target;
+  }
+
+  _applyStandaloneSun(atmosphere) {
+    if (!this._baseSceneSun) return;
+    const sceneSun = {
+      color: this._baseSceneSun.color.map((value, index) =>
+        value * (atmosphere.sunTint[index] ?? 1)),
+      direction: this._baseSceneSun.direction.slice(),
+      sky: weatheredColor(
+        this._baseSceneSun.sky,
+        atmosphere.skyTint,
+        atmosphere.skyDarkening,
+        atmosphere.skyDesaturation,
+      ),
+    };
+    if (this.setSunAdapter) {
+      this.setSunAdapter(sceneSun);
+      return;
+    }
+    for (const target of this._currentTransientTargets()) {
+      this._rememberTarget(target)?.setSun?.(sceneSun);
+    }
+  }
+
+  _restoreTransientTargets({ restoreSun = true } = {}) {
+    const ambientFx = resolveTarget(this.targets.ambientFx);
+    for (const target of this._currentTransientTargets()) {
+      const baseline = this._targetBaselines.get(target) ?? snapshotWeatherTarget(target);
+      if (target.setWind) {
+        const wind = definedEntries(baseline?.wind ?? {});
+        if (target === ambientFx) {
+          target.setWind(Object.keys(wind).length > 0 ? {
+            ...(wind.direction ? { windDirection: wind.direction } : {}),
+            ...(wind.speed !== undefined ? { windSpeed: wind.speed } : {}),
+            ...(wind.strength !== undefined ? { windStrength: wind.strength } : {}),
+          } : { windStrength: 0 });
+        } else {
+          target.setWind(Object.keys(wind).length > 0 ? wind : { strength: 0 });
+        }
+      }
+      if (target.setSurfaceWeather) {
+        const surfaceWeather = definedEntries(baseline?.surfaceWeather ?? {});
+        target.setSurfaceWeather(Object.keys(surfaceWeather).length > 0
+          ? surfaceWeather
+          : { snowCover: 0, wetness: 0 });
+      }
+      if (target.setCloudShadow) {
+        const cloudShadow = definedEntries(baseline?.cloudShadow ?? {});
+        target.setCloudShadow(Object.keys(cloudShadow).length > 0
+          ? cloudShadow
+          : { strength: 0 });
+      }
+      if (restoreSun && !this.setSunAdapter && target.setSun) {
+        const sun = completeSunState(baseline?.sun, this._baseSceneSun ?? {});
+        if (sun) target.setSun(sun);
+      }
+    }
   }
 
   get state() {
@@ -195,7 +447,59 @@ export class WeatherSystem extends THREE.EventDispatcher {
     };
   }
 
+  /** Active one-writer Lighting coordinator, if the host attached one. */
+  get lightingSystem() {
+    return resolveTarget(this.targets.lighting);
+  }
+
+  /** True after teardown; useful to coordinators resolving detach ownership. */
+  get disposed() {
+    return this._disposed;
+  }
+
+  /** Pre-Weather scene sun captured from the optional world adapter. */
+  get sunBaseline() {
+    return this._baseSceneSun ? structuredClone(this._baseSceneSun) : null;
+  }
+
+  /** Pre-Weather physical sun-rig state, serialized for ownership handoff. */
+  get sunRigBaseline() {
+    if (!this._baseSun) return null;
+    return {
+      beamOpacity: this._baseSun.beamOpacity,
+      color: this._baseSun.color.toArray(),
+      diskOpacity: this._baseSun.diskOpacity,
+      intensity: this._baseSun.intensity,
+      shaftOpacity: this._baseSun.shaftOpacity,
+      spillOpacity: this._baseSun.spillOpacity,
+    };
+  }
+
+  /**
+   * Hands sun, ambient, and fog-color ownership to Lighting. Weather then
+   * supplies modulation only; removing Lighting restores the direct fallback.
+   */
+  setLightingSystem(lighting = null) {
+    if (this._disposed) return this;
+    const previous = this.lightingSystem;
+    if (previous === lighting) return this;
+    previous?.setWeatherModulation?.();
+    if (lighting) {
+      const sunRig = resolveTarget(this.targets.sunRig);
+      if (sunRig?.light && this._baseSun) {
+        sunRig.setState?.({ color: this._baseSun.color, intensity: this._baseSun.intensity });
+      }
+      for (const [light, intensity] of this._ambientLights) light.intensity = intensity;
+      if (this._originalFog?.isFog) this._originalFog.color.copy(this._baseFog.color);
+    }
+    this.targets.lighting = lighting;
+    this._dirty = true;
+    this._applyFrame(this.settings);
+    return this;
+  }
+
   setPreset(name, overrides = {}) {
+    if (this._disposed) return this;
     this.currentPreset = name;
     this.settings = resolveWeatherSettings(name, overrides);
     this.targetSettings = copySettings(this.settings);
@@ -206,6 +510,7 @@ export class WeatherSystem extends THREE.EventDispatcher {
   }
 
   applySettings(overrides = {}, { duration = 0 } = {}) {
+    if (this._disposed) return this;
     const target = mergeWeatherSettings(this.settings, overrides);
     if (duration > 0) return this.transitionTo(target, { duration });
     this.currentPreset = null;
@@ -218,6 +523,7 @@ export class WeatherSystem extends THREE.EventDispatcher {
   }
 
   transitionTo(presetOrSettings, { duration = 4, overrides = {} } = {}) {
+    if (this._disposed) return this;
     const target = typeof presetOrSettings === 'string'
       ? resolveWeatherSettings(presetOrSettings, overrides)
       : mergeWeatherSettings(createWeatherSettings(presetOrSettings), overrides);
@@ -239,6 +545,7 @@ export class WeatherSystem extends THREE.EventDispatcher {
   }
 
   refresh() {
+    if (this._disposed) return this;
     this._dirty = true;
     this._applyFrame(this.settings);
     return this;
@@ -247,26 +554,42 @@ export class WeatherSystem extends THREE.EventDispatcher {
   _applyFrame(settings) {
     const atmosphere = settings.atmosphere;
     const wind = settings.wind;
+    const lighting = this.lightingSystem;
+    for (const target of this._currentTransientTargets()) this._rememberTarget(target);
     const sky = resolveTarget(this.targets.sky);
-    if (sky?.applySettings && this._baseSky) {
-      const zenith = weatheredColor(this._baseSky.zenithColor, atmosphere.skyTint, atmosphere.skyDarkening, atmosphere.skyDesaturation);
-      const horizon = weatheredColor(this._baseSky.horizonColor, atmosphere.skyTint, atmosphere.skyDarkening * 0.7, atmosphere.skyDesaturation);
-      const ground = weatheredColor(this._baseSky.groundColor, atmosphere.skyTint, atmosphere.skyDarkening, atmosphere.skyDesaturation);
-      const cloudColor = weatheredColor(this._baseSky.cloudColor, atmosphere.skyTint, atmosphere.skyDarkening * 0.45, atmosphere.skyDesaturation);
-      const cloudShadeColor = weatheredColor(this._baseSky.cloudShadeColor, atmosphere.skyTint, atmosphere.skyDarkening * 0.7, atmosphere.skyDesaturation);
-      sky.applySettings({
-        cloudColor,
+    if (sky?.setSceneOverrideLayer) {
+      sky.setSceneOverrideLayer(this._skyOverrideLayer, (base) => ({
+        cloudColor: weatheredColor(base.cloudColor, atmosphere.skyTint, atmosphere.skyDarkening * 0.45, atmosphere.skyDesaturation),
         cloudCoverage: atmosphere.cloudCoverage,
-        cloudShadeColor,
+        cloudShadeColor: weatheredColor(base.cloudShadeColor, atmosphere.skyTint, atmosphere.skyDarkening * 0.7, atmosphere.skyDesaturation),
+        cloudSpeed: base.cloudSpeed * atmosphere.cloudSpeed,
+        groundColor: weatheredColor(base.groundColor, atmosphere.skyTint, atmosphere.skyDarkening, atmosphere.skyDesaturation),
+        horizonColor: weatheredColor(base.horizonColor, atmosphere.skyTint, atmosphere.skyDarkening * 0.7, atmosphere.skyDesaturation),
+        zenithColor: weatheredColor(base.zenithColor, atmosphere.skyTint, atmosphere.skyDarkening, atmosphere.skyDesaturation),
+      }), { priority: SKY_SCENE_OVERRIDE_PRIORITIES.weather });
+    } else if ((sky?.setSceneOverrides || sky?.applySettings) && this._baseSky) {
+      const overrides = {
+        cloudColor: weatheredColor(this._baseSky.cloudColor, atmosphere.skyTint, atmosphere.skyDarkening * 0.45, atmosphere.skyDesaturation),
+        cloudCoverage: atmosphere.cloudCoverage,
+        cloudShadeColor: weatheredColor(this._baseSky.cloudShadeColor, atmosphere.skyTint, atmosphere.skyDarkening * 0.7, atmosphere.skyDesaturation),
         cloudSpeed: this._baseSky.cloudSpeed * atmosphere.cloudSpeed,
-        groundColor: ground,
-        horizonColor: horizon,
-        zenithColor: zenith,
-      });
+        groundColor: weatheredColor(this._baseSky.groundColor, atmosphere.skyTint, atmosphere.skyDarkening, atmosphere.skyDesaturation),
+        horizonColor: weatheredColor(this._baseSky.horizonColor, atmosphere.skyTint, atmosphere.skyDarkening * 0.7, atmosphere.skyDesaturation),
+        zenithColor: weatheredColor(this._baseSky.zenithColor, atmosphere.skyTint, atmosphere.skyDarkening, atmosphere.skyDesaturation),
+      };
+      if (sky.setSceneOverrides) sky.setSceneOverrides(overrides);
+      else sky.applySettings(overrides);
     }
 
     const sunRig = resolveTarget(this.targets.sunRig);
-    if (sunRig?.light && this._baseSun) {
+    if (lighting?.setWeatherModulation) {
+      lighting.setWeatherModulation({
+        ambientScale: atmosphere.ambientIntensity,
+        fogColorOverride: atmosphere.fogColor,
+        sunColorTint: atmosphere.sunTint,
+        sunIntensityScale: atmosphere.sunIntensity,
+      });
+    } else if (sunRig?.light && this._baseSun) {
       const color = this._baseSun.color.clone();
       color.multiply(new THREE.Color(...atmosphere.sunTint));
       sunRig.setState?.({
@@ -278,16 +601,21 @@ export class WeatherSystem extends THREE.EventDispatcher {
         spillOpacity: this._baseSun.spillOpacity === null ? undefined : this._baseSun.spillOpacity * atmosphere.sunIntensity,
       });
     }
-    for (const [light, intensity] of this._ambientLights) {
-      light.intensity = intensity * atmosphere.ambientIntensity;
+    if (!lighting?.setWeatherModulation) {
+      this._applyStandaloneSun(atmosphere);
+      for (const [light, intensity] of this._ambientLights) {
+        light.intensity = intensity * atmosphere.ambientIntensity;
+      }
     }
 
     if (this.scene) {
       this.scene.fog = this._weatherFog;
-      const color = atmosphere.fogColor
-        ? new THREE.Color(...atmosphere.fogColor)
-        : this._baseFog.color;
-      this._weatherFog.color.copy(color);
+      if (!lighting?.setWeatherModulation) {
+        const color = atmosphere.fogColor
+          ? new THREE.Color(...atmosphere.fogColor)
+          : this._baseFog.color;
+        this._weatherFog.color.copy(color);
+      }
       this._weatherFog.near = this._baseFog.near / atmosphere.fogRangeScale;
       this._weatherFog.far = this._baseFog.far / atmosphere.fogRangeScale;
     }
@@ -306,6 +634,7 @@ export class WeatherSystem extends THREE.EventDispatcher {
       setEnvironmentCloudShadow(cloudShadow);
       resolveTarget(this.targets.water)?.setCloudShadow?.(cloudShadow);
       resolveTarget(this.targets.grass)?.setCloudShadow?.(cloudShadow);
+      resolveTarget(this.targets.flowers)?.setCloudShadow?.(cloudShadow);
       resolveTarget(this.targets.forest)?.setCloudShadow?.(cloudShadow);
       resolveTarget(this.targets.fauna)?.setCloudShadow?.(cloudShadow);
     }
@@ -322,11 +651,11 @@ export class WeatherSystem extends THREE.EventDispatcher {
       speed: wind.speed,
       strength: wind.strength,
     });
-    resolveTarget(this.targets.forest)?.applySettings?.({ foliage: {
-      windDirection: wind.direction,
-      windSpeed: wind.speed,
-      windStrength: wind.strength,
-    } });
+    resolveTarget(this.targets.forest)?.setWind?.({
+      direction: wind.direction,
+      speed: wind.speed,
+      strength: wind.strength,
+    });
     resolveTarget(this.targets.ambientFx)?.setWind?.({
       windDirection: wind.direction,
       windSpeed: wind.speed,
@@ -334,7 +663,22 @@ export class WeatherSystem extends THREE.EventDispatcher {
     });
 
     const water = resolveTarget(this.targets.water);
-    water?.applySettings?.({ waveIntensity: Math.min(this._baseWaterWaveIntensity + settings.surface.waterWaveBoost, 1) });
+    if (water?.setSceneOverrideLayer) {
+      water.setSceneOverrideLayer(this._waterOverrideLayer, (base) => ({
+        waveIntensity: Math.min(base.waveIntensity + settings.surface.waterWaveBoost, 1),
+      }), { priority: WATER_SCENE_OVERRIDE_PRIORITIES.weather });
+    } else {
+      water?.applySettings?.({
+        waveIntensity: Math.min(this._baseWaterWaveIntensity + settings.surface.waterWaveBoost, 1),
+      });
+    }
+    const surfaceWeather = {
+      snowCover: settings.surface.snowCover,
+      wetness: settings.surface.wetness,
+    };
+    resolveTarget(this.targets.grass)?.setSurfaceWeather?.(surfaceWeather);
+    resolveTarget(this.targets.flowers)?.setSurfaceWeather?.(surfaceWeather);
+    resolveTarget(this.targets.forest)?.setSurfaceWeather?.(surfaceWeather);
     this.precipitation.applySettings(settings.precipitation, wind);
     this.lightningLight.material.uniforms.uColor.value.setRGB(
       ...settings.lightning.color,
@@ -367,6 +711,7 @@ export class WeatherSystem extends THREE.EventDispatcher {
   }
 
   triggerLightning() {
+    if (this._disposed) return this;
     const lightning = this.settings.lightning;
     if (!lightning.enabled) return this;
     const center = this._resolveCenter();
@@ -446,6 +791,7 @@ export class WeatherSystem extends THREE.EventDispatcher {
   }
 
   update(delta = 0.016) {
+    if (this._disposed) return this;
     const dt = Math.min(Math.max(Number(delta) || 0.016, 0), 0.1);
     if (this.transition) {
       this.transition.elapsed = Math.min(this.transition.elapsed + dt, this.transition.duration);
@@ -472,22 +818,51 @@ export class WeatherSystem extends THREE.EventDispatcher {
   }
 
   dispose() {
+    if (this._disposed) return;
+    this._disposed = true;
     this.precipitation.dispose();
     this.lightningLight.geometry.dispose();
     this.lightningLight.material.dispose();
     this.root.parent?.remove(this.root);
+    const lighting = this.lightingSystem;
+    this.targets.lighting = null;
+    lighting?.setWeatherModulation?.();
     if (this._originalFog?.isFog) {
-      this._originalFog.color.copy(this._baseFog.color);
+      if (!lighting?.setWeatherModulation) this._originalFog.color.copy(this._baseFog.color);
       this._originalFog.near = this._baseFog.near;
       this._originalFog.far = this._baseFog.far;
     }
     if (this.scene) this.scene.fog = this._originalFog;
-    for (const [light, intensity] of this._ambientLights) light.intensity = intensity;
+    if (!lighting?.setWeatherModulation) {
+      for (const [light, intensity] of this._ambientLights) light.intensity = intensity;
+    }
+    const sky = resolveTarget(this.targets.sky);
+    if (sky?.clearSceneOverrideLayer) {
+      sky.clearSceneOverrideLayer(this._skyOverrideLayer);
+    } else if (sky?.clearSceneOverrides) {
+      sky.clearSceneOverrides();
+    } else if (sky?.applySettings && this._baseSky) {
+      sky.applySettings(this._baseSky);
+    }
     const sunRig = resolveTarget(this.targets.sunRig);
-    if (sunRig?.light && this._baseSun) {
+    if (!lighting?.setWeatherModulation && sunRig?.light && this._baseSun) {
       sunRig.setState?.({ color: this._baseSun.color, intensity: this._baseSun.intensity });
     }
-    resolveTarget(this.targets.water)?.applySettings?.({ waveIntensity: this._baseWaterWaveIntensity });
+    const water = resolveTarget(this.targets.water);
+    if (water?.clearSceneOverrideLayer) water.clearSceneOverrideLayer(this._waterOverrideLayer);
+    else water?.applySettings?.({ waveIntensity: this._baseWaterWaveIntensity });
+
+    // Weather owns these values only while alive. Restore exact live target
+    // baselines when they were inspectable; otherwise disable the effect
+    // explicitly instead of leaving the last storm frame behind.
+    if (this.setCloudShadowAdapter) this.setCloudShadowAdapter(structuredClone(this._baseCloudShadow));
+    else setEnvironmentCloudShadow(this._baseEnvironmentCloudShadow);
+    this._restoreTransientTargets({ restoreSun: !lighting?.setWeatherModulation });
+    if (!lighting?.setWeatherModulation && this.setSunAdapter && this._baseSceneSun) {
+      this.setSunAdapter(structuredClone(this._baseSceneSun));
+    }
+    this.root.userData.weatherSurface = structuredClone(this._baseSurfaceState);
+    this.onSurfaceChange?.(structuredClone(this._baseSurfaceState));
   }
 }
 

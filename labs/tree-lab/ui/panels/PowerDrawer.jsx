@@ -9,7 +9,7 @@ import { readFieldValueFromSettings } from '../../../../src/debug/fieldValues.js
 import {
   Button, SchemaGroup, TextField, toast,
 } from '../../../shared/ui/index.js';
-import { isFieldDisabled } from '../fieldRules.js';
+import { fieldsForLab, groupForLab, isFieldDisabled } from '../fieldRules.js';
 
 function RecipeJsonEditor({ actions, state }) {
   // Re-derive on every document change; local draft only while editing.
@@ -66,7 +66,7 @@ function RecipeJsonEditor({ actions, state }) {
   );
 }
 
-export function PowerDrawer({ actions, state }) {
+export function PowerDrawer({ actions, labKind = 'tree', state }) {
   const [filter, setFilter] = useState('');
   const needle = filter.trim().toLowerCase();
   const fieldFilter = (field) => !needle
@@ -84,19 +84,21 @@ export function PowerDrawer({ actions, state }) {
           value={filter}
         />
       </div>
-      {TREE_SETTING_GROUPS.map((group) => (
+      {TREE_SETTING_GROUPS
+        .filter((group) => labKind === 'flower' || group.id !== 'flower')
+        .map((group) => (
         <SchemaGroup
           key={group.id}
           fieldFilter={fieldFilter}
-          fields={TREE_SETTING_FIELD_SCHEMA[group.id]}
+          fields={fieldsForLab(TREE_SETTING_FIELD_SCHEMA[group.id], labKind)}
           flat
           getValue={(field) => readFieldValueFromSettings(state.settings, field)}
-          group={group}
+          group={groupForLab(group, labKind)}
           isDisabled={(field) => isFieldDisabled(state, field)}
           onChange={(field, value) => actions.setField(field, value)}
           showCaption={false}
         />
-      ))}
+        ))}
       <RecipeJsonEditor actions={actions} state={state} />
     </>
   );

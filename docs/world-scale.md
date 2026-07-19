@@ -5,8 +5,9 @@ water, characters, fog distances, and camera planes. Every generator's
 defaults are authored at *asset-lab scale* — one tree or rock filling the
 frame at a 3–15 m camera. An open-world gameplay camera reads the world at
 50–160 m, and at that range asset-lab values read wrong: default-size trees
-and ankle-height grass disappear, flat-normal rocks go near-black, and the
-default sky dome (100 m) sits inside a far plane at 600 m.
+and ankle-height grass disappear, while flat-normal rocks go near-black. Sky
+dome vertices are pinned to the camera far plane, so its compatibility
+`radius` does not participate in world-scale tuning.
 
 The pieces that must agree at a given scale:
 
@@ -17,7 +18,6 @@ The pieces that must agree at a given scale:
 | Grass blades | 0.16–0.42 m | 0.35–0.7 m, wider blades |
 | Rock meshing | `hero`-ish, shape-preset normals | `gameplayHigh` (gradient normals — flat facets read near-black at range) |
 | Height fog | interior-scale density (0.006+) | 0.002, falloff 9 |
-| Sky dome `radius` | 100 | ≥ far plane × 0.6 (e.g. 400) |
 
 ## World presets
 

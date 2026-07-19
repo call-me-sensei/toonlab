@@ -14,6 +14,10 @@ own Three.js app.
   `@call-me-sensei/toonlab/post`, `@call-me-sensei/toonlab/camera`,
   `@call-me-sensei/toonlab/game-feel`, `@call-me-sensei/toonlab/texgen`, and
   `@call-me-sensei/toonlab/rockgen`.
+- Use `@call-me-sensei/toonlab/vegetation-shaders` and
+  `@call-me-sensei/toonlab/grass-palettes` when a consumer needs only those
+  focused contracts. They are the same bindings exposed by the vegetation and
+  root barrels.
 - Keep root imports lightweight in examples. Import only the feature subpath a
   developer needs.
 - ToonLab's labs, sample assets, local manifests, screenshots, captures, and
@@ -35,6 +39,27 @@ own Three.js app.
   `ShaderMaterial`, or classic WebGL-only forks for ToonLab features.
 - Keep developer examples focused on documented settings, preset documents,
   public constructors/helpers, and app-owned Three.js objects.
+- Keep artifact scope explicit: Shader Labs author IP profiles, Asset Labs
+  author geometry/material data, and Water/Sky Labs author complete runtime
+  system presets with embedded shader controls. Sky and Water are integrated
+  systems, not separate shader-document domains. Scene weather, lighting,
+  camera, and interactions stay host-owned.
+- For Sky and Water, `.settings` is the portable authored baseline and
+  `.renderedSettings` is the current composition. Give Lighting, Weather, and
+  other transient owners unique `setSceneOverrideLayer` ids and clear only the
+  same id; never export composed scene state.
+- For composed worlds, create a `LightingSystem` and call
+  `lighting.attachWorld(world)`. It owns the world sun adapter and private
+  Lighting layers, and automatically installs Lighting as Weather's
+  sun/ambient/fog bridge. Weather remains a modulation owner with its own
+  higher-priority Sky/Water layers.
+  The world adapter is `setSun({ direction, color, sky })`, which keeps the
+  physical light/shadows and every vegetation scene-light input aligned.
+- Sky documents contain exactly 46 portable art fields. Radius and compile-time
+  quality are not portable: named tiers use 2/3/4 cloud octaves, custom quality
+  accepts `{ cloudOctaves: 1..5 }`, and `sky.setQuality()` rebuilds the material.
+  Water quality is chosen when constructing/replacing `WaterSurface`, not via
+  `applySettings()`.
 - Do not depend on ToonLab sample assets, generated manifests, or lab-only
   model/environment discovery.
 - Keep these downloadable resources focused on runtime usage.

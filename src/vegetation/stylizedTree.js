@@ -15,6 +15,11 @@ import {
   setCanopyWind,
   tickCanopyTime,
 } from './stylizedTreeFoliage.js';
+import {
+  createWoodySurfaceNodeMaterial,
+  setWoodySurfaceSun,
+} from '../shaders-tsl/woody-surface.js';
+import { applyVegetationShader } from './vegetationShaders.js';
 
 // Modern anime-style stylized trees, fully parameterized for drop-in use:
 //
@@ -1980,7 +1985,7 @@ function sameSettingValue(a, b) {
 //   skeleton     — createTreeSkeleton options (limbsPerBlob, limbRadius, ...)
 //   canopy       — createTreeFoliageGeometry options (blobs, cardCount, ...)
 //   foliage      — createTreeFoliageMaterials options (cutoff, wind, sun, ...)
-//   trunkMaterial— any THREE material; default is a warm MeshToonMaterial
+//   trunkMaterial— any THREE material; default is a stylized woody material
 export class StylizedTree extends THREE.Group {
   constructor(options = {}) {
     super();
@@ -2009,6 +2014,7 @@ export class StylizedTree extends THREE.Group {
     //                      collar (a complete tree meets the ground).
     const {
       trunkMaterial = null,
+      vegetationShader = null,
       branchSpines = [],
       extraBlobs = [],
       extraAttachments = [],
@@ -2373,12 +2379,18 @@ export class StylizedTree extends THREE.Group {
         ? { leafMap: leafSpriteForShape(leafShape) }
         : {}),
       ...settings.foliage,
+      vegetationShader,
     });
 
     this.trunkMesh = new THREE.Mesh(
       trunkGeometry,
-      trunkMaterial ?? new THREE.MeshToonMaterial({ color: 0xc9ab8a }),
+      trunkMaterial ?? createWoodySurfaceNodeMaterial({
+        color: 0xc9ab8a,
+        height: settings.trunk.height,
+        vegetationShader,
+      }),
     );
+    this.trunkMesh.userData.toonlabVegetationRole = 'woodySurface';
     this.trunkMesh.castShadow = true;
     this.trunkMesh.receiveShadow = trunkReceiveShadow;
 
@@ -2449,6 +2461,11 @@ export class StylizedTree extends THREE.Group {
     uniforms.uCloudShadowScale.value = foliage.cloudShadowScale;
     uniforms.uCloudShadowVelocity.value.set(
       foliage.cloudShadowVelocity[0], foliage.cloudShadowVelocity[1]);
+    setWoodySurfaceSun(this.trunkMesh.material, {
+      color: foliage.sunColor,
+      direction: foliage.sunDirection,
+      sky: foliage.skyColor,
+    });
 
     // Re-derive the three-tone palette from the (possibly updated) canopy
     // color/palette pins. Constructor-only foliage.color/palette overrides
@@ -2470,6 +2487,7 @@ export class StylizedTree extends THREE.Group {
 
   setSun(options) {
     setCanopySun(this.canopyMesh.material.uniforms, options ?? {});
+    setWoodySurfaceSun(this.trunkMesh.material, options ?? {});
     return this;
   }
 
@@ -2488,6 +2506,24 @@ export class StylizedTree extends THREE.Group {
   setCloudShadow(options) {
     setCanopyCloudShadow(this.canopyMesh.material.uniforms, options);
     return this;
+  }
+
+  /** Current world surface state; material response coefficients stay in the vegetation shader profile. */
+  setSurfaceWeather({ wetness, snowCover } = {}) {
+    for (const material of [this.canopyMesh?.material, this.trunkMesh?.material]) {
+      const uniforms = material?.uniforms;
+      if (uniforms?.uWetness && wetness !== undefined) {
+        uniforms.uWetness.value = THREE.MathUtils.clamp(Number(wetness) || 0, 0, 1);
+      }
+      if (uniforms?.uSnowCover && snowCover !== undefined) {
+        uniforms.uSnowCover.value = THREE.MathUtils.clamp(Number(snowCover) || 0, 0, 1);
+      }
+    }
+    return this;
+  }
+
+  setVegetationShader(profile) {
+    return applyVegetationShader(this, profile);
   }
 
   update(delta) {

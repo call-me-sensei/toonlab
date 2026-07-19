@@ -600,6 +600,7 @@ export function createTreeFoliageMaterials({
   cloudShadowCoverage = 0.45,
   cloudShadowScale = 0.012,
   cloudShadowVelocity = [0.02, 0.006],
+  vegetationShader = null,
   sharedUniforms = {},
 } = {}) {
   const palette = deriveCanopyPalette(resolveCanopyColor(color, seed), paletteOverrides);
@@ -617,7 +618,7 @@ export function createTreeFoliageMaterials({
     windDirection,
     windSpeed,
     windStrength,
-  });
+  }, vegetationShader);
   material.uniforms.uSunDirection.value.set(...sunDirection);
   setSrgb(material.uniforms.uSunColor.value, sunColor);
   setSrgb(material.uniforms.uSkyColor.value, skyColor);

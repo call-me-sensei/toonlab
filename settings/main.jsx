@@ -55,6 +55,7 @@ function Header() {
       <nav aria-label="Primary">
         <a href="/">Labs</a>
         <a href="/gallery/">Gallery</a>
+        <a href="/docs/">Docs</a>
         <a href="https://github.com/call-me-sensei/toonlab" target="_blank" rel="noreferrer">GitHub</a>
         <a href="https://toonlab.io" target="_blank" rel="noreferrer">ToonLab Pro</a>
       </nav>

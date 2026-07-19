@@ -8,7 +8,7 @@ import {
 } from '../../../../src/vegetation/index.js';
 import { readFieldValueFromSettings } from '../../../../src/debug/fieldValues.js';
 import { SchemaGroup } from '../../../shared/ui/index.js';
-import { isFieldDisabled } from '../fieldRules.js';
+import { fieldsForLab, groupForLab, isFieldDisabled } from '../fieldRules.js';
 import { ADVANCED_FIELD_IDS } from '../stageMap.js';
 
 const GROUPS_BY_ID = Object.fromEntries(TREE_SETTING_GROUPS.map((group) => [group.id, group]));
@@ -25,15 +25,15 @@ const DECORATED_SCHEMA = Object.fromEntries(
 );
 
 export function StagePanel({
-  actions, flat = false, groupIds, state,
+  actions, flat = false, groupIds, labKind = 'tree', state,
 }) {
   return groupIds.map((groupId) => (
     <SchemaGroup
       key={groupId}
-      fields={DECORATED_SCHEMA[groupId]}
+      fields={fieldsForLab(DECORATED_SCHEMA[groupId], labKind)}
       flat={flat}
       getValue={(field) => readFieldValueFromSettings(state.settings, field)}
-      group={GROUPS_BY_ID[groupId]}
+      group={groupForLab(GROUPS_BY_ID[groupId], labKind)}
       isDisabled={(field) => isFieldDisabled(state, field)}
       onChange={(field, value) => actions.setField(field, value)}
     />

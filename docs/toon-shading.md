@@ -65,7 +65,7 @@ defaults, and returns the full nested settings object. There are 23 groups
 Every field (298 of them) is listed with type, default, and range in the
 generated [settings reference](settings-reference.md). The same schema
 (`TOON_SETTING_FIELD_SCHEMA`) drives the [debug panel](debug-panel.md), so
-each field is also a live slider in the Shader Lab.
+each field is also a live slider in the Character Shader Lab.
 
 ## Material roles
 
@@ -112,7 +112,7 @@ registerToonPreset('zzz_soft', {
   settings: { hairHighlight: { mode: 'anisotropic' } },
 });
 
-// Share as a versioned JSON document (same shape the Shader Lab exports):
+// Share as a versioned JSON document (same shape the Character Shader Lab exports):
 const json = serializeToonPreset('warm_skin_test', {
   label: 'Warm Skin Test',
   settings: { skinTone: { skinShadowBrightness: 0.94 } },

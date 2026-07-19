@@ -1,6 +1,6 @@
 {
   "name": "@call-me-sensei/toonlab",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Stylized (anime/toon) game starter kit for Three.js: character and environment shading, lighting, weather, water, vegetation, sky, and post-processing",
   "license": "MIT",
   "author": "Hyperbond Studio PTE. LTD. (Call Me Sensei)",
@@ -36,9 +36,7 @@
   "files": [
     "src",
     "mcp",
-    "docs/lighting.md",
-    "docs/mcp.md",
-    "docs/style-labs.md",
+    "docs",
     "README.md",
     "LICENSE",
     "ATTRIBUTION.md",
@@ -51,6 +49,8 @@
     "./lighting": "./src/lighting/index.js",
     "./water": "./src/water/index.js",
     "./vegetation": "./src/vegetation/index.js",
+    "./vegetation-shaders": "./src/vegetation/vegetationShaders.js",
+    "./grass-palettes": "./src/vegetation/grassPalettes.js",
     "./styles": "./src/styles/index.js",
     "./sky": "./src/sky/index.js",
     "./weather": "./src/weather/index.js",
@@ -100,6 +100,10 @@
     "verify:lighting": "node scripts/verify-lighting.mjs",
     "verify:lighting-lab": "node scripts/verify-lighting-lab.mjs",
     "verify:weather": "node scripts/verify-weather.mjs",
+    "verify:sky": "node scripts/verify-sky.mjs",
+    "verify:grass": "node scripts/verify-grass-palettes.mjs",
+    "verify:vegetation-shader": "node scripts/verify-vegetation-shader.mjs",
+    "verify:api": "node scripts/verify-public-api.mjs",
     "verify:generation": "node scripts/verify-generation.mjs",
     "verify:post": "node scripts/verify-post.mjs",
     "verify:camera": "node scripts/verify-camera.mjs",
@@ -107,7 +111,7 @@
     "verify:biome": "node scripts/verify-biome.mjs",
     "verify:soundscape": "node scripts/verify-soundscape.mjs",
     "verify:game-feel": "node scripts/verify-game-feel.mjs",
-    "verify:all": "npm run verify:generation && npm run verify:post && npm run verify:camera && npm run verify:motion && npm run verify:biome && npm run verify:soundscape && npm run verify:game-feel && npm run verify:rockgen && npm run verify:pathgen && npm run verify:propgen && npm run verify:buildinggen && npm run verify:villagegen && npm run verify:fauna && npm run verify:ambientfx && npm run verify:vfxgen && npm run verify:water && npm run verify:lighting && npm run verify:lighting-lab && npm run verify:weather && npm run verify:catalog && npm run verify:assetlib && npm run verify:mcp",
+    "verify:all": "npm run verify:generation && npm run verify:post && npm run verify:camera && npm run verify:motion && npm run verify:biome && npm run verify:soundscape && npm run verify:game-feel && npm run verify:rockgen && npm run verify:pathgen && npm run verify:propgen && npm run verify:buildinggen && npm run verify:villagegen && npm run verify:fauna && npm run verify:ambientfx && npm run verify:vfxgen && npm run verify:water && npm run verify:lighting && npm run verify:lighting-lab && npm run verify:weather && npm run verify:sky && npm run verify:grass && npm run verify:vegetation-shader && npm run verify:api && npm run verify:catalog && npm run verify:assetlib && npm run verify:mcp",
     "verify:catalog": "node scripts/verify-catalog.mjs",
     "verify:assetlib": "node scripts/verify-assetlib.mjs",
     "verify:mcp": "node scripts/verify-mcp.mjs",
@@ -118,9 +122,9 @@
   },
   "peerDependencies": {
     "@pixiv/three-vrm": "^3.5.4",
+    "three": "^0.185.1",
     "three-mesh-bvh": "^0.8.3",
-    "three-stdlib": "^2.36.1",
-    "three": "^0.185.1"
+    "three-stdlib": "^2.36.1"
   },
   "peerDependenciesMeta": {
     "@pixiv/three-vrm": {
@@ -141,6 +145,7 @@
     "@vitejs/plugin-react": "^4.7.0",
     "ecctrl": "^1.0.97",
     "lucide-react": "^1.23.0",
+    "marked": "^18.0.6",
     "playwright": "^1.60.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

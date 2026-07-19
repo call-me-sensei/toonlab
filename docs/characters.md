@@ -35,7 +35,7 @@ In the labs, use the HUD **Model URL** input or `?model=` — local paths and
 hosted URLs both work (hosted URLs need CORS headers on the server; load
 failures surface in a HUD banner). Private test models go in the gitignored
 `assets-local/models/` drop-in folder: after `npm run assets:local` they
-surface in every lab's Model select, no code changes. See
+surface in every model-aware lab's Model select, no code changes. See
 [getting-started.md](getting-started.md#loading-your-own-models) for the
 folder shapes the scanner recognizes.
 

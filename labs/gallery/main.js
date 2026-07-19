@@ -5,13 +5,17 @@
 // account); this page never talks to ToonLab at all — every card comes
 // straight from the source's own API and links to the source's site.
 //
-// A source qualifies only if its API needs no key and answers cross-origin
-// (CORS). That currently means Poly Haven. ambientCG has an API but sends no
-// CORS headers; Smithsonian requires an api.data.gov key; Kenney, Quaternius,
-// Mantissa, 3DTextures.me and Open Source 3D have no search API. Add new
-// entries to SOURCES (and the source <select>) only when both conditions hold.
+// A source qualifies only if it has a keyless public API and downloadable
+// open assets. Smithsonian 3D allows browser requests directly; Poly Haven
+// metadata uses a same-origin host route so requests can identify the app.
+// ambientCG has an API but sends no CORS headers; Kenney, Quaternius,
+// Mantissa and 3DTextures.me have no search API.
 
 import { downloadPolyhavenAsset } from '../shared/polyhavenDownload.js';
+import {
+  fetchSmithsonianIndex,
+  isSmithsonianGalleryReady,
+} from '../../src/assetlib/smithsonian.js';
 
 const PAGE_SIZE = 36;
 
@@ -27,7 +31,7 @@ const SOURCES = Object.freeze({
       // (~1–2k entries) so search/sort/pagination happen client-side.
       if (!this.cache.has(kind)) {
         const load = (async () => {
-          const res = await fetch(`https://api.polyhaven.com/assets?type=${PH_ENDPOINT[kind]}`);
+          const res = await fetch(`/api/polyhaven/assets?type=${PH_ENDPOINT[kind]}`);
           if (!res.ok) throw new Error(`polyhaven/${kind} → HTTP ${res.status}`);
           const data = await res.json();
           return Object.entries(data).map(([id, a]) => ({
@@ -48,6 +52,33 @@ const SOURCES = Object.freeze({
         this.cache.set(kind, load);
       }
       return this.cache.get(kind);
+    },
+  },
+  smithsonian: {
+    label: 'Smithsonian 3D Open Access',
+    kinds: ['model'],
+    cache: null,
+    list() {
+      if (!this.cache) {
+        this.cache = fetchSmithsonianIndex().then((refs) => refs
+          .filter(isSmithsonianGalleryReady)
+          .map((ref) => ({
+            id: `smithsonian:${ref.id}`,
+            sourceId: ref.id,
+            kind: ref.kind,
+            label: ref.name,
+            badge: 'Smithsonian · CC0',
+            href: `/asset/?src=smithsonian&id=${encodeURIComponent(ref.id)}&kind=model`,
+            sourceHref: ref.pageUrl,
+            downloadHref: ref.download.url,
+            downloadName: `${ref.name.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '') || ref.id}.glb`,
+            thumbUrl: ref.thumbnailUrl,
+            popularity: 0,
+            haystack: [ref.name, ref.id, ...ref.tags, ...ref.categories].join(' ').toLowerCase(),
+          })));
+        this.cache.catch(() => { this.cache = null; });
+      }
+      return this.cache;
     },
   },
 });
@@ -104,21 +135,30 @@ async function collect() {
       loads.push(source.list(kind));
     }
   }
-  let items = (await Promise.all(loads)).flat();
+  const settled = await Promise.allSettled(loads);
+  const failures = settled.filter((result) => result.status === 'rejected');
+  const fulfilled = settled.filter((result) => result.status === 'fulfilled');
+  if (fulfilled.length === 0 && failures.length > 0) throw failures[0].reason;
+  for (const failure of failures) console.warn('Gallery source unavailable:', failure.reason);
+  let items = fulfilled.flatMap((result) => result.value);
   const terms = state.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (terms.length) items = items.filter((item) => terms.every((t) => item.haystack.includes(t)));
   // Same ordering as Pro's CC0 half of the feed: popularity, descending.
   items.sort((a, b) => b.popularity - a.popularity);
-  return items;
+  return { items, unavailable: failures.length };
 }
 
 function card(item) {
-  // Cards open OUR asset page (same-tab, like Pro); only the explicit
-  // download affordance goes out to the source site.
+  // Poly Haven has an OSS detail page; Smithsonian cards open the official
+  // object page. The explicit download affordance always resolves the asset.
   const el = document.createElement('a');
   el.className = 'gal-card';
   el.href = item.href;
   el.title = item.label;
+  if (item.external) {
+    el.target = '_blank';
+    el.rel = 'noreferrer';
+  }
 
   const media = document.createElement('div');
   media.className = 'gal-card-media';
@@ -146,11 +186,34 @@ function card(item) {
   download.setAttribute('role', 'link');
   download.tabIndex = 0;
   let busy = false;
-  download.addEventListener('click', async (e) => {
+  const startDownload = async (e) => {
     // Direct download in place — assembled off the source CDN, no account.
     e.preventDefault();
     e.stopPropagation();
     if (busy) return;
+    if (item.downloadHref) {
+      busy = true;
+      download.textContent = 'Downloading…';
+      try {
+        const response = await fetch(item.downloadHref);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const objectUrl = URL.createObjectURL(await response.blob());
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        anchor.download = item.downloadName;
+        anchor.hidden = true;
+        document.body.append(anchor);
+        anchor.click();
+        anchor.remove();
+        setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      } catch (error) {
+        console.error('Direct download failed:', error);
+        window.open(item.sourceHref, '_blank', 'noopener');
+      }
+      download.textContent = 'Download ↓';
+      busy = false;
+      return;
+    }
     busy = true;
     try {
       await downloadPolyhavenAsset({
@@ -166,6 +229,10 @@ function card(item) {
     }
     download.textContent = 'Download ↓';
     busy = false;
+  };
+  download.addEventListener('click', startDownload);
+  download.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ' ') startDownload(e);
   });
   meta.append(badge, download);
   overlay.append(title, meta);
@@ -191,8 +258,9 @@ async function render() {
   setSearching(true);
 
   let items;
+  let sourceFailures = 0;
   try {
-    items = await collect();
+    ({ items, unavailable: sourceFailures } = await collect());
   } catch (error) {
     if (id !== renderId) return;
     console.error('Gallery fetch failed:', error);
@@ -217,7 +285,7 @@ async function render() {
   const pageItems = items.slice(start, start + PAGE_SIZE);
 
   els.grid.replaceChildren(...pageItems.map(card));
-  els.status.textContent = `${total.toLocaleString()} assets`;
+  els.status.textContent = `${total.toLocaleString()} assets${sourceFailures ? ` · ${sourceFailures} source unavailable` : ''}`;
 
   const q = state.q.trim();
   els.emptyTitle.textContent = q ? `Nothing matches “${q}”` : 'Nothing matches';

@@ -1,4 +1,4 @@
-// Character Shader workspace: top bar, left workflow rail, focused schema
+// Character Shader Lab workspace: top bar, left workflow rail, focused schema
 // groups in the right inspector, floating stage bar, and status bar — the
 // same chrome as Tree/Water/Debris Lab. Pure view over the store; the engine
 // renders the character underneath and hosts the walk-preview controller.
@@ -168,7 +168,7 @@ function TopBar({ actions, state }) {
   const [menuAnchor, setMenuAnchor] = useState(null);
   return (
     <header className="cs-topbar tk">
-      <BrandLockup labName="Character Shader" />
+      <BrandLockup labName="Character Shader Lab" />
       <button
         type="button"
         className="cs-title"
@@ -304,7 +304,7 @@ export function App({ engine, store }) {
   const { actions } = store;
   const [sectionId, setSectionId] = useState('base');
 
-  useEffect(() => { document.title = `${state.name} — Character Shader`; }, [state.name]);
+  useEffect(() => { document.title = `${state.name} — Character Shader Lab`; }, [state.name]);
 
   return (
     <div className="tk">

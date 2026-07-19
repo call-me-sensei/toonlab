@@ -171,6 +171,7 @@ export function createEnvironmentSunRig({
   light.shadow.camera.bottom = -shadowExtent;
   light.position.copy(environmentRelativePoint(environmentBox, sourceRatios));
   light.target.position.copy(environmentRelativePoint(environmentBox, targetRatios));
+  const sourceDistance = Math.max(light.position.distanceTo(light.target.position), 1);
   light.shadow.camera.updateProjectionMatrix();
   group.add(light);
   group.add(light.target);
@@ -265,6 +266,25 @@ export function createEnvironmentSunRig({
     if (nextColor && disk) disk.material.uniforms.color.value.set(nextColor);
   }
 
+  // Places the directional light from a real world-space direction instead
+  // of interpreting direction components as environment-box ratios. The two
+  // are only equivalent in a cube centered at the origin; wide worlds would
+  // otherwise skew low-elevation sun paths badly when shadows are disabled.
+  function setDirection(value, { distance = sourceDistance } = {}) {
+    const direction = value?.isVector3
+      ? value.clone()
+      : new THREE.Vector3(...(Array.isArray(value) ? value.slice(0, 3) : []));
+    if (![direction.x, direction.y, direction.z].every(Number.isFinite)) return null;
+    if (direction.lengthSq() < 1e-8) direction.set(0.35, 0.8, 0.45);
+    direction.normalize();
+    light.position.copy(light.target.position).addScaledVector(
+      direction,
+      Math.max(Number(distance) || sourceDistance, 1),
+    );
+    disk?.position.copy(light.position);
+    return direction;
+  }
+
   function setEnabled(value) {
     group.visible = Boolean(value);
     light.visible = Boolean(value);
@@ -278,7 +298,7 @@ export function createEnvironmentSunRig({
     });
   }
 
-  return { beam, disk, dispose, group, light, setEnabled, setState, shaft, spill };
+  return { beam, disk, dispose, group, light, setDirection, setEnabled, setState, shaft, spill };
 }
 
 function detectLampPositions(root, environmentBox, pattern) {

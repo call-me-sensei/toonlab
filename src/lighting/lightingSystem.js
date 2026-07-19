@@ -9,12 +9,12 @@
 //   lighting.update(dt, camera);            // flicker, blends, light budgets
 //
 // Ownership contract (one writer per property): while attached, the system
-// owns sun color/intensity + accents, fog color, tone-mapping exposure, its
-// own ambient light, and every placed fixture. The world keeps owning sun
-// *position* (its shadow-follow logic translates the sun each frame); pass
-// { driveSunPosition: true } in standalone scenes to let the style's sun path
-// move the light. Weather should modulate through setWeatherModulation()
-// rather than writing to the same targets.
+// owns sun direction/color/intensity + accents, coordinated Sky/Water/
+// vegetation scene inputs, environment tints, fog color, tone-mapping
+// exposure, its own ambient light, and every placed fixture. A composed world
+// keeps owning the physical shadow-follow translation while Lighting supplies
+// the true direction through world.setSun(). Weather modulates through
+// setWeatherModulation() rather than writing the same targets.
 
 import * as THREE from 'three';
 
@@ -23,11 +23,14 @@ import { createLightingManager } from './lightingRuntime.js';
 import { resolveFixturePlacement, resolveLightFixture } from './lightingFixtures.js';
 import { resolveLightingStylePreset, sampleLightingStyle } from './lightingStyle.js';
 import { clamp, cloneJson, finite, isPlainObject, slug } from './utils.js';
+import { SKY_SCENE_OVERRIDE_PRIORITIES } from '../sky/sceneOverrideLayers.js';
+import { WATER_SCENE_OVERRIDE_PRIORITIES } from '../water/sceneOverrideLayers.js';
 
 const DEFAULT_MODULATION = Object.freeze({
   ambientScale: 1,
   exposureScale: 1,
   fixtureScale: 1,
+  fogColorOverride: null,
   fogColorTint: null,
   sunColorTint: null,
   sunIntensityScale: 1,
@@ -39,6 +42,9 @@ function normalizeModulation(source = {}) {
     ambientScale: Math.max(finite(input.ambientScale, 1), 0),
     exposureScale: Math.max(finite(input.exposureScale, 1), 0),
     fixtureScale: Math.max(finite(input.fixtureScale, 1), 0),
+    fogColorOverride: Array.isArray(input.fogColorOverride)
+      ? input.fogColorOverride.slice(0, 3).map((v) => clamp(finite(v, 0), 0, 1))
+      : null,
     fogColorTint: Array.isArray(input.fogColorTint) ? input.fogColorTint.slice(0, 3).map((v) => Math.max(finite(v, 1), 0)) : null,
     sunColorTint: Array.isArray(input.sunColorTint) ? input.sunColorTint.slice(0, 3).map((v) => Math.max(finite(v, 1), 0)) : null,
     sunIntensityScale: Math.max(finite(input.sunIntensityScale, 1), 0),
@@ -78,6 +84,75 @@ function scheduleScale(schedule, frame) {
   return Math.max(frame.fixtureScale, schedule.minimum);
 }
 
+const ENVIRONMENT_LIGHTING_UNIFORM_KEYS = Object.freeze([
+  'heightFogColor',
+  'skyGroundTint',
+  'skyTopTint',
+]);
+
+function captureEnvironmentLighting(root) {
+  if (!root?.traverse) return [];
+  const seen = new Set();
+  const snapshots = [];
+  root.traverse((object) => {
+    if (!object.isMesh || !object.material) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) {
+      if (seen.has(material) || !material?.userData?.environmentMaterial || !material.uniforms) continue;
+      seen.add(material);
+      const values = {};
+      for (const key of ENVIRONMENT_LIGHTING_UNIFORM_KEYS) {
+        const value = material.uniforms[key]?.value;
+        if (value?.clone) values[key] = value.clone();
+      }
+      snapshots.push({ material, values });
+    }
+  });
+  return snapshots;
+}
+
+function restoreEnvironmentLighting(snapshots = []) {
+  for (const { material, values } of snapshots) {
+    for (const [key, value] of Object.entries(values)) {
+      material?.uniforms?.[key]?.value?.copy?.(value);
+    }
+  }
+}
+
+function captureSunRigState(sunRig) {
+  const light = sunRig?.light;
+  if (!light) return null;
+  const opacity = (mesh) => mesh?.material?.uniforms?.opacity?.value ?? null;
+  return {
+    beamOpacity: opacity(sunRig.beam),
+    color: light.color.toArray(),
+    diskOpacity: opacity(sunRig.disk),
+    intensity: light.intensity,
+    shaftOpacity: opacity(sunRig.shaft),
+    spillOpacity: opacity(sunRig.spill),
+  };
+}
+
+function restoreSunRigState(sunRig, state) {
+  if (!sunRig?.light || !state) return;
+  const color = Array.isArray(state.color)
+    ? new THREE.Color().fromArray(state.color)
+    : state.color;
+  if (sunRig.setState) {
+    sunRig.setState({
+      beamOpacity: state.beamOpacity ?? undefined,
+      color,
+      diskOpacity: state.diskOpacity ?? undefined,
+      intensity: state.intensity,
+      shaftOpacity: state.shaftOpacity ?? undefined,
+      spillOpacity: state.spillOpacity ?? undefined,
+    });
+  } else {
+    if (color) sunRig.light.color.copy(color);
+    if (state.intensity !== null && state.intensity !== undefined) sunRig.light.intensity = state.intensity;
+  }
+}
+
 export function createLightingSystem({
   camera = null,
   capabilities = null,
@@ -115,50 +190,110 @@ export function createLightingSystem({
 
   const placements = new Map();
   const overlays = new Map();
+  const skyOverrideLayer = Symbol('ToonLab LightingSystem sky layer');
+  const waterOverrideLayer = Symbol('ToonLab LightingSystem water layer');
 
   // Attach targets + the state to restore on detach/dispose.
   const attachment = {
     driveSunPosition: false,
     environmentRoot: null,
     fog: null,
+    getSun: null,
+    getSunDirection: null,
     lampRig: null,
     ownSun: null,
     restore: null,
     sky: null,
     sunDistance: 60,
+    setSunDirection: null,
+    setSun: null,
     sunRig: null,
+    weather: null,
+    weatherLighting: null,
+    water: null,
   };
 
   const SKY_DRIVEN_KEYS = ['horizonColor', 'starsStrength', 'sunColor', 'sunDirection', 'zenithColor'];
+  const WATER_DRIVEN_KEYS = ['skyHorizonColor', 'skyZenithColor', 'sunColor', 'sunDirection'];
 
   function captureRestoreState() {
     const sunLight = attachment.sunRig?.light ?? null;
-    const skySettings = attachment.sky?.settings ?? null;
+    const skySettings = attachment.sky?.setSceneOverrideLayer
+      ? null
+      : attachment.sky?.settings ?? null;
+    const waterSettings = attachment.water?.setSceneOverrideLayer
+      ? null
+      : attachment.water?.settings ?? null;
     attachment.restore = {
+      environmentLighting: captureEnvironmentLighting(attachment.environmentRoot),
       exposure: renderer ? renderer.toneMappingExposure : null,
       fogColor: attachment.fog?.color?.clone?.() ?? null,
       sky: skySettings
         ? Object.fromEntries(SKY_DRIVEN_KEYS.map((key) => [key, cloneJson(skySettings[key])]))
         : null,
       sunColor: sunLight?.color?.clone?.() ?? null,
+      sunState: attachment.getSun ? cloneJson(attachment.getSun()) : null,
+      sunDirection: attachment.getSunDirection
+        ? cloneJson(attachment.getSunDirection())
+        : null,
       sunIntensity: sunLight?.intensity ?? null,
       sunPosition: sunLight?.position?.clone?.() ?? null,
+      sunRigState: captureSunRigState(attachment.sunRig),
+      water: waterSettings
+        ? Object.fromEntries(WATER_DRIVEN_KEYS.map((key) => [key, cloneJson(waterSettings[key])]))
+        : null,
+      weatherSunBaseline: attachment.weather?.sunBaseline ?? null,
+      weatherSunRigBaseline: attachment.weather?.sunRigBaseline ?? null,
     };
   }
 
   function restoreAttachedState() {
     const restore = attachment.restore;
-    if (!restore) return;
-    if (renderer && restore.exposure !== null) renderer.toneMappingExposure = restore.exposure;
-    if (attachment.fog && restore.fogColor) attachment.fog.color.copy(restore.fogColor);
-    if (attachment.sky && restore.sky) attachment.sky.applySettings(restore.sky);
-    const sunLight = attachment.sunRig?.light ?? null;
-    if (sunLight) {
-      if (restore.sunColor) sunLight.color.copy(restore.sunColor);
-      if (restore.sunIntensity !== null) sunLight.intensity = restore.sunIntensity;
-      if (restore.sunPosition && attachment.driveSunPosition) sunLight.position.copy(restore.sunPosition);
+    const weatherWasDisposed = Boolean(attachment.weather?.disposed);
+    const sunStateToRestore = weatherWasDisposed && restore?.weatherSunBaseline
+      ? restore.weatherSunBaseline
+      : restore?.sunState;
+    const sunRigStateToRestore = weatherWasDisposed && restore?.weatherSunRigBaseline
+      ? restore.weatherSunRigBaseline
+      : restore?.sunRigState;
+    if (restore) {
+      if (renderer && restore.exposure !== null) renderer.toneMappingExposure = restore.exposure;
+      if (attachment.fog && restore.fogColor) attachment.fog.color.copy(restore.fogColor);
+      const sunLight = attachment.sunRig?.light ?? null;
+      if (sunLight) {
+        restoreSunRigState(attachment.sunRig, sunRigStateToRestore);
+        if (restore.sunPosition && attachment.driveSunPosition) sunLight.position.copy(restore.sunPosition);
+      }
+      if (sunStateToRestore && attachment.setSun) attachment.setSun(sunStateToRestore);
     }
+    if (attachment.weather?.setLightingSystem
+      && attachment.weather.lightingSystem === api) {
+      attachment.weather.setLightingSystem(attachment.weatherLighting);
+    }
+    // Resetting Weather modulation refreshes the Lighting frame once, so the
+    // world-owned direction must be restored after that refresh.
+    const directionToRestore = sunStateToRestore?.direction ?? restore?.sunDirection;
+    if (directionToRestore && attachment.setSunDirection) {
+      attachment.setSunDirection(directionToRestore);
+    }
+    // Unbinding Weather resets Lighting modulation, which refreshes its Sky
+    // layer once. Remove our layer afterwards so only Weather remains.
+    if (attachment.sky?.clearSceneOverrideLayer) {
+      attachment.sky.clearSceneOverrideLayer(skyOverrideLayer);
+    } else if (attachment.sky && restore?.sky) {
+      attachment.sky.applySettings(restore.sky);
+    }
+    if (attachment.water?.clearSceneOverrideLayer) {
+      attachment.water.clearSceneOverrideLayer(waterOverrideLayer);
+    } else if (attachment.water?.clearSceneOverrides) {
+      attachment.water.clearSceneOverrides();
+    } else if (attachment.water && restore?.water) {
+      attachment.water.applySettings?.(restore.water);
+    }
+    restoreEnvironmentLighting(restore?.environmentLighting);
     attachment.restore = null;
+    attachment.weather = null;
+    attachment.weatherLighting = null;
   }
 
   function overlayFactor(key) {
@@ -190,15 +325,16 @@ export function createLightingSystem({
     if (modulation.sunColorTint) {
       for (let i = 0; i < 3; i += 1) sunColor[i] = clamp(sunColor[i] * modulation.sunColorTint[i], 0, 4);
     }
+    const sunDirection = [frame.sunSourceRatios.x, frame.sunSourceRatios.y, frame.sunSourceRatios.z];
 
     if (attachment.sunRig?.setState) {
       attachment.sunRig.setState({
-        beamOpacity: 0.28 * frame.accentScale,
+        beamOpacity: 0.28 * frame.accentScale * sunScale,
         color: workColor.setRGB(sunColor[0], sunColor[1], sunColor[2]),
-        diskOpacity: 0.62 * frame.accentScale,
+        diskOpacity: 0.62 * frame.accentScale * sunScale,
         intensity: frame.sunIntensity * sunScale,
-        shaftOpacity: 0.1 * frame.accentScale,
-        spillOpacity: 0.3 * frame.accentScale,
+        shaftOpacity: 0.1 * frame.accentScale * sunScale,
+        spillOpacity: 0.3 * frame.accentScale * sunScale,
         ...(attachment.driveSunPosition ? { sourceRatios: frame.sunSourceRatios } : {}),
       });
     } else if (attachment.ownSun) {
@@ -221,18 +357,21 @@ export function createLightingSystem({
       * modulation.ambientScale
       * overlayFactor('ambientScale');
 
+    const effectiveFogColor = [...frame.fogColor];
+    if (modulation.fogColorTint) {
+      for (let i = 0; i < 3; i += 1) effectiveFogColor[i] = clamp(effectiveFogColor[i] * modulation.fogColorTint[i], 0, 1);
+    }
+    if (modulation.fogColorOverride) {
+      for (let i = 0; i < 3; i += 1) effectiveFogColor[i] = modulation.fogColorOverride[i];
+    }
+    const overlayFog = overlayFogColor();
+    if (overlayFog) {
+      for (let i = 0; i < 3; i += 1) {
+        effectiveFogColor[i] += (overlayFog.color[i] - effectiveFogColor[i]) * overlayFog.weight;
+      }
+    }
     if (attachment.fog?.color) {
-      const fogColor = [...frame.fogColor];
-      if (modulation.fogColorTint) {
-        for (let i = 0; i < 3; i += 1) fogColor[i] = clamp(fogColor[i] * modulation.fogColorTint[i], 0, 1);
-      }
-      const overlayFog = overlayFogColor();
-      if (overlayFog) {
-        for (let i = 0; i < 3; i += 1) {
-          fogColor[i] += (overlayFog.color[i] - fogColor[i]) * overlayFog.weight;
-        }
-      }
-      attachment.fog.color.setRGB(fogColor[0], fogColor[1], fogColor[2]);
+      attachment.fog.color.setRGB(...effectiveFogColor);
     }
 
     if (renderer && style.exposure.enabled) {
@@ -246,14 +385,49 @@ export function createLightingSystem({
     // The house sky dome follows the style's day cycle: zenith/horizon
     // colors, star strength, and the sun disk color/direction all move with
     // the hour, so nights are actually dark and starry.
-    if (attachment.sky?.applySettings) {
-      attachment.sky.applySettings({
+    if (attachment.sky) {
+      const skyFrame = {
         horizonColor: frame.skyHorizonColor,
         starsStrength: frame.starsStrength,
         sunColor: sunColor,
-        sunDirection: [frame.sunSourceRatios.x, frame.sunSourceRatios.y, frame.sunSourceRatios.z],
+        sunDirection,
         zenithColor: frame.skyZenithColor,
-      });
+      };
+      if (attachment.sky.setSceneOverrideLayer) {
+        attachment.sky.setSceneOverrideLayer(skyOverrideLayer, skyFrame, {
+          priority: SKY_SCENE_OVERRIDE_PRIORITIES.lighting,
+        });
+      } else if (attachment.sky.setSceneOverrides) {
+        attachment.sky.setSceneOverrides(skyFrame);
+      } else if (attachment.sky.applySettings) {
+        attachment.sky.applySettings(skyFrame);
+      }
+    }
+
+    const renderedSky = attachment.sky?.renderedSettings;
+    const skyFillColor = renderedSky?.horizonColor ?? frame.skyHorizonColor;
+    if (attachment.setSun) {
+      attachment.setSun({ color: sunColor, direction: sunDirection, sky: skyFillColor });
+    } else {
+      attachment.setSunDirection?.(sunDirection);
+    }
+
+    if (attachment.water) {
+      const waterFrame = {
+        skyHorizonColor: renderedSky?.horizonColor ?? frame.skyHorizonColor,
+        skyZenithColor: renderedSky?.zenithColor ?? frame.skyZenithColor,
+        sunColor,
+        sunDirection,
+      };
+      if (attachment.water.setSceneOverrideLayer) {
+        attachment.water.setSceneOverrideLayer(waterOverrideLayer, waterFrame, {
+          priority: WATER_SCENE_OVERRIDE_PRIORITIES.lighting,
+        });
+      } else if (attachment.water.setSceneOverrides) {
+        attachment.water.setSceneOverrides(waterFrame);
+      } else if (attachment.water.applySettings) {
+        attachment.water.applySettings(waterFrame);
+      }
     }
 
     if (attachment.environmentRoot?.traverse) {
@@ -264,7 +438,7 @@ export function createLightingSystem({
           if (!material?.userData?.environmentMaterial || !material.uniforms) continue;
           material.uniforms.skyGroundTint?.value?.setRGB?.(...frame.skyGroundTint);
           material.uniforms.skyTopTint?.value?.setRGB?.(...frame.skyTopTint);
-          material.uniforms.heightFogColor?.value?.setRGB?.(...frame.fogColor);
+          material.uniforms.heightFogColor?.value?.setRGB?.(...effectiveFogColor);
         }
       });
     }
@@ -302,20 +476,37 @@ export function createLightingSystem({
       driveSunPosition = false,
       environmentRoot = null,
       fog = null,
+      getSun = null,
+      getSunDirection = null,
       lampRig = null,
       sky = null,
       sunDistance = 60,
+      setSunDirection = null,
+      setSun = null,
       sunRig = null,
+      weather = null,
+      water = null,
     } = {}) {
       if (disposed) throw new Error('Cannot attach a disposed lighting system.');
       restoreAttachedState();
       attachment.driveSunPosition = Boolean(driveSunPosition);
       attachment.environmentRoot = environmentRoot;
       attachment.fog = fog ?? null;
+      attachment.getSun = typeof getSun === 'function' ? getSun : null;
+      attachment.getSunDirection = typeof getSunDirection === 'function' ? getSunDirection : null;
       attachment.lampRig = lampRig ?? null;
-      attachment.sky = sky?.applySettings ? sky : null;
+      attachment.sky = sky?.setSceneOverrideLayer || sky?.setSceneOverrides || sky?.applySettings
+        ? sky
+        : null;
       attachment.sunDistance = Math.max(finite(sunDistance, 60), 1);
+      attachment.setSunDirection = typeof setSunDirection === 'function' ? setSunDirection : null;
+      attachment.setSun = typeof setSun === 'function' ? setSun : null;
       attachment.sunRig = sunRig?.light ? sunRig : null;
+      attachment.weather = weather?.setLightingSystem ? weather : null;
+      attachment.weatherLighting = attachment.weather?.lightingSystem ?? null;
+      attachment.water = water?.setSceneOverrideLayer || water?.setSceneOverrides || water?.applySettings
+        ? water
+        : null;
       if (!attachment.sunRig && scene && !attachment.ownSun) {
         const sun = new THREE.DirectionalLight(0xffffff, 1);
         sun.name = 'Lighting System Sun';
@@ -326,19 +517,27 @@ export function createLightingSystem({
       }
       captureRestoreState();
       refreshFrame();
+      attachment.weather?.setLightingSystem(api);
       return api;
     },
 
     /** Convenience: binds the handles a createStylizedWorld result exposes. */
     attachWorld(world, options = {}) {
       return api.attach({
+        environmentRoot: world?.environmentRoot ?? null,
         fog: world?.fog ?? null,
+        getSun: world ? () => world.sunState : null,
+        getSunDirection: world ? () => world.sunDirection : null,
+        sky: world?.sky ?? null,
         sunRig: world?.sunRig ?? null,
-        // Worlds translate the sun every frame for shadow-follow; the style
-        // drives color/intensity only unless the caller opts in. The world
-        // SKY is deliberately not bound by default — the weather system
-        // writes it; pass { sky: world.sky } explicitly in weatherless
-        // scenes to let the style own the dome.
+        setSun: world?.setSun ?? null,
+        setSunDirection: world?.setSunDirection ?? null,
+        weather: world?.weather ?? null,
+        water: world?.water ?? null,
+        // Worlds translate the physical light every frame for shadow-follow;
+        // the style drives its true direction, color, and intensity. Sky uses
+        // a lower-priority Lighting layer so Weather composes above it without
+        // either system mutating the authored Sky preset.
         driveSunPosition: false,
         ...options,
       });
@@ -349,9 +548,16 @@ export function createLightingSystem({
       attachment.driveSunPosition = false;
       attachment.environmentRoot = null;
       attachment.fog = null;
+      attachment.getSun = null;
+      attachment.getSunDirection = null;
       attachment.lampRig = null;
       attachment.sky = null;
       attachment.sunRig = null;
+      attachment.setSunDirection = null;
+      attachment.setSun = null;
+      attachment.weather = null;
+      attachment.weatherLighting = null;
+      attachment.water = null;
       return api;
     },
 

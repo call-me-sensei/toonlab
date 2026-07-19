@@ -21,6 +21,10 @@ import { WaterShoreStateField } from './waterShoreStateField.js';
 import { updateWaterShoreMaterial } from './waterShoreMaterial.js';
 import { WaterSplashSystem } from './waterSplashSystem.js';
 import {
+  WATER_SCENE_OVERRIDE_KEYS,
+  WATER_SCENE_OVERRIDE_PRIORITIES,
+} from './sceneOverrideLayers.js';
+import {
   createWaterSettings,
   sampleGerstnerHeight,
   sampleSwashEdgeOffset,
@@ -32,6 +36,26 @@ const localScratch = new THREE.Vector3();
 const breakerSampleScratch = { weight: 0, crestY: 0, flowX: 0, flowZ: 0 };
 const followScratch = new THREE.Vector3();
 const currentSampleScratch = new THREE.Vector2();
+
+const waterSceneOverrideKeySet = new Set(WATER_SCENE_OVERRIDE_KEYS);
+
+function cleanObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function cloneValue(value) {
+  if (Array.isArray(value)) return [...value];
+  if (value && typeof value === 'object') return { ...value };
+  return value;
+}
+
+function collectWaterSceneOverrides(options) {
+  return Object.fromEntries(
+    Object.entries(cleanObject(options))
+      .filter(([key, value]) => waterSceneOverrideKeySet.has(key) && value !== undefined)
+      .map(([key, value]) => [key, cloneValue(value)]),
+  );
+}
 
 function disposeAfterRenderBoundary(disposable) {
   const dispose = () => disposable.dispose();
@@ -92,6 +116,12 @@ export class WaterSurface extends THREE.Mesh {
     this.segmentsX = segmentsX;
     this.segmentsZ = segmentsZ;
     this.settings = this.material.userData.waterSettings;
+    this._authoredQualityRequest = settingsOptions.quality && typeof settingsOptions.quality === 'object'
+      ? { ...settingsOptions.quality }
+      : this.settings.quality;
+    this._sceneOverrideLayers = new Map();
+    this._sceneOverrideSequence = 0;
+    this._sceneOverrides = {};
     this.time = 0;
     this.followTarget = follow;
     // Displaced waves escape the flat-plane bounds; skip culling entirely.
@@ -407,11 +437,67 @@ export class WaterSurface extends THREE.Mesh {
     return this;
   }
 
+  /** Settings currently uploaded after transient scene overrides. */
+  get renderedSettings() {
+    return this.material.userData.waterSettings;
+  }
+
+  /** Current effective transient overrides, separate from authored settings. */
+  get sceneOverrides() {
+    return Object.fromEntries(
+      Object.entries(this._sceneOverrides).map(([key, value]) => [key, cloneValue(value)]),
+    );
+  }
+
+  /** Ordered runtime layer metadata without exposing mutable layer values. */
+  get sceneOverrideLayers() {
+    return [...this._sceneOverrideLayers.values()]
+      .sort((a, b) => a.priority - b.priority || a.order - b.order)
+      .map((layer) => ({ id: layer.id, priority: layer.priority }));
+  }
+
+  _composeSceneSettings() {
+    let composed = createWaterSettings(this.settings);
+    const layers = [...this._sceneOverrideLayers.values()]
+      .sort((a, b) => a.priority - b.priority || a.order - b.order);
+    for (const layer of layers) {
+      const source = layer.resolve
+        ? layer.resolve(createWaterSettings(composed))
+        : layer.settings;
+      composed = createWaterSettings({
+        ...composed,
+        ...collectWaterSceneOverrides(source),
+      });
+    }
+    return composed;
+  }
+
+  _applyComposedSceneSettings() {
+    const composed = this._composeSceneSettings();
+    this._sceneOverrides = Object.fromEntries(
+      WATER_SCENE_OVERRIDE_KEYS
+        .filter((key) => JSON.stringify(composed[key]) !== JSON.stringify(this.settings[key]))
+        .map((key) => [key, cloneValue(composed[key])]),
+    );
+    applyWaterSettingsToMaterial(this.material, {
+      ...composed,
+      quality: this._authoredQualityRequest,
+    });
+    return this.renderedSettings;
+  }
+
   // Merges option overrides into the current settings (pass { preset } to
-  // switch presets while keeping explicit overrides you re-supply).
+  // switch presets while keeping explicit overrides you re-supply). This is
+  // the backward-compatible authored path; scene overrides stay separate.
   applySettings(options = {}) {
-    applyWaterSettingsToMaterial(this.material, { ...this.settings, ...options });
-    this.settings = this.material.userData.waterSettings;
+    const source = cleanObject(options);
+    this.settings = createWaterSettings({ ...this.settings, ...source });
+    if (source.quality !== undefined) {
+      this._authoredQualityRequest = source.quality && typeof source.quality === 'object'
+        ? { ...source.quality }
+        : this.settings.quality;
+    }
+    this._applyComposedSceneSettings();
     this.splashSystem?.applySettings(this.settings);
     this.syncSimulationParameters();
     return this.settings;
@@ -419,11 +505,74 @@ export class WaterSurface extends THREE.Mesh {
 
   // Loads a preset from scratch (unlike applySettings, prior overrides drop).
   setPreset(name, overrides = {}) {
-    applyWaterSettingsToMaterial(this.material, { preset: name, ...overrides });
-    this.settings = this.material.userData.waterSettings;
+    const source = cleanObject(overrides);
+    this.settings = createWaterSettings({ preset: name, ...source });
+    this._authoredQualityRequest = source.quality && typeof source.quality === 'object'
+      ? { ...source.quality }
+      : this.settings.quality;
+    this._applyComposedSceneSettings();
     this.splashSystem?.applySettings(this.settings);
     this.syncSimulationParameters();
     return this.settings;
+  }
+
+  /**
+   * Adds or replaces one transient runtime owner. Static layers accept only
+   * {@link WATER_SCENE_OVERRIDE_KEYS}; a resolver receives the result of all
+   * lower-priority layers, enabling additive weather over an authored wave
+   * baseline without mutating {@link settings}.
+   */
+  setSceneOverrideLayer(id, optionsOrResolver = {}, {
+    priority = WATER_SCENE_OVERRIDE_PRIORITIES.scene,
+    replace = true,
+  } = {}) {
+    if ((typeof id !== 'string' || id.length === 0) && typeof id !== 'symbol') {
+      throw new TypeError('A water scene override layer needs a non-empty string or Symbol id.');
+    }
+    const existing = this._sceneOverrideLayers.get(id);
+    const resolve = typeof optionsOrResolver === 'function' ? optionsOrResolver : null;
+    let settings = null;
+    if (!resolve) {
+      const next = collectWaterSceneOverrides(optionsOrResolver);
+      settings = !replace && existing?.settings
+        ? { ...existing.settings, ...next }
+        : next;
+    }
+    this._sceneOverrideLayers.set(id, {
+      id,
+      order: existing?.order ?? this._sceneOverrideSequence++,
+      priority: Number.isFinite(Number(priority))
+        ? Number(priority)
+        : WATER_SCENE_OVERRIDE_PRIORITIES.scene,
+      resolve,
+      settings,
+    });
+    return this._applyComposedSceneSettings();
+  }
+
+  /** Removes one runtime owner without disturbing other active layers. */
+  clearSceneOverrideLayer(id) {
+    if (!this._sceneOverrideLayers.delete(id)) return this.renderedSettings;
+    return this._applyComposedSceneSettings();
+  }
+
+  /** Convenience scene layer for current wave/light state. */
+  setSceneOverrides(options = {}, { replace = false } = {}) {
+    return this.setSceneOverrideLayer('scene', options, {
+      priority: WATER_SCENE_OVERRIDE_PRIORITIES.scene,
+      replace,
+    });
+  }
+
+  /** Clears only the convenience scene layer, preserving independent owners. */
+  clearSceneOverrides() {
+    return this.clearSceneOverrideLayer('scene');
+  }
+
+  /** Explicitly clears every transient owner and restores the authored baseline. */
+  clearAllSceneOverrideLayers() {
+    this._sceneOverrideLayers.clear();
+    return this._applyComposedSceneSettings();
   }
 
   setDebugMode(mode) {
@@ -1072,22 +1221,23 @@ export class WaterSurface extends THREE.Mesh {
     this.getWorldPosition(worldPositionScratch);
     const cameraBelow = camera.getWorldPosition(followScratch).y < worldPositionScratch.y;
     uniforms.uCameraBelow.value = cameraBelow ? 1 : 0;
+    const renderedSettings = this.renderedSettings ?? this.settings;
     updateProjectedWaterCaustics({
-      enabled: cameraBelow && this.settings.causticsStrength > 0.001,
+      enabled: cameraBelow && renderedSettings.causticsStrength > 0.001,
       time: this.time,
       waterLevel: worldPositionScratch.y,
       centerX: worldPositionScratch.x,
       centerZ: worldPositionScratch.z,
       halfWidth: this.width * 0.5,
       halfDepth: this.depth * 0.5,
-      color: this.settings.sunColor,
-      intensity: this.settings.causticsStrength * 0.65,
-      scale: this.settings.causticsScale,
-      speed: this.settings.causticsSpeed,
-      flowDirection: this.settings.flowDirection,
-      waveDistortion: 0.035 + this.settings.detailNormalStrength * 0.08,
+      color: renderedSettings.sunColor,
+      intensity: renderedSettings.causticsStrength * 0.65,
+      scale: renderedSettings.causticsScale,
+      speed: renderedSettings.causticsSpeed,
+      flowDirection: renderedSettings.flowDirection,
+      waveDistortion: 0.035 + renderedSettings.detailNormalStrength * 0.08,
       depthAttenuation: 1 / Math.max(
-        this.settings.depthFadeDistance + this.settings.deepFadeDistance,
+        renderedSettings.depthFadeDistance + renderedSettings.deepFadeDistance,
         0.25,
       ),
     });

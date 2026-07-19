@@ -48,6 +48,13 @@ import { NodeMaterial } from 'three/webgpu';
 import { sampleEnvironmentSunShadow } from './chunks/environment-sun-shadow.js';
 import { stylizedCloudShadow } from './chunks/stylized-cloud-shadow.js';
 import { applyFoliageFog, createFoliageFogUniforms } from './chunks/foliage-fog.js';
+import {
+  createVegetationStyleUniforms,
+  shadeVegetationSurface,
+  tagVegetationRole,
+  vegetationBand,
+  vegetationVisibility,
+} from './chunks/vegetation-style.js';
 
 // Shared card-placement vertex logic (color + depth variants). Returns the
 // clip position; assigns the provided varyings when given.
@@ -101,10 +108,10 @@ function buildLeafVertexNode(u, { vUv, vWorldNormal, vWorldPosition, vTint, vHei
   })();
 }
 
-export function createTreeLeafNodeMaterial(settings) {
+export function createTreeLeafNodeMaterial(settings, vegetationShader = null) {
+  const styleUniforms = createVegetationStyleUniforms(vegetationShader, 'foliageCard');
   const u = {
     uAlphaCutoff: uniform(settings.alphaCutoff ?? 0.5),
-    uBacklitStrength: uniform(settings.backlitStrength ?? 0),
     uCloudShadowCoverage: uniform(settings.cloudShadowCoverage ?? 0),
     uCloudShadowScale: uniform(settings.cloudShadowScale ?? 1),
     uCloudShadowStrength: uniform(settings.cloudShadowStrength ?? 0),
@@ -122,7 +129,12 @@ export function createTreeLeafNodeMaterial(settings) {
     uWindSpeed: uniform(settings.windSpeed ?? 1),
     uWindStrength: uniform(settings.windStrength ?? 0.06),
     ...createFoliageFogUniforms(),
+    ...styleUniforms,
   };
+  if (!vegetationShader) {
+    u.uStyleFoliageBacklitStrength.value = settings.backlitStrength ?? 0;
+  }
+  u.uBacklitStrength = u.uStyleFoliageBacklitStrength;
 
   const material = new NodeMaterial();
   material.name = 'StylizedTreeFoliage';
@@ -151,41 +163,65 @@ export function createTreeLeafNodeMaterial(settings) {
       u.uCloudShadowStrength, u.uCloudShadowCoverage, u.uCloudShadowScale, u.uCloudShadowVelocity,
     );
     const sceneShadow = mix(1.0, sampleEnvironmentSunShadow(vWorldPosition), u.uSceneShadowStrength).toVar();
-    const sunVisibility = cloudShadow.mul(sceneShadow).toVar();
+    const sunVisibility = vegetationVisibility(
+      sceneShadow,
+      cloudShadow,
+      u.uStyleFoliageSceneShadowResponse,
+      u.uStyleFoliageCloudShadowResponse,
+    ).toVar();
 
-    const litBand = smoothstep(0.38, 0.56, wrap).mul(sunVisibility).toVar();
-    const crestBand = smoothstep(0.66, 0.78, wrap).mul(sunVisibility)
+    const litBand = vegetationBand(
+      wrap,
+      u.uStyleFoliageBandThreshold,
+      u.uStyleFoliageBandSoftness,
+    ).mul(sunVisibility).toVar();
+    const crestBand = vegetationBand(
+      wrap,
+      u.uStyleFoliageCrestThreshold,
+      u.uStyleFoliageCrestSoftness,
+    ).mul(sunVisibility)
       .mul(smoothstep(0.3, 0.8, vHeightT.mul(normal.y.mul(0.5).add(0.5).mul(0.3).add(0.7))));
 
     const color = mix(u.uShadowColor, u.uLitColor, litBand).toVar();
     color.assign(mix(color, u.uCrownColor, crestBand));
-    color.mulAssign(mix(vec3(1.0), u.uSunColor, litBand.mul(0.35)));
 
     // Baked per-leaf luminance + per-card jitter.
-    color.mulAssign(sprite.r.mul(0.36).add(0.78));
-    color.mulAssign(vTint.mul(0.16).add(0.92));
+    color.mulAssign(sprite.r.mul(u.uStyleFoliageSpriteLuminanceStrength)
+      .add(u.uStyleFoliageSpriteLuminanceStrength.mul(0.611111).oneMinus()));
+    color.mulAssign(vTint.sub(0.5).mul(u.uStyleFoliageCardVariationStrength).add(1.0));
 
-    // Sky fill + silhouette rim.
-    color.addAssign(u.uSkyColor.mul(normal.y.mul(0.5).add(0.5)).mul(litBand.oneMinus()).mul(0.10));
-    const viewDirection = normalize(cameraPosition.sub(vWorldPosition));
-    const rim = pow(abs(dot(normal, viewDirection)).oneMinus(), 3.0);
-    color.addAssign(u.uSkyColor.mul(rim).mul(0.12).mul(vHeightT.mul(0.6).add(0.4)));
-
-    // Backlit translucency.
-    const backlit = pow(clamp(dot(viewDirection, sunDirection.negate()), 0.0, 1.0), 4.0);
-    color.addAssign(
-      u.uSunColor.mul(backlit).mul(u.uBacklitStrength)
-        .mul(sprite.r.mul(0.7).add(0.3))
-        .mul(sunVisibility.mul(0.65).add(0.35)),
-    );
+    const shaded = shadeVegetationSurface({
+      baseColor: color,
+      bandSoftness: u.uStyleFoliageBandSoftness,
+      bandThreshold: u.uStyleFoliageBandThreshold,
+      cloudShadow,
+      cloudShadowResponse: u.uStyleFoliageCloudShadowResponse,
+      normal,
+      sceneShadow,
+      sceneShadowResponse: u.uStyleFoliageSceneShadowResponse,
+      shadowFloor: 1,
+      skyColor: u.uSkyColor,
+      sunColor: u.uSunColor,
+      sunDirection,
+      transmissionMultiplier: u.uStyleFoliageBacklitStrength.div(0.35)
+        .mul(sprite.r.mul(0.7).add(0.3)),
+      transmissionPower: u.uStyleThinSurfaceTransmissionPower
+        .mul(u.uStyleFoliageTransmissionPowerMultiplier),
+      u,
+      worldPosition: vWorldPosition,
+    });
 
     // Occluded crowns read clearly darker.
-    color.mulAssign(mix(0.8, 1.0, sceneShadow));
+    shaded.color.mulAssign(mix(
+      u.uStyleFoliageCrownOcclusionStrength.oneMinus(),
+      1.0,
+      sceneShadow,
+    ));
 
     // Manual linear scene fog on the true billboarded depth (see foliage-fog).
-    color.assign(applyFoliageFog(color, vViewZ, u));
+    shaded.color.assign(applyFoliageFog(shaded.color, vViewZ, u));
 
-    return vec4(color, 1.0);
+    return vec4(shaded.color, 1.0);
   })();
 
   material.uniforms = u;
@@ -260,5 +296,5 @@ export function createTreeLeafNodeMaterial(settings) {
     return depthMaterial;
   };
 
-  return material;
+  return tagVegetationRole(material, 'foliageCard', 'cutout');
 }

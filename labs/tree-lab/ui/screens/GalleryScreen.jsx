@@ -11,7 +11,7 @@ import {
 } from '../../treePresetStore.js';
 import { getPresetThumbnails } from '../thumbnails.js';
 
-function ImportDialog({ actions, onClose }) {
+function ImportDialog({ actions, labKind, onClose }) {
   const [draft, setDraft] = useState('');
   const [error, setError] = useState('');
   return (
@@ -19,7 +19,7 @@ function ImportDialog({ actions, onClose }) {
       <textarea
         className="td-json"
         autoFocus
-        placeholder="Paste a treeRecipe JSON document…"
+        placeholder={`Paste a ${labKind === 'flower' ? 'flower' : 'tree'} recipe JSON document…`}
         spellCheck={false}
         style={{ minHeight: 220 }}
         value={draft}
@@ -47,10 +47,19 @@ function ImportDialog({ actions, onClose }) {
   );
 }
 
-export function GalleryScreen({ actions, state }) {
+export function GalleryScreen({ actions, labKind = 'tree', state }) {
+  const isFlowerLab = labKind === 'flower';
   const [importOpen, setImportOpen] = useState(false);
   const [localVersion, setLocalVersion] = useState(0);
-  const localPresets = useMemo(() => loadLocalTreePresets(), [localVersion]);
+  const acceptsType = (preset) => isFlowerLab ? preset.type === 'flower' : preset.type !== 'flower';
+  const builtInPresets = useMemo(
+    () => BUILT_IN_TREE_PRESETS.filter(acceptsType),
+    [isFlowerLab],
+  );
+  const localPresets = useMemo(
+    () => loadLocalTreePresets().filter(acceptsType),
+    [isFlowerLab, localVersion],
+  );
   const [thumbs, setThumbs] = useState({});
 
   useEffect(() => {
@@ -61,7 +70,7 @@ export function GalleryScreen({ actions, state }) {
     // user opens a preset before rendering finishes) is a no-op.
     let cancelled = false;
     const handle = window.setTimeout(() => {
-      setThumbs(getPresetThumbnails([...BUILT_IN_TREE_PRESETS, ...localPresets], {
+      setThumbs(getPresetThumbnails([...builtInPresets, ...localPresets], {
         onUpdate: (rendered) => {
           if (!cancelled) setThumbs((previous) => ({ ...previous, ...rendered }));
         },
@@ -71,7 +80,7 @@ export function GalleryScreen({ actions, state }) {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [localPresets]);
+  }, [builtInPresets, localPresets]);
 
   const hasWork = state.bootSource === 'persisted'
     || state.sketch.branchSpines.length > 0 || state.presetId;
@@ -84,13 +93,17 @@ export function GalleryScreen({ actions, state }) {
   return (
     <div className="td-gallery" data-testid="gallery">
       <header className="td-gallery-header">
-        <BrandLockup labName="Vegetation Lab" />
+        <BrandLockup labName={isFlowerLab ? 'Flower Lab' : 'Tree Lab'} />
         <Button icon="download" kind="ghost" onClick={() => setImportOpen(true)} testId="gallery-import">
           Import recipe…
         </Button>
       </header>
-      <h1 className="td-gallery-title">Grow something</h1>
-      <p className="td-gallery-sub">Start from a preset, a blank canvas, or a random seed.</p>
+      <h1 className="td-gallery-title">{isFlowerLab ? 'Grow a flower' : 'Grow a tree'}</h1>
+      <p className="td-gallery-sub">
+        {isFlowerLab
+          ? 'Start from a flower species or grow a fresh seeded variation.'
+          : 'Start from a tree preset, a blank canvas, or a random seed.'}
+      </p>
 
       {hasWork && (
         <button
@@ -113,20 +126,36 @@ export function GalleryScreen({ actions, state }) {
 
       <div className="td-gallery-section">Start fresh</div>
       <div className="td-gallery-grid">
-        <button
-          type="button"
-          className="td-card td-card-special"
-          data-testid="gallery-blank"
-          onClick={() => {
-            actions.newTree({ drawn: true });
-            actions.setSketchMode(true);
-            actions.setView({ gallery: false });
-          }}
-        >
-          <Icon name="tool-trunk" />
-          <div>Blank Canvas</div>
-          <span>Doodle it — wood + leaves, then Convert</span>
-        </button>
+        {isFlowerLab ? (
+          <button
+            type="button"
+            className="td-card td-card-special"
+            data-testid="gallery-blank"
+            onClick={() => {
+              actions.newTree({ drawn: false, randomize: false });
+              actions.setView({ gallery: false });
+            }}
+          >
+            <Icon name="stage-flowers" />
+            <div>New Flower</div>
+            <span>Start from a clean daisy structure</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="td-card td-card-special"
+            data-testid="gallery-blank"
+            onClick={() => {
+              actions.newTree({ drawn: true });
+              actions.setSketchMode(true);
+              actions.setView({ gallery: false });
+            }}
+          >
+            <Icon name="tool-trunk" />
+            <div>Blank Canvas</div>
+            <span>Doodle it — wood + leaves, then Convert</span>
+          </button>
+        )}
         <button
           type="button"
           className="td-card td-card-special"
@@ -137,14 +166,14 @@ export function GalleryScreen({ actions, state }) {
           }}
         >
           <Icon name="dice" />
-          <div>Procedural Seed</div>
+          <div>{isFlowerLab ? 'Random Flower' : 'Procedural Seed'}</div>
           <span>Surprise me</span>
         </button>
       </div>
 
-      <div className="td-gallery-section">Presets ({BUILT_IN_TREE_PRESETS.length})</div>
+      <div className="td-gallery-section">Presets ({builtInPresets.length})</div>
       <div className="td-gallery-grid">
-        {BUILT_IN_TREE_PRESETS.map((preset) => (
+        {builtInPresets.map((preset) => (
           <button
             key={preset.id}
             type="button"
@@ -192,7 +221,9 @@ export function GalleryScreen({ actions, state }) {
           </div>
         </>
       )}
-      {importOpen && <ImportDialog actions={actions} onClose={() => setImportOpen(false)} />}
+      {importOpen && (
+        <ImportDialog actions={actions} labKind={labKind} onClose={() => setImportOpen(false)} />
+      )}
     </div>
   );
 }

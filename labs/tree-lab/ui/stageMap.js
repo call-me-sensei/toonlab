@@ -5,7 +5,7 @@
 
 export const STAGES = [
   {
-    description: 'What kind of plant, how big, and its crown silhouette.',
+    description: 'Tree or bush, overall scale, and crown silhouette.',
     groups: ['plant', 'canopy'],
     icon: 'stage-shape',
     id: 'shape',
@@ -45,14 +45,69 @@ export const STAGES = [
     label: 'Animate',
   },
   {
-    description: 'Blooms for flower plants, canopy blossoms, and ground flowers — draw a petal, grow a patch.',
+    description: 'Blossoms attached to this tree’s canopy — species, color, and coverage.',
+    groups: [],
+    icon: 'stage-flowers',
+    id: 'flowers',
+    key: '6',
+    label: 'Blossoms',
+  },
+];
+
+export const FLOWER_STAGES = [
+  {
+    description: 'Overall flower scale and the silhouette supporting its blooms.',
+    groups: ['plant', 'canopy'],
+    icon: 'stage-shape',
+    id: 'shape',
+    key: '1',
+    label: 'Shape',
+  },
+  {
+    description: 'Stem proportions and how secondary stems grow.',
+    groups: ['trunk', 'skeleton'],
+    icon: 'stage-wood',
+    id: 'wood',
+    key: '2',
+    label: 'Stem',
+  },
+  {
+    description: 'Leaf coverage and the tufts supporting each bloom.',
+    groups: ['leaves'],
+    icon: 'stage-leaves',
+    id: 'leaves',
+    key: '3',
+    label: 'Leaves',
+  },
+  {
+    description: 'Leaf style, palette, and season.',
+    groups: ['color'],
+    icon: 'stage-look',
+    id: 'look',
+    key: '4',
+    label: 'Look',
+  },
+  {
+    description: 'Live wind response for stems and leaves.',
+    groups: ['wind'],
+    icon: 'stage-animation',
+    id: 'animation',
+    key: '5',
+    label: 'Motion',
+  },
+  {
+    description: 'Flower-head species, petal color, and bloom size.',
     groups: ['flower'],
     icon: 'stage-flowers',
     id: 'flowers',
     key: '6',
-    label: 'Flowers',
+    label: 'Bloom',
   },
 ];
+
+export function stagesForLab(labKind = 'tree') {
+  return labKind === 'flower' ? FLOWER_STAGES : STAGES;
+}
 
 // Fields tucked behind the ▸ Advanced disclosure in stage panels (shown
 // inline, ◆-marked, in the power drawer).

@@ -1,4 +1,4 @@
-// Environment Lab store: environment shader settings ({features, parameters}
+// Environment Shader Lab store: environment shader settings ({features, parameters}
 // from createEnvironmentSettings), preset identity, undo history, persistence,
 // and view state (stage choice / debug output / walk preview). Same
 // store->engine contract as the other redesigned labs.
@@ -239,7 +239,7 @@ export function createEnvironmentLabStore({ urlParams = new URLSearchParams(wind
       replaceForStart(settingsFromPreset('call_me_sensei'), {
         name: 'Call Me Sensei',
         presetId: 'call_me_sensei',
-        status: 'Environment Lab reset.',
+        status: 'Environment Shader Lab reset.',
       });
     },
 

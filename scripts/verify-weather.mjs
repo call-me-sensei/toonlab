@@ -14,6 +14,9 @@ import {
   parseWeatherPresetDocument,
   resolveWeatherPreset,
 } from '../src/weather/index.js';
+import { createLightingSystem } from '../src/lighting/index.js';
+import { StylizedSky, createSkySettings } from '../src/sky/index.js';
+import { WaterSurface } from '../src/water/index.js';
 
 let failures = 0;
 function check(label, condition, detail = '') {
@@ -87,6 +90,11 @@ water.settings = { waveIntensity: 0.2 };
 water.applySettings = (value) => { calls.water = value; water.settings = { ...water.settings, ...value }; };
 water.setCloudShadow = (value) => { calls.cloud = value; };
 water.addRipple = () => {};
+const sky = {
+  settings: createSkySettings({ preset: 'golden_hour' }),
+  applySettings(value) { this.settings = createSkySettings({ ...this.settings, ...value }); },
+};
+const baseSky = structuredClone(sky.settings);
 const system = createWeatherSystem({
   camera,
   grass,
@@ -94,6 +102,7 @@ const system = createWeatherSystem({
   preset: 'clear',
   scene,
   seed: 99,
+  sky,
   water,
 });
 system.setPreset('thunderstorm');
@@ -103,6 +112,7 @@ check('weather writes water response', calls.water.waveIntensity > 0.2);
 check('weather publishes surface response', calls.surface.wetness === 1);
 check('weather scales scene fog', scene.fog.far < 700);
 check('weather scales ambient lights', ambient.intensity < 0.5);
+check('weather modulates the active sky', sky.settings.cloudCoverage !== baseSky.cloudCoverage);
 
 let lightningEvents = 0;
 system.addEventListener('lightning', () => { lightningEvents += 1; });
@@ -121,10 +131,270 @@ snowA.dispose();
 snowB.dispose();
 snowC.dispose();
 check('dispose restores original scene fog object', scene.fog !== null && scene.fog.far === 700);
+check('dispose restores the authored sky baseline', JSON.stringify(sky.settings) === JSON.stringify(baseSky));
+
+// Standalone Weather is a reversible runtime owner. Capture non-default live
+// baselines, drive a rainy frame over them, then prove teardown restores every
+// transient target (or adapter) instead of leaving the last storm behind.
+const lifecycleWind = {
+  direction: [0.2, 0.9],
+  gustFrequency: 0.17,
+  gustSpeed: 0.62,
+  speed: 0.74,
+  strength: 0.08,
+};
+const lifecycleCloud = {
+  coverage: 0.31,
+  scale: 0.019,
+  strength: 0.12,
+  velocity: [0.007, -0.003],
+};
+const lifecycleSurface = { snowCover: 0.14, wetness: 0.22 };
+const lifecycleSunBaseline = {
+  color: [0.91, 0.82, 0.68],
+  direction: [0.25, 0.83, 0.41],
+  sky: [0.52, 0.7, 0.9],
+};
+const lifecycleState = {
+  cloud: structuredClone(lifecycleCloud),
+  surface: structuredClone(lifecycleSurface),
+  wind: structuredClone(lifecycleWind),
+};
+const lifecycleGrass = {
+  material: {
+    uniforms: {
+      uCloudShadowCoverage: { value: lifecycleCloud.coverage },
+      uCloudShadowScale: { value: lifecycleCloud.scale },
+      uCloudShadowStrength: { value: lifecycleCloud.strength },
+      uCloudShadowVelocity: { value: new THREE.Vector2(...lifecycleCloud.velocity) },
+      uGustFrequency: { value: lifecycleWind.gustFrequency },
+      uGustSpeed: { value: lifecycleWind.gustSpeed },
+      uSnowCover: { value: lifecycleSurface.snowCover },
+      uWetness: { value: lifecycleSurface.wetness },
+      uWindDirection: { value: new THREE.Vector2(...lifecycleWind.direction) },
+      uWindSpeed: { value: lifecycleWind.speed },
+      uWindStrength: { value: lifecycleWind.strength },
+    },
+  },
+  setCloudShadow(value) { lifecycleState.cloud = { ...lifecycleState.cloud, ...structuredClone(value) }; },
+  setSurfaceWeather(value) { lifecycleState.surface = { ...lifecycleState.surface, ...structuredClone(value) }; },
+  setWind(value) { lifecycleState.wind = { ...lifecycleState.wind, ...structuredClone(value) }; },
+};
+const ambientWindBaseline = { windDirection: [-0.4, 0.7], windSpeed: 0.55, windStrength: 0.06 };
+let ambientWindState = structuredClone(ambientWindBaseline);
+const lifecycleAmbientFx = {
+  settings: { shared: structuredClone(ambientWindBaseline) },
+  setWind(value) { ambientWindState = { ...ambientWindState, ...structuredClone(value) }; },
+};
+const cloudAdapterBaseline = { coverage: 0.28, scale: 0.015, strength: 0.09, velocity: [-0.004, 0.006] };
+const cloudAdapterCalls = [];
+const surfaceAdapterBaseline = {
+  ice: 0.04,
+  snowCover: 0.14,
+  waterRippleRate: 0.2,
+  waterWaveBoost: 0.03,
+  wetness: 0.22,
+};
+const surfaceAdapterCalls = [];
+const sunAdapterCalls = [];
+let lifecycleSunState = structuredClone(lifecycleSunBaseline);
+const lifecycleSystem = createWeatherSystem({
+  ambientFx: lifecycleAmbientFx,
+  cloudShadowBaseline: cloudAdapterBaseline,
+  getSun: () => structuredClone(lifecycleSunState),
+  grass: lifecycleGrass,
+  onSurfaceChange: (value) => surfaceAdapterCalls.push(structuredClone(value)),
+  preset: 'rain',
+  setCloudShadow: (value) => cloudAdapterCalls.push(structuredClone(value)),
+  setSun: (value) => {
+    lifecycleSunState = structuredClone(value);
+    sunAdapterCalls.push(structuredClone(value));
+  },
+  surfaceBaseline: surfaceAdapterBaseline,
+});
+check('standalone Weather drives the world sun adapter',
+  sunAdapterCalls.length > 0
+    && JSON.stringify(lifecycleSunState.sky) !== JSON.stringify(lifecycleSunBaseline.sky));
+check('Weather temporarily replaces captured wind and surface state',
+  lifecycleState.wind.strength === resolveWeatherPreset('rain').settings.wind.strength
+    && lifecycleState.surface.wetness === resolveWeatherPreset('rain').settings.surface.wetness
+    && ambientWindState.windStrength === resolveWeatherPreset('rain').settings.wind.strength);
+lifecycleSystem.dispose();
+check('dispose restores captured vegetation wind exactly',
+  JSON.stringify(lifecycleState.wind) === JSON.stringify(lifecycleWind));
+check('dispose restores captured vegetation cloud and surface state exactly',
+  JSON.stringify(lifecycleState.cloud) === JSON.stringify(lifecycleCloud)
+    && JSON.stringify(lifecycleState.surface) === JSON.stringify(lifecycleSurface));
+check('dispose restores captured Ambient FX wind using its public key shape',
+  JSON.stringify(ambientWindState) === JSON.stringify(ambientWindBaseline));
+check('dispose restores host cloud and surface adapters',
+  JSON.stringify(cloudAdapterCalls.at(-1)) === JSON.stringify(cloudAdapterBaseline)
+    && JSON.stringify(surfaceAdapterCalls.at(-1)) === JSON.stringify(surfaceAdapterBaseline));
+check('dispose restores the standalone world sun adapter baseline',
+  JSON.stringify(lifecycleSunState) === JSON.stringify(lifecycleSunBaseline));
+
+// Real-system composition: Lighting remains the sole sun/fog/ambient writer,
+// while Weather supplies modulation and a higher-priority Sky resolver.
+const composedScene = new THREE.Scene();
+composedScene.fog = new THREE.Fog(0xa9c9e8, 100, 700);
+const composedSky = new StylizedSky({ preset: 'golden_hour' });
+const composedAuthoredSky = structuredClone(composedSky.settings);
+const composedSun = new THREE.DirectionalLight(0xffffff, 2);
+const composedSunRig = {
+  light: composedSun,
+  setState(value = {}) {
+    if (value.color?.isColor) composedSun.color.copy(value.color);
+    if (Number.isFinite(value.intensity)) composedSun.intensity = value.intensity;
+  },
+};
+const composedWater = new WaterSurface({
+  depth: 1,
+  passes: false,
+  segmentsPerMeter: 1,
+  simulation: false,
+  splashes: false,
+  waveIntensity: 0.2,
+  width: 1,
+});
+const composedWeather = createWeatherSystem({
+  preset: 'rain',
+  scene: composedScene,
+  sky: composedSky,
+  sunRig: composedSunRig,
+  water: composedWater,
+});
+const composedLighting = createLightingSystem({
+  scene: composedScene,
+  style: 'call-me-sensei',
+  timeOfDay: 12,
+});
+const originalWorldSunDirection = [0.35, 0.8, 0.45];
+let composedWorldSunDirection = [...originalWorldSunDirection];
+const composedWorld = {
+  environmentRoot: new THREE.Group(),
+  fog: composedScene.fog,
+  get sunDirection() { return [...composedWorldSunDirection]; },
+  setSunDirection(value) { composedWorldSunDirection = [...value]; },
+  sky: composedSky,
+  sunRig: composedSunRig,
+  weather: composedWeather,
+  water: composedWater,
+};
+composedLighting.attachWorld(composedWorld);
+const rainSunScale = resolveWeatherPreset('rain').settings.atmosphere.sunIntensity;
+check('attachWorld bridges Weather into the one-writer Lighting modulation API',
+  composedWeather.lightingSystem === composedLighting);
+check('composed sun is Lighting frame multiplied by Weather',
+  Math.abs(composedSun.intensity - composedLighting.frame.sunIntensity * rainSunScale) < 1e-8);
+const composedSunBeforeRefresh = composedSun.intensity;
+composedWeather.refresh();
+check('Weather refresh cannot race or replace the Lighting-owned sun',
+  Math.abs(composedSun.intensity - composedSunBeforeRefresh) < 1e-8);
+composedLighting.setTimeOfDay(18);
+check('time-of-day changes retain active Weather modulation',
+  Math.abs(composedSun.intensity - composedLighting.frame.sunIntensity * rainSunScale) < 1e-8);
+check('attachWorld drives the world-owned sun direction adapter',
+  JSON.stringify(composedWorldSunDirection) === JSON.stringify([
+    composedLighting.frame.sunSourceRatios.x,
+    composedLighting.frame.sunSourceRatios.y,
+    composedLighting.frame.sunSourceRatios.z,
+  ]));
+check('Lighting and Weather occupy independent ordered Sky layers',
+  composedSky.sceneOverrideLayers.length === 2
+    && composedSky.sceneOverrideLayers[0].priority < composedSky.sceneOverrideLayers[1].priority);
+check('system composition leaves the portable Sky baseline untouched',
+  JSON.stringify(composedSky.settings) === JSON.stringify(composedAuthoredSky));
+const rainWaveBoost = resolveWeatherPreset('rain').settings.surface.waterWaveBoost;
+check('Weather adds transient Water energy without changing the portable baseline',
+  composedWater.settings.waveIntensity === 0.2
+    && Math.abs(composedWater.renderedSettings.waveIntensity - (0.2 + rainWaveBoost)) < 1e-8
+    && JSON.stringify(composedWater.renderedSettings.sunDirection)
+      === JSON.stringify(composedWorldSunDirection)
+    && composedWater.sceneOverrideLayers.length === 2);
+composedLighting.detach();
+check('detaching Lighting returns ownership to standalone Weather',
+  composedWeather.lightingSystem === null
+    && Math.abs(composedSun.intensity - 2 * rainSunScale) < 1e-8);
+check('Lighting detach clears only its own Sky layer', composedSky.sceneOverrideLayers.length === 1);
+check('Lighting detach restores world direction and leaves only Weather on Water',
+  JSON.stringify(composedWorldSunDirection) === JSON.stringify(originalWorldSunDirection)
+    && composedWater.sceneOverrideLayers.length === 1);
+composedLighting.attachWorld(composedWorld);
+composedWeather.dispose();
+check('disposing Weather clears only Weather-owned Sky and Water layers',
+  composedSky.sceneOverrideLayers.length === 1
+    && composedWater.sceneOverrideLayers.length === 1
+    && composedWater.renderedSettings.waveIntensity === composedWater.settings.waveIntensity);
+composedWeather.refresh();
+check('disposed Weather cannot resurrect runtime layers',
+  composedSky.sceneOverrideLayers.length === 1 && composedWater.sceneOverrideLayers.length === 1);
+composedLighting.detach();
+check('Lighting detaches cleanly after Weather was already disposed',
+  composedSky.sceneOverrideLayers.length === 0 && composedWater.sceneOverrideLayers.length === 0);
+composedLighting.dispose();
+composedWater.dispose();
+composedSky.dispose();
+
+// If Weather is disposed before Lighting, the later Lighting detach must
+// restore the pre-Weather world/rig baseline, not the rainy state Lighting
+// observed when it originally attached.
+const handoffScene = new THREE.Scene();
+const handoffSun = new THREE.DirectionalLight(0xffffff, 2);
+const opacitySlot = (value) => ({ material: { uniforms: { opacity: { value } } } });
+const handoffRig = {
+  beam: opacitySlot(0.28),
+  disk: opacitySlot(0.62),
+  light: handoffSun,
+  shaft: opacitySlot(0.1),
+  spill: opacitySlot(0.3),
+  setState(value = {}) {
+    if (value.color?.isColor) handoffSun.color.copy(value.color);
+    if (Number.isFinite(value.intensity)) handoffSun.intensity = value.intensity;
+    for (const key of ['beam', 'disk', 'shaft', 'spill']) {
+      const opacity = value[`${key}Opacity`];
+      if (Number.isFinite(opacity)) this[key].material.uniforms.opacity.value = opacity;
+    }
+  },
+};
+const handoffBaseline = {
+  color: [1, 1, 1],
+  direction: [0.35, 0.8, 0.45],
+  sky: [0.62, 0.78, 0.95],
+};
+let handoffSunState = structuredClone(handoffBaseline);
+const handoffWeather = createWeatherSystem({
+  getSun: () => structuredClone(handoffSunState),
+  preset: 'rain',
+  setSun: (value) => { handoffSunState = structuredClone(value); },
+  sunRig: handoffRig,
+});
+const handoffLighting = createLightingSystem({ scene: handoffScene, timeOfDay: 18 });
+const handoffWorld = {
+  get sunDirection() { return handoffSunState.direction.slice(); },
+  get sunState() { return structuredClone(handoffSunState); },
+  setSun(value) {
+    handoffSunState = structuredClone(value);
+    handoffSun.color.setRGB(...value.color);
+  },
+  setSunDirection(value) { handoffSunState.direction = [...value]; },
+  sunRig: handoffRig,
+  weather: handoffWeather,
+};
+handoffLighting.attachWorld(handoffWorld);
+handoffWeather.dispose();
+handoffLighting.detach();
+check('disposing Weather before Lighting still restores the pre-Weather world sun',
+  JSON.stringify(handoffSunState) === JSON.stringify(handoffBaseline));
+check('disposing Weather before Lighting still restores the pre-Weather physical sun rig',
+  handoffSun.intensity === 2
+    && handoffRig.beam.material.uniforms.opacity.value === 0.28
+    && handoffRig.disk.material.uniforms.opacity.value === 0.62
+    && handoffRig.shaft.material.uniforms.opacity.value === 0.1
+    && handoffRig.spill.material.uniforms.opacity.value === 0.3);
+handoffLighting.dispose();
 
 if (failures > 0) {
   console.error(`\n${failures} weather verification failure${failures === 1 ? '' : 's'}.`);
   process.exit(1);
 }
 console.log(`\nWeather verification passed (${ids.size} presets).`);
-

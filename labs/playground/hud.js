@@ -25,7 +25,7 @@ function updateModeLabel(state = 'loading') {
     title.textContent = WATER_SCENE_ENABLED
       ? 'Water Lab'
       : INDOOR_SCENE_ENABLED
-        ? 'Environment Lab (Indoor)'
+        ? 'Environment Playground (Indoor)'
         : 'Playground';
   }
   const sceneLabel = WATER_SCENE_ENABLED ? 'Water' : INDOOR_SCENE_ENABLED ? 'Environment' : 'Controller';

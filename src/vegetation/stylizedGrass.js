@@ -1,6 +1,20 @@
 import * as THREE from 'three';
 
+import {
+  createSettingsPresetDocument,
+  parsePresetDocument,
+  serializePresetDocument,
+  validateSettingsPresetDocument,
+} from '../core/presetDocuments.js';
 import { createGrassNodeMaterial } from '../shaders-tsl/grass.js';
+import { applyVegetationShader } from './vegetationShaders.js';
+
+export {
+  GRASS_COLOR_PALETTES,
+  applyGrassColorPalette,
+  matchGrassColorPalette,
+  resolveGrassColorPalette,
+} from './grassPalettes.js';
 
 const pushScratch = new THREE.Vector3();
 
@@ -61,6 +75,7 @@ export const DEFAULT_GRASS_SETTINGS = Object.freeze({
   cloudShadowStrength: 0,
   cloudShadowVelocity: Object.freeze([0.02, 0.006]),
   gustFrequency: 0.35,
+  gustResponse: 1,
   gustSpeed: 1.6,
   pushRadius: 0.9,
   shadowStrength: 0.9,
@@ -70,9 +85,16 @@ export const DEFAULT_GRASS_SETTINGS = Object.freeze({
   sunDirection: Object.freeze([0.35, 0.72, 0.42]),
   tipColor: Object.freeze([0.74, 0.9, 0.42]),
   windDirection: Object.freeze([1, 0.3]),
+  windResponse: 1,
   windSpeed: 1.0,
   windStrength: 0.16,
 });
+
+/** Document `type` discriminator for portable grass presets. */
+export const GRASS_PRESET_DOCUMENT_TYPE = 'toonlab/grass-preset';
+
+/** Current portable grass preset schema version. */
+export const GRASS_PRESET_SCHEMA_VERSION = 2;
 
 // Named grass presets: 'default' is the baseline; 'call_me_sensei' is the
 // studio-managed signature look, curated and updated over releases.
@@ -89,6 +111,7 @@ const grassPresetRegistry = new Map([
     settings: Object.freeze({}),
   })],
 ]);
+const BUILT_IN_GRASS_PRESET_IDS = new Set(['default', 'call_me_sensei']);
 
 /**
  * Registers a named grass preset so it resolves in `createGrassSettings({
@@ -96,19 +119,17 @@ const grassPresetRegistry = new Map([
  * settings? }` or flat settings.
  */
 export function registerGrassPreset(name, preset = {}, { overwrite = false } = {}) {
-  const id = String(name ?? '').trim();
-  if (!id) throw new Error('Grass preset name is required.');
-  if (!overwrite && grassPresetRegistry.has(id)) {
-    throw new Error(`Grass preset "${id}" already exists.`);
+  const document = createGrassPresetDocument(name, preset);
+  if (!overwrite && grassPresetRegistry.has(document.id)) {
+    throw new Error(`Grass preset "${document.id}" already exists.`);
   }
-  const { label, description, settings, ...flat } = cleanObject(preset);
   const entry = Object.freeze({
-    description: typeof description === 'string' ? description : '',
-    label: typeof label === 'string' && label ? label : id,
-    settings: Object.freeze({ ...cleanObject(settings ?? flat) }),
+    description: document.description,
+    label: document.label,
+    settings: Object.freeze({ ...document.settings }),
   });
-  grassPresetRegistry.set(id, entry);
-  return { description: entry.description, id, label: entry.label };
+  grassPresetRegistry.set(document.id, entry);
+  return { description: entry.description, id: document.id, label: entry.label };
 }
 
 /** Lists registered grass presets as `{ id, label, description }` (for HUDs). */
@@ -118,6 +139,13 @@ export function getGrassPresetOptions() {
     id,
     label: preset.label,
   }));
+}
+
+/** Removes a registered community/local preset. Built-in preset ids are protected. */
+export function unregisterGrassPreset(name) {
+  const id = normalizeGrassPresetId(name);
+  if (!id || BUILT_IN_GRASS_PRESET_IDS.has(id)) return false;
+  return grassPresetRegistry.delete(id);
 }
 
 /**
@@ -132,7 +160,7 @@ export function getGrassPresetOptions() {
  * @returns {Object} A complete, plain grass settings object.
  */
 export function createGrassSettings(options = {}) {
-  const source = cleanObject(options);
+  const source = typeof options === 'string' ? { preset: options } : cleanObject(options);
   const presetSettings = grassPresetRegistry.get(source.preset)?.settings;
   const base = presetSettings ? { ...DEFAULT_GRASS_SETTINGS, ...presetSettings } : DEFAULT_GRASS_SETTINGS;
   return {
@@ -145,6 +173,7 @@ export function createGrassSettings(options = {}) {
     cloudShadowStrength: finiteNumber(source.cloudShadowStrength, base.cloudShadowStrength, { min: 0, max: 1 }),
     cloudShadowVelocity: vectorArray(source.cloudShadowVelocity, base.cloudShadowVelocity, 2),
     gustFrequency: finiteNumber(source.gustFrequency, base.gustFrequency, { min: 0 }),
+    gustResponse: finiteNumber(source.gustResponse, base.gustResponse, { min: 0 }),
     gustSpeed: finiteNumber(source.gustSpeed, base.gustSpeed, { min: 0 }),
     pushRadius: finiteNumber(source.pushRadius, base.pushRadius, { min: 0 }),
     shadowStrength: finiteNumber(source.shadowStrength, base.shadowStrength, { min: 0, max: 1 }),
@@ -154,6 +183,7 @@ export function createGrassSettings(options = {}) {
     sunDirection: vectorArray(source.sunDirection, base.sunDirection, 3),
     tipColor: colorArray(source.tipColor, base.tipColor),
     windDirection: vectorArray(source.windDirection, base.windDirection, 2),
+    windResponse: finiteNumber(source.windResponse, base.windResponse, { min: 0 }),
     windSpeed: finiteNumber(source.windSpeed, base.windSpeed),
     windStrength: finiteNumber(source.windStrength, base.windStrength, { min: 0 }),
   };
@@ -171,12 +201,12 @@ export const GRASS_SETTING_GROUPS = Object.freeze([
     label: 'Blades',
   }),
   Object.freeze({
-    description: 'Per-blade wind sway and the traveling gust bands that ripple across the field.',
+    description: 'Asset-level flexibility: how this grass responds when a scene supplies wind and gusts.',
     id: 'wind',
-    label: 'Wind',
+    label: 'Motion',
   }),
   Object.freeze({
-    description: "The blades' own colors — the grass's identity, whatever the scene lighting does. Magical blue grass welcome.",
+    description: "The blades' coordinated base, tip, and material shadow colors — the grass's identity, whatever the scene lighting does. Magical blue grass welcome.",
     id: 'palette',
     label: 'Palette',
   }),
@@ -186,23 +216,33 @@ export const GRASS_SETTING_GROUPS = Object.freeze([
     label: 'Lighting',
   }),
   Object.freeze({
-    // Scene-owned uniforms: a game (or lab preview rig / weather system)
-    // pushes these from its actual sun and sky every frame. They are NOT
-    // part of a grass look — labs must not present them as shader settings.
-    description: 'Wired from the scene at runtime: the active sun direction/color and sky color the blades respond to.',
+    description: 'Grass-material shadow strength and palette tint. The renderer and cloud-shadow fields themselves come from the scene.',
+    id: 'shadows',
+    label: 'Shadows',
+  }),
+  Object.freeze({
+    description: 'Current sun direction/color and sky color supplied by the scene at runtime.',
     id: 'sceneLight',
     label: 'Scene Light',
     scene: true,
   }),
   Object.freeze({
-    description: 'Scene-shadow darkening and the drifting procedural cloud shadows over the field.',
-    id: 'shadows',
-    label: 'Shadows',
+    description: 'Current world wind and gust field supplied by weather or another scene system.',
+    id: 'sceneWind',
+    label: 'Scene Wind',
+    scene: true,
   }),
   Object.freeze({
-    description: 'Character push-away response around the push target.',
+    description: 'Current drifting cloud-shadow field shared across terrain, water, and vegetation.',
+    id: 'sceneCloudShadow',
+    label: 'Cloud Field',
+    scene: true,
+  }),
+  Object.freeze({
+    description: 'Current push target and influence radius supplied per scene or grass instance.',
     id: 'interaction',
     label: 'Interaction',
+    scene: true,
   }),
 ]);
 
@@ -220,31 +260,45 @@ const GRASS_FIELD_DEFINITIONS = Object.freeze({
     },
   },
   wind: {
+    windResponse: {
+      description: 'Asset flexibility multiplier applied to the current scene wind strength. 1 preserves the authored baseline; 0 keeps blades still.',
+      label: 'Wind Response',
+      range: { max: 8, min: 0, step: 0.01 },
+      type: 'number',
+    },
+    gustResponse: {
+      description: 'How strongly this grass follows gust bands relative to its regular wind sway.',
+      label: 'Gust Response',
+      range: { max: 4, min: 0, step: 0.01 },
+      type: 'number',
+    },
+  },
+  sceneWind: {
     windDirection: {
-      description: 'Horizontal (XZ) heading the wind blows toward. Magnitude does not matter; use wind strength for amplitude.',
+      description: 'Current horizontal (XZ) heading the world wind blows toward.',
       label: 'Wind Direction',
       type: 'vector2',
     },
     windSpeed: {
-      description: 'How fast the per-blade sway oscillates.',
+      description: 'Current temporal speed of the world wind.',
       label: 'Wind Speed',
       range: { max: 4, min: 0, step: 0.01 },
       type: 'number',
     },
     windStrength: {
-      description: 'How far blade tips bend with the wind.',
+      description: 'Current world wind amplitude before the asset response multiplier.',
       label: 'Wind Strength',
       range: { max: 1, min: 0, step: 0.005 },
       type: 'number',
     },
     gustFrequency: {
-      description: 'Spatial frequency of the traveling gust bands; higher packs gust waves closer together.',
+      description: 'Current spatial frequency of the world gust bands.',
       label: 'Gust Frequency',
       range: { max: 2, min: 0, step: 0.01 },
       type: 'number',
     },
     gustSpeed: {
-      description: 'How fast gust bands travel across the field.',
+      description: 'Current travel speed of the world gust bands.',
       label: 'Gust Speed',
       range: { max: 6, min: 0, step: 0.01 },
       type: 'number',
@@ -295,37 +349,39 @@ const GRASS_FIELD_DEFINITIONS = Object.freeze({
       type: 'number',
     },
     shadowTint: {
-      description: 'Color a fully shadowed blade is multiplied by (cool and dark so grass matches the terrain shadow response).',
+      description: 'Grass material color approached in full scene or cloud shadow. Palette presets set it with base/tip colors; the IP-wide vegetation shadow treatment still layers over it.',
       label: 'Shadow Tint',
       type: 'color',
     },
+  },
+  sceneCloudShadow: {
     cloudShadowStrength: {
-      description: 'How strongly drifting procedural cloud shadows darken the field. 0 disables the effect.',
+      description: 'Current strength of the shared procedural cloud-shadow field. 0 disables it.',
       label: 'Cloud Shadow Strength',
       range: { max: 1, min: 0, step: 0.01 },
       type: 'number',
     },
     cloudShadowCoverage: {
-      description: 'Fraction of the field covered by cloud shadow at any moment.',
+      description: 'Current fraction of the world covered by cloud shadow.',
       label: 'Cloud Shadow Coverage',
       range: { max: 1, min: 0, step: 0.01 },
       type: 'number',
     },
     cloudShadowScale: {
-      description: 'World-to-noise scale of the cloud shadow pattern; smaller values give larger cloud shapes.',
+      description: 'Current world-to-noise scale of the shared cloud pattern.',
       label: 'Cloud Shadow Scale',
       range: { max: 0.1, min: 0.001, step: 0.001 },
       type: 'number',
     },
     cloudShadowVelocity: {
-      description: 'Cloud shadow drift in noise-space units per second (world drift = velocity / scale).',
+      description: 'Current cloud-shadow drift in noise-space units per second.',
       label: 'Cloud Shadow Velocity',
       type: 'vector2',
     },
   },
   interaction: {
     pushRadius: {
-      description: 'Radius in meters around the push target within which blades bend away.',
+      description: 'Current radius in meters around the scene push target.',
       label: 'Push Radius',
       range: { max: 3, min: 0, step: 0.01 },
       type: 'number',
@@ -345,7 +401,7 @@ function createGrassFieldMetadata(group, key, field) {
     optionLabels: field.optionLabels ?? null,
     options: field.options ?? null,
     range: field.range ?? null,
-    serializable: field.serializable ?? true,
+    serializable: field.serializable ?? !group.scene,
     type: field.type,
   });
 }
@@ -370,6 +426,135 @@ export const GRASS_SETTING_FIELD_SCHEMA = Object.freeze(
   ),
 );
 
+const GRASS_FIELDS_BY_KEY = Object.freeze(Object.fromEntries(
+  Object.values(GRASS_SETTING_FIELD_SCHEMA)
+    .flatMap((fields) => Object.entries(fields)),
+));
+
+function normalizeGrassPresetId(value) {
+  return String(value ?? '').trim();
+}
+
+function collectTopLevelGrassSettings(source) {
+  const input = cleanObject(source);
+  return Object.fromEntries(
+    Object.keys(GRASS_FIELDS_BY_KEY)
+      .filter((key) => input[key] !== undefined)
+      .map((key) => [key, input[key]]),
+  );
+}
+
+function collectGrassPresetWarnings(settings = {}) {
+  const warnings = [];
+  for (const key of Object.keys(cleanObject(settings))) {
+    const field = GRASS_FIELDS_BY_KEY[key];
+    if (!field) warnings.push(`Unknown grass setting "${key}" was ignored.`);
+    else if (!field.serializable) {
+      warnings.push(`Grass setting "${key}" is scene-owned and was not stored in the preset.`);
+    }
+  }
+  return warnings;
+}
+
+/**
+ * Normalizes a grass preset into complete JSON-safe product settings. Scene
+ * inputs supplied by the active sun/sky rig are deliberately excluded.
+ */
+export function sanitizeGrassPresetSettings(settings = {}) {
+  const knownSettings = collectTopLevelGrassSettings(settings);
+  const normalized = createGrassSettings(knownSettings);
+  return Object.fromEntries(
+    Object.entries(GRASS_FIELDS_BY_KEY)
+      .filter(([, field]) => field.serializable)
+      .map(([key]) => [key, normalized[key]]),
+  );
+}
+
+function migrateGrassPresetDocument(input) {
+  const source = cleanObject(input);
+  const numericVersion = Number(source.version ?? source.schemaVersion ?? 0);
+  const version = Number.isFinite(numericVersion) ? Math.round(numericVersion) : 0;
+  if (version > GRASS_PRESET_SCHEMA_VERSION) return { ...source, version };
+  const nestedSettings = cleanObject(source.settings);
+  const settings = Object.keys(nestedSettings).length > 0
+    ? { ...nestedSettings }
+    : collectTopLevelGrassSettings(source);
+
+  // Schema v1 treated windStrength as a portable grass value. Preserve that
+  // authored look by converting it to the v2 species response relative to the
+  // historical world-wind default. Keep the original key so validation also
+  // explains that the live scene field is no longer stored. A v2 document is
+  // never reinterpreted this way.
+  if (version <= 1 && settings.windResponse === undefined
+    && Number.isFinite(Number(settings.windStrength))) {
+    settings.windResponse = Math.max(Number(settings.windStrength), 0)
+      / DEFAULT_GRASS_SETTINGS.windStrength;
+  }
+  return {
+    description: source.description ?? '',
+    id: source.id ?? source.name ?? source.preset ?? '',
+    label: source.label ?? source.title ?? source.name ?? source.id ?? '',
+    settings,
+    type: source.type ?? GRASS_PRESET_DOCUMENT_TYPE,
+    version: GRASS_PRESET_SCHEMA_VERSION,
+  };
+}
+
+/** Validates and normalizes a portable grass preset document. Never throws. */
+export function validateGrassPresetDocument(input) {
+  if (cleanObject(input).type !== undefined && input.type !== GRASS_PRESET_DOCUMENT_TYPE) {
+    return {
+      errors: [`Grass preset type must be "${GRASS_PRESET_DOCUMENT_TYPE}".`],
+      ok: false,
+      value: null,
+      warnings: [],
+    };
+  }
+  return validateSettingsPresetDocument(input, {
+    collectWarnings: collectGrassPresetWarnings,
+    documentType: GRASS_PRESET_DOCUMENT_TYPE,
+    migrateDocument: migrateGrassPresetDocument,
+    normalizeId: normalizeGrassPresetId,
+    sanitizeSettings: sanitizeGrassPresetSettings,
+    schemaVersion: GRASS_PRESET_SCHEMA_VERSION,
+  });
+}
+
+/** Parses JSON text or an object into a validated grass preset document. */
+export function parseGrassPresetDocument(input) {
+  return parsePresetDocument(input, validateGrassPresetDocument, {
+    invalidJsonLabel: 'grass preset',
+  });
+}
+
+/** Creates a canonical, versioned grass preset document. */
+export function createGrassPresetDocument(id, definition = {}) {
+  return createSettingsPresetDocument(id, definition, {
+    collectSettings: (source) => source.settings ?? collectTopLevelGrassSettings(source),
+    documentType: GRASS_PRESET_DOCUMENT_TYPE,
+    schemaVersion: GRASS_PRESET_SCHEMA_VERSION,
+    validateDocument: validateGrassPresetDocument,
+  });
+}
+
+/** Serializes a grass preset id/definition or document-like object as JSON. */
+export function serializeGrassPreset(idOrDocument, definition = {}, { pretty = true } = {}) {
+  return serializePresetDocument(idOrDocument, definition, {
+    argumentCount: arguments.length,
+    createDocument: createGrassPresetDocument,
+    pretty,
+  });
+}
+
+/** Registers a portable grass document, overwriting an existing id by default. */
+export function registerSerializedGrassPreset(input, options = {}) {
+  const result = parseGrassPresetDocument(input);
+  if (!result.ok) throw new Error(result.errors.join(' '));
+  return registerGrassPreset(result.value.id, result.value, {
+    overwrite: options.overwrite ?? true,
+  });
+}
+
 // Dense instanced grass: procedural tapered blades with wind sway and a
 // push-away radius around a character. One draw call for the whole field;
 // emitting is a one-time attribute fill, animation is entirely in the vertex
@@ -388,7 +573,7 @@ export const GRASS_SETTING_FIELD_SCHEMA = Object.freeze(
 // existing callers keep working unchanged.
 export class StylizedGrassField extends THREE.Mesh {
   constructor(options = {}) {
-    const { placements = [] } = cleanObject(options);
+    const { placements = [], vegetationShader = null } = cleanObject(options);
     const settings = createGrassSettings(options);
     const { bladeHeightRange, bladeWidthRange } = settings;
 
@@ -419,7 +604,7 @@ export class StylizedGrassField extends THREE.Mesh {
     geometry.instanceCount = placements.length;
     geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
 
-    const material = createGrassNodeMaterial(settings);
+    const material = createGrassNodeMaterial(settings, vegetationShader);
     setSrgbColor(material.uniforms.uBaseColor.value, settings.baseColor);
     setSrgbColor(material.uniforms.uTipColor.value, settings.tipColor);
     setSrgbColor(material.uniforms.uSunColor.value, settings.sunColor);
@@ -436,7 +621,8 @@ export class StylizedGrassField extends THREE.Mesh {
 
   /**
    * Runtime re-tune: merges `options` into the current settings and pushes
-   * every material-driven value (wind, palette, sun, shadows, push radius)
+   * every material-driven value (asset response, current scene fields,
+   * palette, sun, shadows, and push radius)
    * into the uniforms. `bladeHeightRange` / `bladeWidthRange` are baked into
    * the instance attributes at construction and are construction-only; new
    * values are stored but do not reshape existing blades.
@@ -459,7 +645,9 @@ export class StylizedGrassField extends THREE.Mesh {
     uniforms.uWindSpeed.value = settings.windSpeed;
     uniforms.uWindStrength.value = settings.windStrength;
     uniforms.uGustFrequency.value = settings.gustFrequency;
+    uniforms.uGustResponse.value = settings.gustResponse;
     uniforms.uGustSpeed.value = settings.gustSpeed;
+    uniforms.uWindResponse.value = settings.windResponse;
     uniforms.uPushRadius.value = settings.pushRadius;
     uniforms.uBacklitStrength.value = settings.backlitStrength;
     uniforms.uCloudShadowStrength.value = settings.cloudShadowStrength;
@@ -477,22 +665,26 @@ export class StylizedGrassField extends THREE.Mesh {
   }
 
   setWind({ direction, speed, strength, gustFrequency, gustSpeed } = {}) {
-    this.applySettings({
-      gustFrequency,
-      gustSpeed,
-      windDirection: direction,
-      windSpeed: speed,
-      windStrength: strength,
-    });
+    const uniforms = this.material.uniforms;
+    if (direction !== undefined) {
+      const next = vectorArray(direction, this.settings.windDirection, 2);
+      uniforms.uWindDirection.value.set(next[0], next[1]);
+    }
+    if (speed !== undefined) uniforms.uWindSpeed.value = finiteNumber(speed, uniforms.uWindSpeed.value);
+    if (strength !== undefined) uniforms.uWindStrength.value = finiteNumber(strength, uniforms.uWindStrength.value, { min: 0 });
+    if (gustFrequency !== undefined) uniforms.uGustFrequency.value = finiteNumber(gustFrequency, uniforms.uGustFrequency.value, { min: 0 });
+    if (gustSpeed !== undefined) uniforms.uGustSpeed.value = finiteNumber(gustSpeed, uniforms.uGustSpeed.value, { min: 0 });
     return this;
   }
 
   setSun({ direction, color, sky } = {}) {
-    this.applySettings({
-      skyColor: sky,
-      sunColor: color,
-      sunDirection: direction,
-    });
+    const uniforms = this.material.uniforms;
+    if (direction !== undefined) {
+      const next = vectorArray(direction, this.settings.sunDirection, 3);
+      uniforms.uSunDirection.value.set(...next).normalize();
+    }
+    if (color !== undefined) setSrgbColor(uniforms.uSunColor.value, colorArray(color, this.settings.sunColor));
+    if (sky !== undefined) setSrgbColor(uniforms.uSkyColor.value, colorArray(sky, this.settings.skyColor));
     return this;
   }
 
@@ -509,13 +701,31 @@ export class StylizedGrassField extends THREE.Mesh {
   // Drifting procedural cloud shadows over the field. strength 0 disables.
   // velocity is uv-space drift per second (worldDrift = velocity / scale).
   setCloudShadow({ strength, coverage, scale, velocity } = {}) {
-    this.applySettings({
-      cloudShadowCoverage: coverage,
-      cloudShadowScale: scale,
-      cloudShadowStrength: strength,
-      cloudShadowVelocity: velocity,
-    });
+    const uniforms = this.material.uniforms;
+    if (strength !== undefined) uniforms.uCloudShadowStrength.value = finiteNumber(strength, uniforms.uCloudShadowStrength.value, { min: 0, max: 1 });
+    if (coverage !== undefined) uniforms.uCloudShadowCoverage.value = finiteNumber(coverage, uniforms.uCloudShadowCoverage.value, { min: 0, max: 1 });
+    if (scale !== undefined) uniforms.uCloudShadowScale.value = finiteNumber(scale, uniforms.uCloudShadowScale.value, { min: 0.0001 });
+    if (velocity !== undefined) {
+      const next = vectorArray(velocity, this.settings.cloudShadowVelocity, 2);
+      uniforms.uCloudShadowVelocity.value.set(next[0], next[1]);
+    }
     return this;
+  }
+
+  /** Current world surface state. Responses remain owned by the shader/material profile. */
+  setSurfaceWeather({ wetness, snowCover } = {}) {
+    const uniforms = this.material.uniforms;
+    if (uniforms.uWetness && wetness !== undefined) {
+      uniforms.uWetness.value = finiteNumber(wetness, uniforms.uWetness.value, { min: 0, max: 1 });
+    }
+    if (uniforms.uSnowCover && snowCover !== undefined) {
+      uniforms.uSnowCover.value = finiteNumber(snowCover, uniforms.uSnowCover.value, { min: 0, max: 1 });
+    }
+    return this;
+  }
+
+  setVegetationShader(profile) {
+    return applyVegetationShader(this, profile);
   }
 
   // Collapse blades between start and end meters from the camera so distant,
@@ -530,6 +740,13 @@ export class StylizedGrassField extends THREE.Mesh {
   // target: Object3D | (outVector3) => position | { x, y, z } | null.
   setPushTarget(target) {
     this.pushTarget = target;
+    return this;
+  }
+
+  /** Sets the current scene/instance interaction radius without editing the asset preset. */
+  setPushRadius(radius) {
+    const uniforms = this.material.uniforms;
+    uniforms.uPushRadius.value = finiteNumber(radius, uniforms.uPushRadius.value, { min: 0 });
     return this;
   }
 

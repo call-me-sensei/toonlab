@@ -1,12 +1,24 @@
-// Local grass-preset persistence (browser localStorage), mirroring the other
-// labs' preset stores. Documents are { type, schemaVersion, id, label,
-// settings } with settings sanitized through createGrassSettings; loaded
-// documents register into the runtime preset registry.
+// Local browser persistence for the public grass-preset document contract.
+// Validation, migration, serialization, and runtime registration live in the
+// npm vegetation module; this file owns localStorage only.
 
-import { createGrassSettings, registerGrassPreset } from '../../src/vegetation/stylizedGrass.js';
+import {
+  parseGrassPresetDocument,
+  registerSerializedGrassPreset,
+  unregisterGrassPreset,
+} from '../../src/vegetation/stylizedGrass.js';
 
-export const GRASS_PRESET_DOCUMENT_TYPE = 'toonlab/grass-preset';
-export const GRASS_PRESET_SCHEMA_VERSION = 1;
+export {
+  GRASS_PRESET_DOCUMENT_TYPE,
+  GRASS_PRESET_SCHEMA_VERSION,
+  createGrassPresetDocument,
+  parseGrassPresetDocument,
+  registerSerializedGrassPreset,
+  sanitizeGrassPresetSettings,
+  serializeGrassPreset,
+  validateGrassPresetDocument,
+} from '../../src/vegetation/stylizedGrass.js';
+
 const STORAGE_KEY = 'toonlab.grassPresets.v1';
 
 function readDocuments() {
@@ -27,37 +39,28 @@ function writeDocuments(documents) {
   }
 }
 
-export function validateGrassPresetDocument(input) {
-  const source = typeof input === 'string' ? (() => { try { return JSON.parse(input); } catch { return null; } })() : input;
-  if (!source || typeof source !== 'object') return { errors: ['Grass preset must be a JSON object.'], ok: false };
-  if (source.type !== GRASS_PRESET_DOCUMENT_TYPE) return { errors: [`Document type must be "${GRASS_PRESET_DOCUMENT_TYPE}".`], ok: false };
-  const id = String(source.id ?? '').trim();
-  const label = String(source.label ?? '').trim();
-  if (!id || !label) return { errors: ['Grass preset needs an id and a label.'], ok: false };
-  return { ok: true, value: { id, label, settings: createGrassSettings(source.settings ?? {}) } };
-}
-
 export function loadLocalGrassPresets() {
   const valid = [];
   for (const document of readDocuments()) {
-    const result = validateGrassPresetDocument(document);
+    const result = parseGrassPresetDocument(document);
     if (!result.ok) continue;
-    registerGrassPreset(result.value.id, { label: result.value.label, settings: result.value.settings }, { overwrite: true });
+    registerSerializedGrassPreset(result.value, { overwrite: true });
     valid.push({ id: result.value.id, label: result.value.label });
   }
   return valid;
 }
 
 export function upsertLocalGrassPresetDocument(document) {
-  const result = validateGrassPresetDocument(document);
+  const result = parseGrassPresetDocument(document);
   if (!result.ok) throw new Error(result.errors.join(' '));
   const next = readDocuments().filter((entry) => entry?.id !== result.value.id);
-  next.push(document);
+  next.push(result.value);
   writeDocuments(next);
-  registerGrassPreset(result.value.id, { label: result.value.label, settings: result.value.settings }, { overwrite: true });
+  registerSerializedGrassPreset(result.value, { overwrite: true });
   return result.value;
 }
 
 export function deleteLocalGrassPreset(id) {
   writeDocuments(readDocuments().filter((entry) => entry?.id !== id));
+  unregisterGrassPreset(id);
 }

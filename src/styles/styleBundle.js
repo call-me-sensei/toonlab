@@ -37,9 +37,22 @@ import {
   validateEnvironmentPresetDocument,
 } from '../environment/environmentPresets.js';
 import { createPostProcessingSettings } from '../post/postProcessing.js';
-import { createSkySettings } from '../sky/stylizedSky.js';
-import { createGrassSettings } from '../vegetation/stylizedGrass.js';
+import {
+  createSkySettings,
+  parseSkyPresetDocument,
+  SKY_PRESET_DOCUMENT_TYPE,
+} from '../sky/stylizedSky.js';
+import {
+  createGrassSettings,
+  GRASS_PRESET_DOCUMENT_TYPE,
+  parseGrassPresetDocument,
+} from '../vegetation/stylizedGrass.js';
 import { createFlowerSettings } from '../vegetation/stylizedFlowers.js';
+import {
+  createVegetationShaderSettings,
+  parseVegetationShaderPresetDocument,
+  VEGETATION_SHADER_DOCUMENT_TYPE,
+} from '../vegetation/vegetationShaders.js';
 import {
   TREE_RECIPE_SCHEMA,
   validateTreeRecipeDocument,
@@ -78,10 +91,10 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
     },
   }),
   grass: Object.freeze({
-    documentType: null,
+    documentType: GRASS_PRESET_DOCUMENT_TYPE,
     label: 'Grass',
-    parseDocument: null,
-    resolve: (payload) => createGrassSettings(payload),
+    parseDocument: parseGrassPresetDocument,
+    resolve: (payload) => createGrassSettings(payload.document?.settings ?? payload),
   }),
   flowers: Object.freeze({
     documentType: null,
@@ -89,23 +102,31 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
     parseDocument: null,
     resolve: (payload) => createFlowerSettings(payload),
   }),
+  vegetationShader: Object.freeze({
+    documentType: VEGETATION_SHADER_DOCUMENT_TYPE,
+    label: 'Vegetation shader',
+    parseDocument: parseVegetationShaderPresetDocument,
+    resolve: (payload) => createVegetationShaderSettings(
+      payload.document?.settings ?? payload,
+    ),
+  }),
   water: Object.freeze({
     documentType: WATER_PRESET_DOCUMENT_TYPE,
     label: 'Water',
     parseDocument: parseWaterPresetDocument,
-    resolve: (payload) => createWaterSettings(payload),
+    resolve: (payload) => createWaterSettings(payload.document?.settings ?? payload),
   }),
   sky: Object.freeze({
-    documentType: null,
+    documentType: SKY_PRESET_DOCUMENT_TYPE,
     label: 'Sky',
-    parseDocument: null,
-    resolve: (payload) => createSkySettings(payload),
+    parseDocument: parseSkyPresetDocument,
+    resolve: (payload) => createSkySettings(payload.document?.settings ?? payload),
   }),
   weather: Object.freeze({
     documentType: WEATHER_PRESET_DOCUMENT_TYPE,
     label: 'Weather',
     parseDocument: parseWeatherPresetDocument,
-    resolve: (payload) => createWeatherSettings(payload),
+    resolve: (payload) => createWeatherSettings(payload.document?.settings ?? payload),
   }),
   environment: Object.freeze({
     documentType: ENVIRONMENT_PRESET_DOCUMENT_TYPE,
@@ -260,8 +281,8 @@ export function parseStyleBundleDocument(input) {
 
 /**
  * Resolve a validated bundle into per-system settings objects:
- * { toon?, tree?, grass?, flowers?, water?, sky?, weather?, environment?,
- * lighting?, post? } — each ready to hand to the matching apply/create call
+ * { toon?, tree?, grass?, flowers?, vegetationShader?, water?, sky?, weather?,
+ * environment?, lighting?, post? } — each ready to hand to the matching apply/create call
  * (settings.tree is a recipe for createPlantFromRecipe, settings.lighting a
  * lighting-look document). Unresolved by-reference slots
  * ({ creation }) throw: fetch the bundle from toonlab.io (which inlines

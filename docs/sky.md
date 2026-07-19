@@ -1,0 +1,182 @@
+# Sky system
+
+`@call-me-sensei/toonlab/sky` provides a procedural stylized sky for Three.js:
+a three-stop vertical dome, sun disc and glow, sun-side horizon scattering,
+two-tone painterly clouds, and a procedural star field. It uses the same TSL
+material on WebGPU and the WebGL2 fallback and requires no texture assets.
+
+Sky is a World System in ToonLab. Its appearance shader and procedural motion
+ship as one versioned preset because the cloud, sun, horizon, and star terms
+must be judged together. It is not a fourth IP-wide Shader Lab; see
+[Lab responsibilities](lab-architecture.md).
+
+## Quickstart
+
+```js
+import { StylizedSky } from '@call-me-sensei/toonlab/sky';
+
+const sky = new StylizedSky({
+  preset: 'call_me_sensei',
+  quality: 'high', // deployment policy; not saved in the art preset
+});
+scene.add(sky);
+
+renderer.setAnimationLoop(() => {
+  const delta = clock.getDelta();
+  sky.update(delta, camera); // animates clouds/stars and follows the camera
+  renderer.render(scene, camera);
+});
+
+// Live runtime retuning does not rebuild the material.
+sky.applySettings({ cloudCoverage: 0.55, starsStrength: 0.2 });
+sky.setPreset('golden_hour'); // replaces the authored look from scratch
+```
+
+`StylizedSky` centers its dome on the camera and pins it to the far plane, so it
+does not intersect scene geometry. Add the same sky to scenes containing a
+`WaterSurface`; water reflection passes then capture the active composed sky rather
+than relying on a separate color approximation.
+
+## Settings and scope
+
+`createSkySettings(options)` normalizes flat settings. The public
+`SKY_SETTING_GROUPS` and `SKY_SETTING_FIELD_SCHEMA` drive Sky Lab and custom
+editors. The schema contains 46 portable art fields; the constructor-only dome
+radius is the single non-portable field.
+
+| Group | Owns |
+|---|---|
+| Gradient | Zenith, horizon, and below-horizon colors; zenith/ground curve shape; horizon-band width, sun focus, and scattering strength. |
+| Sun | Baseline disc direction and color; size, edge softness, intensity; broad/core glow shape; dense-cloud occlusion. |
+| Clouds | Coverage, scale, deterministic seed, projection, silhouette softness/opacity, direction and speed, two-tone shade controls, light-sample depth, silver lining, and horizon fade. |
+| Stars | Strength, color, deterministic seed, density, pattern scale, glint size, twinkle depth/speed, and horizon fade. |
+
+The runtime constructor still accepts `radius` for compatibility. Because the
+dome is centered on the camera and pinned to the far plane, changing that
+geometry radius does not change the rendered look. Sky Lab therefore does not
+surface it, and portable Sky preset documents do not serialize it.
+
+Sky settings do not own the current clock, directional-light intensity or
+shadow policy, precipitation, weather transition, fog volume, exposure, or
+camera. Lighting and Weather systems remain authoritative and may modulate the
+active sky at runtime. Independent owners use ordered layers rather than
+writing the same settings object:
+
+```js
+import { SKY_SCENE_OVERRIDE_PRIORITIES } from '@call-me-sensei/toonlab/sky';
+
+const lightingLayer = Symbol('lighting');
+const weatherLayer = Symbol('weather');
+
+sky.setSceneOverrideLayer(lightingLayer, {
+  sunDirection: lightingState.sunDirection,
+  zenithColor: lightingState.zenithColor,
+}, { priority: SKY_SCENE_OVERRIDE_PRIORITIES.lighting });
+
+// A resolver receives the result of lower-priority layers. Rain therefore
+// darkens the current time-of-day instead of replacing it with a stale color.
+sky.setSceneOverrideLayer(weatherLayer, (base) => ({
+  cloudCoverage: weatherState.atmosphere.cloudCoverage,
+  zenithColor: base.zenithColor.map((channel) => channel * weatherSkyScale),
+}), { priority: SKY_SCENE_OVERRIDE_PRIORITIES.weather });
+
+sky.clearSceneOverrideLayer(weatherLayer); // Lighting remains active
+```
+
+Layers compose in ascending priority: Lighting (100), Weather (200), then the
+manual scene layer (300). `applySettings()` edits the authored baseline and
+recomposes every active resolver; `setPreset(name, overrides)` replaces that
+baseline. `sky.settings` is always authored data, while
+`sky.renderedSettings`, `sky.sceneOverrides`, and `sky.sceneOverrideLayers`
+expose the effective runtime state.
+
+`setSceneOverrides()` is the convenience manual layer and
+`clearSceneOverrides()` removes only that layer. Named owners must call
+`clearSceneOverrideLayer(id)` so they cannot erase each other;
+`clearAllSceneOverrideLayers()` is reserved for a host that explicitly owns
+the complete teardown. `LightingSystem.attachWorld(world)` and
+`WeatherSystem` use private layers and release only their own state.
+
+The visible dome clouds and the world-projected cloud-shadow field are related
+weather signals, not the same procedural texture: the dome is angular and the
+shadow field is spatial over terrain, water, and vegetation. Weather coordinates
+coverage, wind, and intensity policy; games that require exact cloud-to-shadow
+registration should supply a shared host cloud-field adapter.
+
+## Deployment quality
+
+Sky quality is runtime policy, not art direction. `quality: 'low' | 'medium' |
+'high'` compiles two, three, or four FBM octaves respectively for each cloud
+sample. The graph is compile-time-unrolled, so `sky.setQuality(tier)` rebuilds
+only the Sky material while preserving authored settings, active scene layers,
+and animation time. Custom policies may pass `{ cloudOctaves: 1..5 }`.
+
+`SKY_QUALITY_TIERS`, `SKY_QUALITY_OPTIONS`, and `resolveSkyQuality()` are public.
+Quality is a preview control in Sky Lab and is deliberately absent from
+portable Sky preset documents.
+
+## Presets and portable documents
+
+Built-in presets include `default`, `call_me_sensei`, `clear_day`,
+`golden_hour`, `overcast`, and `moonlit`. `getSkyPresetOptions()` lists them
+and any project registrations.
+
+```js
+import {
+  createSkyPresetDocument,
+  createSkySettings,
+  parseSkyPresetDocument,
+  registerSkyPreset,
+  registerSerializedSkyPreset,
+  serializeSkyPreset,
+} from '@call-me-sensei/toonlab/sky';
+
+registerSkyPreset('violet_twilight', {
+  label: 'Violet Twilight',
+  settings: {
+    zenithColor: [0.12, 0.08, 0.32],
+    horizonColor: [0.88, 0.38, 0.5],
+    starsStrength: 0.35,
+  },
+});
+
+const document = createSkyPresetDocument('violet_twilight', {
+  label: 'Violet Twilight',
+  settings: createSkySettings('violet_twilight'),
+});
+const json = serializeSkyPreset(document);
+const result = parseSkyPresetDocument(json);
+if (result.ok) registerSerializedSkyPreset(json, { overwrite: true });
+```
+
+Documents use `{ type: 'toonlab/sky-preset', version, id, label,
+description, settings }`. Use `validateSkyPresetDocument` when a parsed object
+is already available. Documents contain complete normalized appearance
+settings, so they remain portable if a named base preset changes later.
+
+## Low-level material API
+
+Applications that own their dome mesh can use the same production material:
+
+```js
+import {
+  applySkySettingsToMaterial,
+  createSkyMaterial,
+} from '@call-me-sensei/toonlab/sky';
+
+const material = createSkyMaterial({ preset: 'moonlit' });
+applySkySettingsToMaterial(material, { starsStrength: 1.2 });
+applySkySettingsToMaterial(material, { preset: 'clear_day' }); // full reset
+```
+
+`createSkyMaterial` returns the TSL node material used by `StylizedSky`.
+`applySkySettingsToMaterial` updates the shared uniform contract without
+replacing the material.
+
+## Sky Lab
+
+Run `/sky-lab/` in the repository or `/labs/sky` on ToonLab Pro. The lab uses
+the npm settings schema directly and supports preset selection, undo/redo,
+local saves, JSON import/export, WebGPU/WebGL comparison, and preview-only
+weather/lighting fixtures. Exported documents contain all 46 reusable
+sky-system art fields and no current scene state or quality tier.

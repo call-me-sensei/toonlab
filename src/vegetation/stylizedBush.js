@@ -45,6 +45,7 @@ export class StylizedBush extends THREE.Group {
       canopy = {},
       canopyLayout = {},
       foliage = {},
+      vegetationShader = null,
     } = options;
     this.name = 'StylizedBush';
     // Kept for toJSON(); not cloned (see StylizedTree.config).
@@ -76,6 +77,7 @@ export class StylizedBush extends THREE.Group {
       color: canopyColor,
       palette: canopyPalette,
       seed,
+      vegetationShader,
       ...foliage,
     });
 

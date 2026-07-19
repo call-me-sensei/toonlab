@@ -8,8 +8,8 @@ npm install
 npm run dev
 ```
 
-Vite opens `http://localhost:5175` on the Labs home — a card for every lab
-and demo. Pick **Shader Lab** (`/shader-lab/`) to see the bundled CC0
+Vite opens `http://localhost:5175` on the curated Labs home. Pick **Character
+Shader Lab** (`/shader-lab/`) to see the bundled CC0
 mannequin already toon-shaded. Everything you see out of the box — water,
 sky, grass, trees, flowers, splashes — is procedural; the mannequin is the
 only bundled model.
@@ -21,23 +21,70 @@ the TSL WebGL2 fallback, or `?renderer=webgpu` to make the default explicit.
 
 ## The labs
 
-The demo labs live in `labs/` (they are not part of the npm package). The
-HUD **Scene** select switches between them; these are the direct URLs:
+The lab UIs live in `labs/` and are not part of the npm package. The catalog
+separates Shader Labs, Asset Labs, World Systems, and gameplay demos; some
+supporting editors are available only by direct URL. See
+[Lab responsibilities](lab-architecture.md) for the ownership rules.
 
 | Lab | URL | What it shows |
 |---|---|---|
-| Labs home | `/` | The landing page — a linked card for every lab and demo below. |
-| Shader Lab | `/shader-lab/` | Character + environment shader tuning. Every toon setting (23 groups) and environment setting as live controls, preset selection/export/import, debug views, animation playback. Exercises `@call-me-sensei/toonlab/toon`, `@call-me-sensei/toonlab/environment`, `@call-me-sensei/toonlab/debug`. |
+| Labs home | `/` | The curated catalog, grouped into Shader Labs, Asset Labs, World Systems, and demos. |
+| Character Shader Lab | `/shader-lab/` | A focused editor for the shared character treatment: every toon setting (23 groups), preset selection/export/import, debug views, and animation playback. Exercises `@call-me-sensei/toonlab/toon` and `@call-me-sensei/toonlab/debug`; the mannequin is preview content, not part of the preset. |
+| Environment Shader Lab | `/environment-lab/` | A focused editor for the shared environment-material treatment: feature paths, light response, interior occlusion, surface styling, preset selection/export/import, and debug views. Exercises `@call-me-sensei/toonlab/environment`; the room, lights, camera, and walk controls are preview-only. |
 | Playground: Controller Test | `/playground/` | Third-person character controller (WASD + mouse, Space to jump, Shift to sprint) on a vegetated stage. Exercises `@call-me-sensei/toonlab/character` retargeting + the vegetation systems. |
-| Environment Lab (Indoor) | `/playground/?scene=indoor` | Walkable indoor environment scene with a live Environment Settings panel (every environment shader feature and parameter from the field schema). Loads the first environment from your gitignored `assets-local/environments/` drop-in (bring your own scene — a load banner appears without one). Exercises `@call-me-sensei/toonlab/environment` + `@call-me-sensei/toonlab/debug`. |
+| Environment Playground (Indoor) | `/playground/?scene=indoor` | Walkable indoor environment scene with a live Environment Settings panel (every environment shader feature and parameter from the field schema). Loads the first environment from your gitignored `assets-local/environments/` drop-in (bring your own scene — a load banner appears without one). Exercises `@call-me-sensei/toonlab/environment` + `@call-me-sensei/toonlab/debug`. |
 | Lighting Lab | `/lighting-lab/` | A focused lighting authoring and diagnostics surface with editable light outliner, transforms, physical/artistic intensity, shadow and quality budgets, five test stages, many-light stress testing, reusable JSON presets, and Unreal Engine 5.8 MegaLights/Lumen intent export. Exercises `@call-me-sensei/toonlab/lighting`. |
 | Weather Lab | `/weather-lab/` | The standalone weather editor: 22 shared conditions, smooth transitions, live atmosphere/wind/precipitation/lightning/surface controls, a lightning test, and portable preset import/save/export. Exercises `@call-me-sensei/toonlab/weather` across sky, light, fog, vegetation, water, and GPU precipitation. |
-| Water Lab | `/water-lab/` | The standalone water editor: every parameter of the water system (waves, surface color, foam, lighting/reflections, ripples, splashes, quality — the full field schema), preset save/load/export, debug views, and interactor toys (splashes, buoyant balls, rain). Three stage grounds follow the preset — a gentle beach where the swash runs up and down the sand, a beach-to-deep basin with depth-test rocks/fish/kelp, and open water with a small island and a floating CC0 ship (PolyHaven `dutch_ship_medium` from `assets-local/`, toon boat fallback). **Preview in scene** carries your settings into the walkable Water Playground. Exercises the full `@call-me-sensei/toonlab/water` system. |
+| Water Lab | `/water-lab/` | The standalone water editor: every authored preset field for waves, surface color, foam, lighting/reflections, ripples, and splashes, plus construction-time quality selection, preset save/load/export, debug views, and interactor toys (splashes, buoyant balls, rain). Three stage grounds follow the preset — a gentle beach where the swash runs up and down the sand, a beach-to-deep basin with depth-test rocks/fish/kelp, and open water with a small island and a floating CC0 ship (PolyHaven `dutch_ship_medium` from `assets-local/`, toon boat fallback). **Preview in scene** carries your authored settings into the walkable Water Playground. Exercises the full `@call-me-sensei/toonlab/water` system. |
+| Sky Lab | `/sky-lab/` | The standalone sky-system editor: gradient curves, horizon scattering, sun-disc and glow treatment, painterly cloud structure/motion, star pattern/twinkle, portable presets, and renderer parity. Lighting, weather, and camera are preview-owned rather than saved in the sky preset. Exercises `@call-me-sensei/toonlab/sky`. |
 | Water Playground | `/playground/?scene=water` | The walkable beach diorama — wadeable lake (ripples, wakes, buoyancy), flowing river with current, and ocean beach with shoaling swell, plunging breakers, and swash. Walk in past chest depth and the character swims; C/Ctrl dives, Space swims up. **Edit in Water Lab** round-trips the live settings back to the editor. |
 | Rock Lab | `/rock-lab/` | Procedural stylized rocks, cliffs, heightfields, sculpt edits, and GLB export from `@call-me-sensei/toonlab/rockgen`. |
-| Tree Lab | `/tree-lab/` | Procedural stylized trees, flowers, sketches, recipes, and GLB export from `@call-me-sensei/toonlab/vegetation`. |
+| Tree Lab | `/tree-lab/` | Procedural stylized trees and bushes, sketch authoring, attached canopy blossoms, recipes, and GLB export from `@call-me-sensei/toonlab/vegetation`. |
+| Flower Lab | `/flower-lab/` | Standalone procedural flowers with stem, leaf, bloom, recipe, and GLB controls from `@call-me-sensei/toonlab/vegetation`. |
+| Grass Lab | `/grass-lab/` | Procedural blade dimensions, planting-ready grass material data, motion response, coordinated base/tip/shadow palettes, portable presets, and gameplay-scale previews from `@call-me-sensei/toonlab/vegetation`. Current scene light and preview placement are not saved. |
+| Vegetation Shader Lab | `/vegetation-shader-lab/` | One IP-wide vegetation treatment, validated across grass, foliage, flowers, bark, and stems while asset palette and scene-owned wind, wetness, and snow remain outside the shader profile. |
 | Debris Lab | `/debris-lab/` | Procedural debris and scatter pieces with preset thumbnails and GLB export from `@call-me-sensei/toonlab/debrisgen`. |
 | Texture Lab | `/texture-lab/` | Seamless procedural PBR textures for anything — 60+ material presets, layered pattern/color/overlay controls, an AI prompt box (offline mapper built in; add your own Gemini/OpenAI key for smarter mapping), and PNG/ZIP export from `@call-me-sensei/toonlab/texgen`. |
+| Outdoor World | `/examples/outdoor-world/` | Walkable integration scene for terrain, paths, bridges, villages, lighting, water, and vegetation at world scale. |
+| VFX Arena | `/examples/vfx-arena/` | Walkable combat-effects integration scene for `@call-me-sensei/toonlab/vfxgen`. |
+| Fauna Demo | `/examples/fauna-demo/` | Gameplay-scale preview for birds, butterflies, dragonflies, and koi from `@call-me-sensei/toonlab/fauna`. |
+| Ambient VFX Demo | `/examples/ambientfx-demo/` | Gameplay-scale preview for petals, leaves, fireflies, pollen, and mist from `@call-me-sensei/toonlab/ambientfx`. |
+| Prop Lab | `/prop-lab/` | Direct supporting editor for procedural prop recipes, placement contracts, and export. |
+| Building Lab | `/building-lab/` | Direct supporting editor for procedural building recipes and export. |
+| Gallery | `/gallery/` | Search and import open third-party textures, models, and HDRIs from supported public sources. |
+
+These categories describe ownership, not just navigation. Shader Labs save a
+reusable IP-wide material treatment; Asset Labs save the identity, geometry,
+and material data of an asset class; World Systems save coupled runtime
+behavior and appearance. Sky and Water therefore keep their shader controls in
+their complete system presets instead of creating separate Sky Shader or Water
+Shader documents.
+
+### World-system composition and quality
+
+For both `StylizedSky` and `WaterSurface`, `.settings` is the authored baseline
+used by portable documents. Lighting, Weather, or another live scene owner
+should use a unique id with `setSceneOverrideLayer(id, valuesOrResolver)` and
+remove only that id with `clearSceneOverrideLayer(id)`. The composed result is
+available through `.renderedSettings`; it must not be written back into a
+preset. `setSceneOverrides()` is only the convenience manual layer, and
+`clearAllSceneOverrideLayers()` is reserved for an explicit full teardown.
+
+Create a `LightingSystem`, then call `lighting.attachWorld(world)` to drive the
+world-owned sun adapter and private Lighting layers for Sky and Water. When the
+world has Weather, it also installs Lighting as Weather's sun/ambient/fog
+bridge: Lighting remains the sole writer for those outputs, while Weather
+supplies modulation and its own higher-priority Sky/Water layers. Detaching
+Lighting restores its world state and clears only Lighting-owned layers.
+
+A Sky preset contains exactly 46 portable art fields; dome radius and quality
+are runtime policy. Named Sky quality tiers compile 2, 3, or 4 cloud octaves,
+and `{ cloudOctaves: 1..5 }` defines a custom tier. `sky.setQuality()` rebuilds
+the Sky material while preserving authored settings and live layers. Water
+quality is also compile-time, but is selected when constructing
+`WaterSurface`; changing it requires replacing/rebuilding the surface. The
+Water Lab performs that rebuild, while `water.applySettings()` remains a live
+art/simulation update rather than a quality switch.
 
 The water scenes expose an **Env** lighting select (Noon / Sunset / Moonlit /
 Overcast / Storm), water **Mode** and **Tone** selects, quality tiers, debug
@@ -56,6 +103,7 @@ into the URL, so any lab state is shareable as a deep link. Key params:
 ?envPreset=interiorDay     environment preset
 ?envDebug=albedo           environment debug view (docs/environment.md)
 ?waterMode=ocean           water preset; ?waterTone=, ?waterQuality=, ?waterDebug=
+?skyPreset=golden_hour     sky system preset
 ?post=1&postPreset=softAnime  post-processing (docs/post-processing.md)
 ```
 
@@ -76,7 +124,7 @@ Three ways, no code changes required (details in
    failures show an error banner in the HUD instead of a blank scene.
 2. **`assets-local/` drop-in folder** — a gitignored folder for private test
    assets. Drop a character in `assets-local/models/` and run
-   `npm run assets:local`; it appears in every lab's Model select alongside
+   `npm run assets:local`; it appears in every model-aware lab's Model select alongside
    the bundled mannequin. A model is picked up when its path matches one of
    these shapes (sibling textures/materials load automatically):
 
@@ -91,8 +139,8 @@ Three ways, no code changes required (details in
    Nothing in `assets-local/` is ever committed or published. The discovery
    rules live in `labs/shared/localModelCatalog.js`.
 3. **Bundled default** — the CC0 Quaternius mannequin
-   (`public/characters/mannequin.glb`) with 45 embedded clips, so every lab
-   works with zero downloads.
+   (`public/characters/mannequin.glb`) with 45 embedded clips, so every
+   character/model preview works with zero downloads.
 
 ### Mixamo animation clips
 
@@ -125,7 +173,8 @@ already running.
 - [Lighting](lighting.md)
 - [Generative style labs](style-labs.md)
 - [Water](water.md)
-- [Vegetation and sky](vegetation-sky.md)
+- [Sky](sky.md)
+- [Vegetation](vegetation-sky.md)
 - [Post-processing](post-processing.md)
 - [Characters and animation](characters.md)
 - [Debug panel](debug-panel.md)

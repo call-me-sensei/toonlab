@@ -95,10 +95,42 @@ Every cluster has a `default` and a studio-managed `call_me_sensei` preset.
 ## Subpath imports
 
 `/toon` `/environment` `/lighting` `/weather` `/water` `/vegetation` (incl. scatter helpers +
-`StylizedForest`) `/sky` `/post` `/character` `/loaders` `/rockgen`
+`StylizedForest`) `/vegetation-shaders` `/grass-palettes` `/sky` `/post` `/character` `/loaders` `/rockgen`
 `/debrisgen` `/pathgen` `/debug`; root adds `createStylizedTerrain`,
 `createStylizedWorld`, `createWorldCollision`, `createWorldMinimap`,
 `resolveWorldPreset`, `createStylizedPaths`.
+
+Authoring scope: Character/Vegetation/Environment Shader Labs save reusable
+IP-wide material treatments; Tree/Flower/Grass and other Asset Labs save asset
+identity and geometry; Water/Sky Labs save complete runtime-system presets
+with their shader controls embedded, so do not create separate Water Shader or
+Sky Shader documents. Current lighting, weather, camera, and interactions
+remain host-owned.
+
+Sky and Water keep authored and current-scene state separate. `.settings` is
+the portable authored baseline; `.renderedSettings` is the composition after
+named transient layers. Lighting, Weather, and other owners must use unique
+ids with `setSceneOverrideLayer`, clear only their own id with
+`clearSceneOverrideLayer`, and never persist the composed result. The manual
+`setSceneOverrides`/`clearSceneOverrides` pair owns only the `scene` layer;
+`clearAllSceneOverrideLayers` is for explicit host teardown.
+
+`lighting.attachWorld(world)` owns the world sun adapter plus private
+priority-100 Sky/Water layers. If Weather is present it also installs Lighting
+as Weather's sun/ambient/fog bridge: Lighting remains the sole writer, Weather
+provides modulation and private priority-200 Sky/Water layers, and either
+system removes only its own state on detach/dispose.
+The adapter is `world.setSun({ direction, color, sky })`; it aligns the real
+light/shadows with Grass, Flower, Forest, Ambient FX, Sky, and Water inputs.
+For a standalone custom Weather coordinator, supply paired `getSun`/`setSun`
+and baselines for any write-only cloud/surface adapters so teardown is exact.
+
+Sky documents contain exactly 46 portable art fields; constructor-only radius
+and quality are excluded. Sky quality is compile-time (`low`/`medium`/`high`
+= 2/3/4 cloud octaves, or custom `{ cloudOctaves: 1..5 }`), and
+`sky.setQuality()` rebuilds the material while preserving authored/layered
+state. Water quality is selected when constructing `WaterSurface`; a tier
+change requires replacing/rebuilding the surface, never `applySettings()`.
 
 Lighting (`/lighting`) owns portable, versioned recipes and looks rather than
 a replacement renderer. Use `createLightingManager({ scene, camera, renderer,
@@ -109,6 +141,11 @@ linking, and Unreal Engine 5.8 MegaLights/Lumen are explicit adapter intent;
 the capability report and diagnostics state each runtime fallback. Author and
 stress-test them in `/lighting-lab/`.
 
+`createLightingManager` is the lower-level rig-realization API. For a composed
+world and day cycle, use `createLightingSystem(...)`, then call
+`lighting.attachWorld(world)` for the sun/Sky/Water ownership and Weather
+modulation bridge described above.
+
 Paths/roads/bridges: `createStylizedWorld({ paths: { seed, auto: { count: 4,
 styles: ['dirt', 'stone'] } } })` routes seeded trails around slopes, bridges
 water crossings, parts grass/trees around the ribbon, and feeds the flattened
@@ -116,13 +153,15 @@ profile to `world.collision.groundHeight` — use that (not raw `heightAt`) for
 character ground so bridges carry the walk. Minimap: pass `paths: world.paths`
 to `createWorldMinimap` for the network overlay.
 
-Catalog (`/catalog`): the whole library, browsable and spawnable —
+Catalog (`@call-me-sensei/toonlab/catalog`): the whole procedural library,
+queryable and spawnable —
 `catalog.list({ tags, cluster, text })`, `catalog.get(id)`, and the headline
 `catalog.spawn(id, { seed })` → a PropAsset for any prop / building / tree /
 rock / debris entry (settings presets throw with their copy-paste snippet
 instead). `catalog.register(entry)` adds user assets;
 `catalog.addSource(url, { headers })` mounts remote registries (the pro
-seam). Browser lab at `/catalog/`.
+seam). The browser Gallery at `/gallery/` searches third-party open assets;
+the procedural Catalog itself is a runtime API rather than a standalone lab.
 
 Villages (`/villagegen`): `createStylizedWorld({ pois: { seed, villages: 2,
 shrines: 1, pierHamlets: 1, size } })` → named settlements (seeded syllable

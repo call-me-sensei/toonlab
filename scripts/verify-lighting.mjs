@@ -435,6 +435,80 @@ check('the style day cycle drives an attached sky dome and restores it', () => {
   assert.equal(fakeSky.settings.cloudCoverage, 0.5, 'undriven sky fields are never touched');
 });
 
+check('world sun input and environment tint ownership restore cleanly on detach', () => {
+  const environmentRoot = new THREE.Group();
+  const environmentObject = new THREE.Object3D();
+  const environmentMaterial = {
+    uniforms: {
+      heightFogColor: { value: new THREE.Color(0.11, 0.22, 0.33) },
+      skyGroundTint: { value: new THREE.Color(0.44, 0.55, 0.66) },
+      skyTopTint: { value: new THREE.Color(0.77, 0.88, 0.99) },
+    },
+    userData: { environmentMaterial: true },
+  };
+  environmentObject.isMesh = true;
+  environmentObject.material = environmentMaterial;
+  environmentRoot.add(environmentObject);
+  const originalEnvironment = Object.fromEntries(
+    Object.entries(environmentMaterial.uniforms).map(([key, entry]) => [key, entry.value.clone()]),
+  );
+  const originalSun = {
+    color: [0.91, 0.82, 0.73],
+    direction: [0.2, 0.9, 0.1],
+    sky: [0.31, 0.42, 0.63],
+  };
+  let worldSun = structuredClone(originalSun);
+  const scene = new THREE.Scene();
+  const fog = new THREE.Fog(0xabcdef, 10, 100);
+  scene.fog = fog;
+  const owner = lighting.createLightingSystem({ scene, style: 'call-me-sensei', timeOfDay: 12 });
+  owner.attach({
+    environmentRoot,
+    fog,
+    getSun: () => worldSun,
+    getSunDirection: () => worldSun.direction,
+    setSun: (next) => { worldSun = structuredClone(next); },
+    setSunDirection: (direction) => { worldSun.direction = [...direction]; },
+  });
+  const rainFog = [0.2, 0.3, 0.4];
+  owner.setWeatherModulation({ fogColorOverride: rainFog });
+  assert.deepEqual(environmentMaterial.uniforms.heightFogColor.value.toArray(), rainFog,
+    'terrain height fog must use the same effective Weather color as scene fog');
+  assert.deepEqual(worldSun.color, owner.frame.sunColor, 'world vegetation receives the Lighting sun color');
+  assert.deepEqual(worldSun.sky, owner.frame.skyHorizonColor, 'world vegetation receives the Lighting sky fill');
+  owner.detach();
+  assert.deepEqual(worldSun, originalSun, 'detaching restores every world sun input');
+  for (const [key, color] of Object.entries(originalEnvironment)) {
+    assert.ok(environmentMaterial.uniforms[key].value.equals(color), `${key} must restore on detach`);
+  }
+  owner.dispose();
+});
+
+check('the environment sun rig applies a true direction in non-square worlds', () => {
+  const scene = new THREE.Scene();
+  const environmentBox = new THREE.Box3(
+    new THREE.Vector3(-1000, -5, -40),
+    new THREE.Vector3(1000, 25, 40),
+  );
+  const rig = root.createEnvironmentSunRig({
+    accents: {
+      beam: { enabled: false },
+      disk: { enabled: false },
+      shaft: { enabled: false },
+      spill: { enabled: false },
+    },
+    environmentBox,
+    scene,
+    shadow: { enabled: false },
+  });
+  const requested = new THREE.Vector3(0.12, 0.24, 0.96).normalize();
+  rig.setDirection(requested);
+  const actual = rig.light.position.clone().sub(rig.light.target.position).normalize();
+  assert.ok(actual.distanceTo(requested) < 1e-10,
+    'direction must not be distorted by environment-box aspect ratio');
+  rig.dispose();
+});
+
 check('the system surface is exported from the package root', () => {
   assert.equal(root.createLightingSystem, lighting.createLightingSystem);
   assert.equal(typeof root.resolveFixturePlacement, 'function');

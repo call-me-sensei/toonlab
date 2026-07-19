@@ -35,7 +35,7 @@ if (!window.__characterShaderBooted) {
   });
 
   engine.start().catch((error) => {
-    console.error('Character Shader failed to start:', error);
+    console.error('Character Shader Lab failed to start:', error);
     document.body.dataset.modelReady = 'error';
   });
 

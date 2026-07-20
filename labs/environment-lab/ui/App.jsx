@@ -1,7 +1,7 @@
 // Environment Shader Lab workspace: the Character Shader Lab chrome (top bar, workflow
 // rail, focused schema groups in the right inspector, floating stage bar,
 // status bar) pointed at the environment shader — customize your own
-// environment look, save it as a preset, walk it at character scale.
+// environment look, save it as a style, walk it at character scale.
 
 import { useEffect, useState } from 'react';
 
@@ -85,13 +85,13 @@ function parameterFieldsForSection(sectionId) {
 }
 
 // The rail and inspector hold ONLY the product — the environment shader
-// preset. Everything about the preview scene (stage model, debug view,
+// style. Everything about the preview scene (stage model, debug view,
 // walking) lives in the floating bar over the viewport, the same spatial
 // split as the other labs: right panel = what you're making, controls on
 // the 3D view = how you're looking at it.
 const WORKSPACE_SECTIONS = Object.freeze([
   Object.freeze({
-    description: 'Master switches per shader subsystem. Presets shape their look in the parameter sections (Light / Interior / Surface) — a feature turned OFF silences its parameters entirely.',
+    description: 'Master switches per shader subsystem. Styles shape their look in the parameter sections (Light / Interior / Surface) — a feature turned OFF silences its parameters entirely.',
     icon: 'stage-pieces',
     id: 'features',
     label: 'Features',
@@ -130,7 +130,7 @@ function PresetRow({ actions, state }) {
         <Select
           onChange={(id) => { if (id) actions.applyPreset(id); }}
           options={options}
-          testId="preset-select"
+          testId="style-select"
           value={state.presetId ?? ''}
         />
         {isLocal && (
@@ -161,7 +161,7 @@ function DocumentMenu({ actions, anchor, onClose, state }) {
     if (!file) return;
     const result = actions.importDocument(await file.text());
     if (result.ok) onClose();
-    else for (const error of result.errors ?? ['Could not import the preset.']) toast(error, { tone: 'danger' });
+    else for (const error of result.errors ?? ['Could not import the style.']) toast(error, { tone: 'danger' });
   }
 
   return (
@@ -174,7 +174,7 @@ function DocumentMenu({ actions, anchor, onClose, state }) {
             onClick={() => {
               const result = actions.savePresetAs(name);
               if (result.ok) onClose();
-              else for (const error of result.errors ?? ['Could not save the preset.']) toast(error, { tone: 'danger' });
+              else for (const error of result.errors ?? ['Could not save the style.']) toast(error, { tone: 'danger' });
             }}
           >
             Save
@@ -182,7 +182,7 @@ function DocumentMenu({ actions, anchor, onClose, state }) {
         </div>
         {state.presetId && state.presetDirty && (
           <Button kind="secondary" onClick={() => { actions.applyPreset(state.presetId); onClose(); }}>
-            Revert to preset
+            Revert to style
           </Button>
         )}
         <Button
@@ -192,9 +192,9 @@ function DocumentMenu({ actions, anchor, onClose, state }) {
             onClose();
           }}
         >
-          Export preset JSON
+          Export style JSON
         </Button>
-        <Button kind="secondary" onClick={importJson}>Import preset JSON…</Button>
+        <Button kind="secondary" onClick={importJson}>Import style JSON…</Button>
         <Button kind="danger" onClick={() => { actions.resetLab(); onClose(); }}>Reset lab</Button>
       </div>
     </Popover>
@@ -283,7 +283,7 @@ function EnvironmentPreviewBar({ actions, engine, state }) {
       hint={state.view.walkPreview
         ? 'WASD/arrows move · Shift runs · Space jumps'
         : 'Left-drag rotate · wheel zoom · right-drag pan'}
-      title="Preview only — the stage, debug view, scene lights, walking, and camera are never saved into your preset."
+      title="Preview only — the stage, debug view, scene lights, walking, and camera are never saved into your style."
     >
       <span className="el-stagebar-select">
         <Select
@@ -301,7 +301,7 @@ function EnvironmentPreviewBar({ actions, engine, state }) {
           value={state.view.debug}
         />
       </span>
-      <span className="tk-previewbar-slider" title="Scene sun intensity — a preview fixture, not part of the preset (the preset holds the material's RESPONSE to it).">
+      <span className="tk-previewbar-slider" title="Scene sun intensity — a preview fixture, not part of the style (the style holds the material's RESPONSE to it).">
         <span>Sun</span>
         <Slider
           max={2.5}
@@ -312,7 +312,7 @@ function EnvironmentPreviewBar({ actions, engine, state }) {
           value={state.view.sunIntensity}
         />
       </span>
-      <span className="tk-previewbar-slider" title="Scene ambient intensity — a preview fixture, not part of the preset.">
+      <span className="tk-previewbar-slider" title="Scene ambient intensity — a preview fixture, not part of the style.">
         <span>Amb</span>
         <Slider
           max={1.2}

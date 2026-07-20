@@ -1,4 +1,4 @@
-import { createStore } from '../../shared/ui/index.js';
+import { createStore } from '../../shared/ui/createStore.js';
 import {
   BUILT_IN_DEBRIS_PRESETS,
   DEBRIS_TYPES,

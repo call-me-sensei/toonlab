@@ -3,7 +3,7 @@
 // same as texture/rock/debris labs). Settings are the flat createWaterSettings
 // object; preset identity lives on presetId, never inside settings.
 
-import { createStore } from '../../shared/ui/index.js';
+import { createStore } from '../../shared/ui/createStore.js';
 import { takeLabHandoff } from '../../shared/labHandoff.js';
 import {
   createWaterPresetDocument,

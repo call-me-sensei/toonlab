@@ -77,11 +77,11 @@ function PresetRow({ actions, state }) {
   const isLocal = localIds.has(state.presetId);
   return (
     <>
-      <PresetRowShell label="Style" title="The complete reusable sky-system preset is an IP-wide style resolved across every sky scenario.">
+      <PresetRowShell label="Style" title="The IP-wide sky rendition resolved across every sky scenario.">
         <Select
           onChange={(id) => { if (id) actions.applyPreset(id); }}
           options={options}
-          testId="preset-select"
+          testId="style-select"
           value={state.presetId ?? ''}
         />
         {isLocal && (
@@ -108,7 +108,7 @@ function DocumentMenu({ actions, anchor, onClose, state }) {
     if (!file) return;
     const result = actions.importDocument(await file.text());
     if (result.ok) onClose();
-    else for (const error of result.errors ?? ['Could not import the sky preset.']) {
+    else for (const error of result.errors ?? ['Could not import the sky style.']) {
       toast(error, { tone: 'danger' });
     }
   }
@@ -123,7 +123,7 @@ function DocumentMenu({ actions, anchor, onClose, state }) {
             onClick={() => {
               const result = actions.savePresetAs(name);
               if (result.ok) onClose();
-              else for (const error of result.errors ?? ['Could not save the sky preset.']) {
+              else for (const error of result.errors ?? ['Could not save the sky style.']) {
                 toast(error, { tone: 'danger' });
               }
             }}
@@ -133,7 +133,7 @@ function DocumentMenu({ actions, anchor, onClose, state }) {
         </div>
         {state.presetId && state.presetDirty && (
           <Button kind="secondary" onClick={() => { actions.applyPreset(state.presetId); onClose(); }}>
-            Revert to preset
+            Revert to style
           </Button>
         )}
         <Button
@@ -147,9 +147,9 @@ function DocumentMenu({ actions, anchor, onClose, state }) {
             onClose();
           }}
         >
-          Export preset JSON
+          Export style JSON
         </Button>
-        <Button kind="secondary" onClick={importJson}>Import preset JSON…</Button>
+        <Button kind="secondary" onClick={importJson}>Import style JSON…</Button>
         <Button kind="danger" onClick={() => { actions.resetLab(); onClose(); }}>Reset lab</Button>
       </div>
     </Popover>
@@ -228,9 +228,9 @@ function SkyPreviewBar({ actions, engine, state }) {
   return (
     <PreviewBar
       hint="Left-drag rotate · wheel zoom · right-drag pan"
-      title="Preview only — current weather, scene lights, and camera are never saved into the sky preset."
+      title="Preview only — current weather, scene lights, and camera are never saved into the sky style."
     >
-      <span className="gr-stagebar-select--debug" title="Current world weather response; not part of the authored sky preset.">
+      <span className="gr-stagebar-select--debug" title="Current world weather response; not part of the authored sky style.">
         <Select
           onChange={(weather) => actions.setView({ weather })}
           options={WEATHER_OPTIONS}
@@ -238,7 +238,7 @@ function SkyPreviewBar({ actions, engine, state }) {
           value={state.view.weather}
         />
       </span>
-      <span className="gr-stagebar-select--debug" title="Compile-time cloud detail for the target device; never saved into the art preset.">
+      <span className="gr-stagebar-select--debug" title="Compile-time cloud detail for the target device; never saved into the art style.">
         <Select
           onChange={(quality) => actions.setView({ quality })}
           options={SKY_QUALITY_OPTIONS.map((value) => ({ label: `${value[0].toUpperCase()}${value.slice(1)} quality`, value }))}

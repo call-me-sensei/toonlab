@@ -13,6 +13,8 @@ import {
   getWeatherPresetOptions,
   getWeatherStyleOptions,
   parseWeatherPresetDocument,
+  rebaseWeatherSettingsStyle,
+  registerWeatherPresetDocument,
   resolveWeatherPreset,
 } from '../src/weather/index.js';
 import { createLightingSystem } from '../src/lighting/index.js';
@@ -81,6 +83,25 @@ const document = createWeatherPresetDocument('custom-storm', {
 const parsed = parseWeatherPresetDocument(JSON.stringify(document));
 check('preset document round-trips', parsed.ok && parsed.value.id === 'custom-storm');
 check('document preserves lightning', parsed.value.settings.lightning.enabled === true);
+registerWeatherPresetDocument(parsed.value, { overwrite: true });
+const styledCustomStorm = resolveWeatherPreset('custom-storm', { style: 'call_me_sensei' });
+check('registered custom conditions remain renderable through an IP-wide style',
+  styledCustomStorm.style === 'call_me_sensei'
+    && styledCustomStorm.settings.lightning.enabled === true
+    && styledCustomStorm.settings.atmosphere.cloudShadowCoverage === 0.55);
+const editedRain = createWeatherSettings({
+  ...styledRain.settings,
+  surface: { ...styledRain.settings.surface, wetness: 0.63 },
+});
+const defaultEditedRain = rebaseWeatherSettingsStyle(editedRain, {
+  condition: 'rain',
+  fromStyle: 'call_me_sensei',
+  toStyle: 'default',
+});
+check('Weather style changes preserve condition identity and authored edits',
+  defaultEditedRain.precipitation.type === 'rain'
+    && defaultEditedRain.surface.wetness === 0.63
+    && defaultEditedRain.wind.gustFrequency === plainRain.settings.wind.gustFrequency);
 
 function seedHash(layer) {
   const values = layer.geometry.attributes.aWeatherSeed.array;

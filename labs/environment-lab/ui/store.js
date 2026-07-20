@@ -1,9 +1,9 @@
 // Environment Shader Lab store: environment shader settings ({features, parameters}
-// from createEnvironmentSettings), preset identity, undo history, persistence,
+// from createEnvironmentSettings), style identity, undo history, persistence,
 // and view state (stage choice / debug output / walk preview). Same
 // store->engine contract as the other redesigned labs.
 
-import { createStore } from '../../shared/ui/index.js';
+import { createStore } from '../../shared/ui/createStore.js';
 import { createEnvironmentSettings } from '../../../src/environment/environmentMaterialAdapter.js';
 import {
   ENVIRONMENT_PRESET_ALIASES,
@@ -21,6 +21,9 @@ import {
 } from '../environmentPresetStore.js';
 
 const DOCUMENT_STORAGE_KEY = 'toonlab.environmentLab.document.v1';
+export const ENVIRONMENT_LAB_STYLE_QUERY_PARAM = 'envStyle';
+export const ENVIRONMENT_LAB_PRESET_QUERY_PARAM = 'envPreset';
+export const ENVIRONMENT_LAB_SCENARIO_QUERY_PARAM = 'envScenario';
 const UNDO_LIMIT = 50;
 const HISTORY_COALESCE_MS = 500;
 
@@ -78,7 +81,12 @@ function bootDocument(urlParams) {
   // Explicit lab / Pro deep links always beat the autosaved draft. Without
   // this guard, "Open in Environment Lab" appeared to work in the URL while
   // silently reopening whichever document happened to be edited last.
-  const hasExplicitStart = ['envPreset', 'preset', 'envScenario']
+  const hasExplicitStart = [
+    ENVIRONMENT_LAB_STYLE_QUERY_PARAM,
+    ENVIRONMENT_LAB_PRESET_QUERY_PARAM,
+    'preset',
+    ENVIRONMENT_LAB_SCENARIO_QUERY_PARAM,
+  ]
     .some((key) => urlParams.has(key));
   if (!hasExplicitStart) {
     const saved = loadDocument();
@@ -93,8 +101,13 @@ function bootDocument(urlParams) {
       };
     }
   }
-  const presetParam = urlParams.get('envPreset') || urlParams.get('preset') || 'call_me_sensei';
-  const scenarioParam = urlParams.get('envScenario');
+  // envStyle is the preferred, explicit identity axis. envPreset and the
+  // generic preset key remain readable so existing bookmarks keep working.
+  const presetParam = urlParams.get(ENVIRONMENT_LAB_STYLE_QUERY_PARAM)
+    || urlParams.get(ENVIRONMENT_LAB_PRESET_QUERY_PARAM)
+    || urlParams.get('preset')
+    || 'call_me_sensei';
+  const scenarioParam = urlParams.get(ENVIRONMENT_LAB_SCENARIO_QUERY_PARAM);
   // Legacy single-look ids open as the Default style at that scenario.
   const alias = ENVIRONMENT_PRESET_ALIASES[presetParam];
   const known = getEnvironmentPresetOptions().find((entry) => entry.value === presetParam);
@@ -259,7 +272,7 @@ export function createEnvironmentLabStore({ urlParams = new URLSearchParams(wind
         createEnvironmentSettings({ features: result.value.features, parameters: result.value.parameters }),
         {
           name: result.value.label || 'Imported environment',
-          status: `Imported ${result.value.label || 'environment preset'}.`,
+          status: `Imported ${result.value.label || 'environment style'}.`,
         },
       );
       return result;
@@ -296,7 +309,7 @@ export function createEnvironmentLabStore({ urlParams = new URLSearchParams(wind
         name: cleanName,
         presetDirty: false,
         presetId: id,
-        status: `Saved “${cleanName}” to your presets.`,
+        status: `Saved “${cleanName}” to your styles.`,
       });
       persist();
       return { ok: true };

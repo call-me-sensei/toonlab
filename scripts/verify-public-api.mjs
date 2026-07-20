@@ -339,6 +339,27 @@ check('style bundles keep IP-wide styles separate from asset presets', () => {
   assert.deepEqual(resolved.weather, { style: 'call_me_sensei' });
   assert.deepEqual(resolved.environment, { style: 'call_me_sensei' });
 
+  const debrisBase = root.createDebrisSettings({
+    asset: { seed: 404 },
+    shape: { length: 2.75 },
+    surface: { primaryColor: [0.12, 0.22, 0.32] },
+  });
+  const styledDebris = root.applyDebrisStyle(debrisBase, 'call_me_sensei');
+  const editedDebris = root.createDebrisSettings({
+    ...styledDebris,
+    shape: { ...styledDebris.shape, length: 3.25 },
+  });
+  const defaultDebris = root.rebaseDebrisSettingsStyle(editedDebris, {
+    baseSettings: debrisBase,
+    fromStyle: 'call_me_sensei',
+    toStyle: 'default',
+  });
+  assert.equal(defaultDebris.shape.length, 3.25,
+    'Debris style changes retain authored asset edits');
+  assert.equal(defaultDebris.surface.roughness, debrisBase.surface.roughness,
+    'Debris style changes can remove the prior rendition cleanly');
+  assert.deepEqual(defaultDebris.surface.primaryColor, debrisBase.surface.primaryColor);
+
   // A bundle style must compose over every runtime axis; returning one fully
   // resolved default look here would silently pin Lake / Clear Day / Clear.
   for (const preset of water.WATER_PRESET_NAMES) {

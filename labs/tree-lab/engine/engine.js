@@ -13,6 +13,7 @@ import {
   disposeExportGroup,
   prepareTreeForExport,
   recipeFromSettings,
+  resolveVegetationShaderPreset,
   resolveCanopyColor,
   windOptionsFromSettings,
 } from '../../../src/vegetation/index.js';
@@ -137,6 +138,12 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
     });
   }
 
+  function applyLiveStyle() {
+    const { styleId } = store.getState();
+    plant?.setVegetationShader(resolveVegetationShaderPreset(styleId));
+    document.body.dataset.vegetationStyle = styleId;
+  }
+
   function rebuild() {
     window.clearTimeout(rebuildTimer);
     const {
@@ -156,6 +163,7 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
       }),
     });
     plant.setSun({ direction: sunDirection, color: [1.0, 0.96, 0.86], sky: [0.72, 0.87, 1.0] });
+    applyLiveStyle();
     applyLiveWind();
     scene.add(plant);
     if (bakedPreviewEnabled) {
@@ -220,6 +228,7 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
   // ---- store subscription: revisions drive rebuilds ------------------------
   let lastDoc = store.getState().docRevision;
   let lastLive = store.getState().liveRevision;
+  let lastStyle = store.getState().styleId;
   store.subscribe(() => {
     const state = store.getState();
     if (state.docRevision !== lastDoc) {
@@ -232,6 +241,10 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
       lastLive = state.liveRevision;
       applyLiveColor();
       applyLiveWind();
+    }
+    if (state.styleId !== lastStyle) {
+      lastStyle = state.styleId;
+      applyLiveStyle();
     }
   });
 

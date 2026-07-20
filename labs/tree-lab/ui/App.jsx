@@ -17,6 +17,7 @@ import { WALK_PREVIEW_TITLE } from '../../shared/walkPreview.js';
 import { findTreePreset } from '../treePresetStore.js';
 import { stagesForLab } from './stageMap.js';
 import { TREE_SETTING_FIELD_SCHEMA } from '../../../src/vegetation/treeRecipe.js';
+import { getVegetationShaderPresetOptions } from '../../../src/vegetation/vegetationShaders.js';
 import { StagePanel } from './panels/StagePanel.jsx';
 import { PowerDrawer } from './panels/PowerDrawer.jsx';
 import { ExportDialog } from './panels/ExportDialog.jsx';
@@ -107,7 +108,9 @@ function TopBar({ actions, labKind, state }) {
 
   async function share() {
     const url = new URL(window.location.href);
-    url.search = `?recipe=${encodeURIComponent(JSON.stringify(actions.getRecipeDocument()))}`;
+    url.search = '';
+    url.searchParams.set('recipe', JSON.stringify(actions.getRecipeDocument()));
+    url.searchParams.set('vegetationStyle', state.styleId);
     window.history.replaceState(null, '', url);
     try {
       await navigator.clipboard.writeText(url.toString());
@@ -553,8 +556,23 @@ function TreePreviewBar({ actions, state }) {
   return (
     <PreviewBar
       hint={state.walkPreview ? 'WASD/arrows move · Shift runs · Space jumps' : null}
-      title="Preview only — time, weather, mannequin, and walking are presentation; never part of the recipe or exports."
+      title="Preview only — style, time, weather, mannequin, and walking are presentation; never part of the recipe."
     >
+      <span
+        className="td-previewbar-style"
+        title="IP-wide vegetation rendition — applies across every tree and flower preset without changing its recipe."
+      >
+        <span>Style</span>
+        <Select
+          onChange={(styleId) => actions.setStyleId(styleId)}
+          options={getVegetationShaderPresetOptions().map((entry) => ({
+            label: entry.label,
+            value: entry.id,
+          }))}
+          testId="vegetation-style"
+          value={state.styleId}
+        />
+      </span>
       <span className="tk-previewbar-slider" title={`Time of day — ${clock}`}>
         <span>{clock}</span>
         <Slider defaultValue={12} max={24} min={0} onChange={(value) => actions.setSky({ hour: value })} step={0.5} testId="sky-hour" value={hour} />

@@ -111,6 +111,14 @@ body[data-hide-hud='true'] #app { display: none; }
   z-index: var(--z-hud);
 }
 .tx-spin { display: inline-flex; align-items: center; gap: var(--space-1); color: var(--text-secondary); font: var(--type-caption); }
+.tx-preview-style {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--preview-300);
+  font: var(--type-caption);
+}
+.tx-preview-style .tk-select { width: 170px; }
 /* The kit segmented control uses 1fr auto-columns, which compress below
    content width inside this flex bar — keep buttons at intrinsic width. */
 .tx-optionsbar .tk-segmented { grid-auto-columns: max-content; }

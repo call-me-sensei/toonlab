@@ -77,7 +77,7 @@ bridge: Lighting remains the sole writer for those outputs, while Weather
 supplies modulation and its own higher-priority Sky/Water layers. Detaching
 Lighting restores its world state and clears only Lighting-owned layers.
 
-A Sky preset contains exactly 46 portable art fields; dome radius and quality
+A Sky style contains exactly 46 portable art fields; dome radius and quality
 are runtime policy. Named Sky quality tiers compile 2, 3, or 4 cloud octaves,
 and `{ cloudOctaves: 1..5 }` defines a custom tier. `sky.setQuality()` rebuilds
 the Sky material while preserving authored settings and live layers. Water
@@ -100,10 +100,18 @@ into the URL, so any lab state is shareable as a deep link. Key params:
 ?model=<path or URL>       character model (see below)
 ?toonPreset=default        toon preset
 ?toonDebug=band            toon debug view (docs/toon-shading.md)
-?envPreset=interiorDay     environment preset
+?envPreset=interiorDay     character preview environment (legacy shared HUD)
 ?envDebug=albedo           environment debug view (docs/environment.md)
-?waterMode=ocean           water preset; ?waterTone=, ?waterQuality=, ?waterDebug=
-?skyPreset=golden_hour     sky system preset
+?envStyle=call_me_sensei&envScenario=interiorDay
+                           environment Style × Scenario
+?waterPreset=ocean&waterStyle=call_me_sensei
+                           water Preset × Style; ?waterDebug= controls preview
+?skyStyle=call_me_sensei&skyScenario=golden_hour
+                           sky Style × Scenario (`skyPreset` remains a legacy alias)
+?weatherPreset=rain&weatherStyle=call_me_sensei
+                           weather Condition × Style
+?rockPreset=boulder&rockStyle=call_me_sensei
+                           rock Preset × Style
 ?post=1&postPreset=softAnime  post-processing (docs/post-processing.md)
 ```
 

@@ -1,4 +1,4 @@
-// Sky Lab state owns one portable, reusable sky-system preset. Camera, scene lights,
+// Sky Lab state owns one portable, reusable sky-system style. Camera, scene lights,
 // current weather are preview fixtures and never enter the
 // document snapshot, undo history, autosave, or exported JSON.
 
@@ -21,6 +21,9 @@ import {
 } from '../skyPresetStore.js';
 
 export const SKY_LAB_DOCUMENT_STORAGE_KEY = 'toonlab.skyLab.document.v1';
+export const SKY_LAB_STYLE_QUERY_PARAM = 'skyStyle';
+// Backward compatibility for links created before Style and Scenario became
+// explicit axes. New links should use SKY_LAB_STYLE_QUERY_PARAM.
 export const SKY_LAB_PRESET_QUERY_PARAM = 'skyPreset';
 export const SKY_LAB_SCENARIO_QUERY_PARAM = 'skyScenario';
 
@@ -88,21 +91,24 @@ function normalizeScenarioId(value) {
 
 function bootDocument(urlParams) {
   // Explicit links win over an unrelated local draft. Pro can hydrate a
-  // cloud document, register it, then launch this route with
-  // ?skyPreset=id (&skyScenario=id for a specific scenario of the style).
-  const linkedPresetId = urlParams.get(SKY_LAB_PRESET_QUERY_PARAM);
-  if (linkedPresetId) {
+  // cloud style document, register it, then launch this route with
+  // ?skyStyle=id (&skyScenario=id for a specific scenario of the style).
+  // ?skyPreset=id remains a compatibility alias for old bookmarks and Pro
+  // links; the explicit style key wins when both are present.
+  const linkedStyleId = urlParams.get(SKY_LAB_STYLE_QUERY_PARAM)
+    || urlParams.get(SKY_LAB_PRESET_QUERY_PARAM);
+  if (linkedStyleId) {
     const linkedScenario = urlParams.get(SKY_LAB_SCENARIO_QUERY_PARAM);
     const scenarioId = linkedScenario !== null
       ? normalizeScenarioId(linkedScenario)
-      : normalizeScenarioId(SKY_PRESET_ALIASES[linkedPresetId]?.scenario);
+      : normalizeScenarioId(SKY_PRESET_ALIASES[linkedStyleId]?.scenario);
     return {
       bootSource: 'preset',
-      name: presetLabel(linkedPresetId),
-      presetId: linkedPresetId,
+      name: presetLabel(linkedStyleId),
+      presetId: linkedStyleId,
       scenarioId,
       settings: authoredSettings({
-        preset: linkedPresetId,
+        style: linkedStyleId,
         ...(linkedScenario === null ? {} : { scenario: scenarioId }),
       }),
     };
@@ -267,7 +273,7 @@ export function createSkyLabStore({
       if (!result.ok) return result;
       replaceForStart(result.value.settings, {
         name: result.value.label || 'Imported sky',
-        status: `Imported ${result.value.label || 'sky preset'}.`,
+        status: `Imported ${result.value.label || 'sky style'}.`,
       });
       return result;
     },
@@ -291,7 +297,7 @@ export function createSkyLabStore({
 
     savePresetAs(name) {
       const cleanName = String(name || '').trim();
-      if (!cleanName) return { errors: ['Enter a name for the sky preset.'], ok: false };
+      if (!cleanName) return { errors: ['Enter a name for the sky style.'], ok: false };
       const id = `local_${slug(cleanName)}_${Date.now().toString(36)}`;
       try {
         upsertLocalSkyPresetDocument(createSkyPresetDocument(id, {
@@ -306,7 +312,7 @@ export function createSkyLabStore({
         name: cleanName,
         presetDirty: false,
         presetId: id,
-        status: `Saved “${cleanName}” to your presets.`,
+        status: `Saved “${cleanName}” to your styles.`,
       });
       persist();
       return { ok: true };

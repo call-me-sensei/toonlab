@@ -1,6 +1,6 @@
 ---
 name: outdoor-world
-description: Build, tune, or visually review a production-quality stylized anime outdoor world with ToonLab — terrain geology, luminous shadows, high-quality tree and grass LOD, living cloud light, water, atmosphere, checkpoint rings, speed trails, and regression checks. Use for Call Me Sensei preset work or modern anime action-RPG quality comparisons.
+description: Build, tune, or visually review a production-quality stylized anime outdoor world with ToonLab — terrain geology, luminous shadows, high-quality tree and grass LOD, living cloud light, water, atmosphere, checkpoint rings, speed trails, and regression checks. Use for Call Me Sensei style work or modern anime action-RPG quality comparisons.
 ---
 
 # Building a stylized outdoor world

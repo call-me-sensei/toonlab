@@ -32,6 +32,7 @@ import {
   createSkyLabStore,
   SKY_LAB_DOCUMENT_STORAGE_KEY,
   SKY_LAB_PRESET_QUERY_PARAM,
+  SKY_LAB_STYLE_QUERY_PARAM,
 } from '../labs/sky-lab/ui/store.js';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -317,6 +318,7 @@ globalThis.window = {
 assert.equal(SKY_PRESET_STORAGE_KEY, 'toonlab.skyPresets.v1');
 assert.equal(SKY_LAB_DOCUMENT_STORAGE_KEY, 'toonlab.skyLab.document.v1');
 assert.equal(SKY_LAB_PRESET_QUERY_PARAM, 'skyPreset');
+assert.equal(SKY_LAB_STYLE_QUERY_PARAM, 'skyStyle');
 
 const store = createSkyLabStore({ urlParams: new URLSearchParams() });
 assert.equal(store.getState().settings.radius, undefined);
@@ -348,7 +350,7 @@ assert.equal(linkedStore.getState().settings.starsStrength, 1.1);
 
 // Style × scenario are independent axes in the lab.
 const scenarioStore = createSkyLabStore({
-  urlParams: new URLSearchParams('skyPreset=call_me_sensei&skyScenario=moonlit'),
+  urlParams: new URLSearchParams('skyStyle=call_me_sensei&skyScenario=moonlit'),
 });
 assert.equal(scenarioStore.getState().presetId, 'call_me_sensei');
 assert.equal(scenarioStore.getState().scenarioId, 'moonlit');
@@ -358,6 +360,15 @@ assert.equal(scenarioStore.getState().presetId, 'call_me_sensei',
   'Changing scenario must keep the current style.');
 assert.equal(scenarioStore.getState().scenarioId, 'golden_hour');
 assert.ok(scenarioStore.getState().settings.sunDirection[1] < 0.3);
+
+// The explicit Style key is canonical and wins over the legacy identity key.
+const preferredStyleStore = createSkyLabStore({
+  urlParams: new URLSearchParams(
+    'skyStyle=call_me_sensei&skyPreset=default&skyScenario=overcast',
+  ),
+});
+assert.equal(preferredStyleStore.getState().presetId, 'call_me_sensei');
+assert.equal(preferredStyleStore.getState().scenarioId, 'overcast');
 
 // Catalog and standalone-route wiring.
 const skyIndex = WORLD_SYSTEMS_SHOWCASE.findIndex((entry) => entry.id === 'sky');
@@ -374,7 +385,7 @@ assert.match(readRepositoryFile('labs/shared/sceneHub.js'), /id:\s*'skyLab'[\s\S
 assert.match(readRepositoryFile('index.html'), /Eleven authoring labs and six playable demos/);
 assert.match(
   readRepositoryFile('labs/sky-lab/ui/App.jsx'),
-  /complete reusable sky-system preset/,
+  /IP-wide sky rendition resolved across every sky scenario/,
 );
 
-console.log('Sky preset and Sky Lab verification passed.');
+console.log('Sky style, scenario, and Sky Lab verification passed.');

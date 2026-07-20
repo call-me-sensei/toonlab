@@ -1,5 +1,92 @@
 import { createDebrisSettings } from './debrisSettings.js';
 
+const DEBRIS_STYLES = new Map([
+  ['default', Object.freeze({
+    description: 'Debris presets exactly as authored.',
+    label: 'Default',
+    surface: Object.freeze({}),
+  })],
+  ['call_me_sensei', Object.freeze({
+    description: 'Studio-managed signature debris rendition applied across every debris preset.',
+    label: 'Call Me Sensei',
+    surface: Object.freeze({
+      edgeLight: 0.34,
+      roughness: 0.88,
+      toonContrast: 0.68,
+      variation: 0.2,
+    }),
+  })],
+]);
+
+export function resolveDebrisStyleName(name) {
+  const id = String(name ?? 'default').trim();
+  return DEBRIS_STYLES.has(id) ? id : 'default';
+}
+
+export function getDebrisStyleOptions() {
+  return Array.from(DEBRIS_STYLES.entries()).map(([id, style]) => ({
+    description: style.description,
+    id,
+    label: style.label,
+  }));
+}
+
+/** Applies one IP style over any built-in, local, or ad-hoc debris preset. */
+export function applyDebrisStyle(settings, style = 'default') {
+  const base = createDebrisSettings(settings);
+  const rendition = DEBRIS_STYLES.get(resolveDebrisStyleName(style));
+  return createDebrisSettings({
+    ...base,
+    surface: { ...base.surface, ...rendition.surface },
+  });
+}
+
+function debrisValuesEqual(left, right) {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right)
+      && left.length === right.length
+      && left.every((value, index) => debrisValuesEqual(value, right[index]));
+  }
+  if (left && right && typeof left === 'object' && typeof right === 'object') {
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    return leftKeys.length === rightKeys.length
+      && leftKeys.every((key) => Object.hasOwn(right, key)
+        && debrisValuesEqual(left[key], right[key]));
+  }
+  return false;
+}
+
+function rebaseDebrisValue(current, oldBase, newBase) {
+  if (debrisValuesEqual(current, oldBase)) return structuredClone(newBase);
+  if (Array.isArray(current)) return structuredClone(current);
+  if (current && typeof current === 'object'
+    && oldBase && typeof oldBase === 'object'
+    && newBase && typeof newBase === 'object') {
+    return Object.fromEntries(Object.keys(current).map((key) => [
+      key,
+      Object.hasOwn(oldBase, key) && Object.hasOwn(newBase, key)
+        ? rebaseDebrisValue(current[key], oldBase[key], newBase[key])
+        : structuredClone(current[key]),
+    ]));
+  }
+  return structuredClone(current);
+}
+
+/** Re-style debris without replacing its asset recipe or authored edits. */
+export function rebaseDebrisSettingsStyle(settings, {
+  baseSettings = createDebrisSettings(),
+  fromStyle = 'default',
+  toStyle = 'default',
+} = {}) {
+  const current = createDebrisSettings(settings);
+  const base = createDebrisSettings(baseSettings);
+  const oldBase = applyDebrisStyle(base, fromStyle);
+  const newBase = applyDebrisStyle(base, toStyle);
+  return createDebrisSettings(rebaseDebrisValue(current, oldBase, newBase));
+}
+
 function preset(id, label, type, variant, description, overrides = {}) {
   return Object.freeze({
     description,
@@ -15,13 +102,6 @@ function preset(id, label, type, variant, description, overrides = {}) {
 }
 
 export const BUILT_IN_DEBRIS_PRESETS = Object.freeze([
-  // Studio-managed signature debris, curated by Call Me Sensei and updated
-  // over releases. Currently the bleached-driftwood look.
-  preset('call_me_sensei', 'Call Me Sensei', 'wood', 'driftwood', 'Studio-managed signature debris, updated over releases.', {
-    asset: { count: 1, seed: 7301, spread: 0 },
-    shape: { branchiness: 0.38, crookedness: 0.86, length: 3.05, splinters: 0.8, thickness: 0.23 },
-    surface: { accentColor: [0.52, 0.39, 0.25], primaryColor: [0.52, 0.43, 0.31], secondaryColor: [0.78, 0.68, 0.5], variation: 0.24 },
-  }),
   preset('bleached-driftwood', 'Bleached driftwood', 'wood', 'driftwood', 'Salt-worn pale wood with broken fibers.', {
     asset: { count: 1, seed: 7301, spread: 0 },
     shape: { branchiness: 0.38, crookedness: 0.86, length: 3.05, splinters: 0.8, thickness: 0.23 },

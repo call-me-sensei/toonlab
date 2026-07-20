@@ -11,6 +11,7 @@ import {
   createWeatherSettings,
   createWeatherSystem,
   getWeatherPresetOptions,
+  getWeatherStyleOptions,
   parseWeatherPresetDocument,
   resolveWeatherPreset,
 } from '../src/weather/index.js';
@@ -28,10 +29,36 @@ function check(label, condition, detail = '') {
 }
 
 const ids = new Set(getWeatherPresetOptions().map((entry) => entry.id));
-for (const id of ['clear', 'fog', 'rain', 'thunderstorm', 'snow', 'blizzard', 'sleet', 'freezingRain', 'hail', 'dustStorm', 'sandstorm', 'call_me_sensei']) {
+for (const id of ['clear', 'fog', 'rain', 'thunderstorm', 'snow', 'blizzard', 'sleet', 'freezingRain', 'hail', 'dustStorm', 'sandstorm']) {
   check(`registry includes ${id}`, ids.has(id));
 }
 check('registry has broad condition coverage', ids.size >= 20, `count=${ids.size}`);
+
+// Style axis: the signature identity is a STYLE rendered under every
+// condition, never a condition entry of its own.
+check('call_me_sensei is not listed as a condition', !ids.has('call_me_sensei'));
+const styleIds = getWeatherStyleOptions().map((entry) => entry.id);
+check('weather styles expose default and call_me_sensei',
+  styleIds.includes('default') && styleIds.includes('call_me_sensei'));
+const legacySignature = resolveWeatherPreset('call_me_sensei');
+check('signature id resolves visible moving cloud-shadow defaults',
+  legacySignature.settings.atmosphere.cloudCoverage === 0.48
+  && legacySignature.settings.atmosphere.cloudShadowCoverage === 0.55
+  && legacySignature.settings.atmosphere.cloudShadowScale === 0.008
+  && legacySignature.settings.atmosphere.cloudShadowStrength === 0.52
+  && legacySignature.settings.wind.gustFrequency === 0.42);
+const plainRain = resolveWeatherPreset('rain');
+const styledRain = resolveWeatherPreset('rain', { style: 'call_me_sensei' });
+check('conditions keep their meteorological keys under a style',
+  styledRain.settings.atmosphere.cloudCoverage === plainRain.settings.atmosphere.cloudCoverage);
+check('a style fills rendition character under every condition',
+  styledRain.settings.wind.gustFrequency === 0.42);
+const legacyStyleSystem = createWeatherSystem({ preset: 'call_me_sensei', style: null });
+legacyStyleSystem.setPreset('rain');
+check('legacy signature-as-preset construction retains the style across condition changes',
+  legacyStyleSystem.currentStyle === 'call_me_sensei'
+    && legacyStyleSystem.settings.wind.gustFrequency === styledRain.settings.wind.gustFrequency);
+legacyStyleSystem.dispose();
 check('snow uses snow precipitation', resolveWeatherPreset('snow').settings.precipitation.type === 'snow');
 check('hail uses hail precipitation', resolveWeatherPreset('hail').settings.precipitation.type === 'hail');
 check('thunderstorm enables lightning', resolveWeatherPreset('thunderstorm').settings.lightning.enabled === true);
@@ -105,6 +132,12 @@ const system = createWeatherSystem({
   sky,
   water,
 });
+check('WeatherSystem defaults to the signature style on an explicit condition',
+  system.currentPreset === 'clear' && system.currentStyle === 'call_me_sensei');
+system.setPreset('rain');
+check('WeatherSystem keeps its style identity when the condition changes',
+  system.currentStyle === 'call_me_sensei'
+    && system.settings.wind.gustFrequency === styledRain.settings.wind.gustFrequency);
 system.setPreset('thunderstorm');
 check('weather writes shared wind', calls.grass.strength === resolveWeatherPreset('thunderstorm').settings.wind.strength);
 check('weather writes shared cloud shadow', calls.cloud.strength === 0);
@@ -397,4 +430,4 @@ if (failures > 0) {
   console.error(`\n${failures} weather verification failure${failures === 1 ? '' : 's'}.`);
   process.exit(1);
 }
-console.log(`\nWeather verification passed (${ids.size} presets).`);
+console.log(`\nWeather verification passed (${ids.size} conditions).`);

@@ -1,0 +1,137 @@
+:root {
+  --tl-site-header-height: 59px;
+}
+
+toonlab-site-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: block;
+  height: var(--tl-site-header-height);
+  pointer-events: auto;
+}
+
+.site-header,
+.site-header *,
+.site-header *::before,
+.site-header *::after {
+  box-sizing: border-box;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  height: var(--tl-site-header-height);
+  padding: 14px 28px;
+  border-bottom: 1px solid var(--tl-line, var(--line, rgb(242 240 233 / 0.09)));
+  background: rgb(11 12 15 / 0.88);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.site-header__brand {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+
+.site-header__brand-mark {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  background: var(--tl-accent, var(--accent, #e8332e));
+  color: #fff;
+  font-family: var(--tl-font-jp, var(--font-display, "M PLUS 1", sans-serif));
+  font-size: 17px;
+  font-weight: 900;
+  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%);
+}
+
+.site-header__brand-word {
+  font-family: var(--tl-font-display, var(--font-display, "M PLUS 1", "Inter", system-ui, sans-serif));
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+}
+
+.site-header__brand-tag {
+  padding: 2px 7px;
+  border: 1px solid var(--tl-line-bright, var(--line-bright, rgb(242 240 233 / 0.18)));
+  color: var(--tl-ink-3, var(--ink-3, #62636b));
+  font-family: var(--tl-font-mono, var(--font-mono, "JetBrains Mono", ui-monospace, monospace));
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  line-height: 1.55;
+  text-transform: uppercase;
+}
+
+.site-header__nav {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+}
+
+.site-header__nav a {
+  position: relative;
+  padding: 4px 0;
+  color: var(--tl-ink-2, var(--ink-2, #a6a5a1));
+  font-family: var(--tl-font-display, var(--font-display, "M PLUS 1", "Inter", system-ui, sans-serif));
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  line-height: 1.55;
+  text-decoration: none;
+  text-transform: uppercase;
+  white-space: nowrap;
+  transition: color var(--tl-dur-1, 120ms) var(--tl-ease, ease);
+}
+
+.site-header__nav a::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--tl-accent, var(--accent, #e8332e));
+  content: "";
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--tl-dur-2, 220ms) var(--tl-ease-sharp, ease);
+}
+
+.site-header__nav a:hover,
+.site-header__nav a[aria-current="page"] {
+  color: var(--tl-ink-1, var(--ink-1, #f2f0e9));
+}
+
+.site-header__nav a:hover::after,
+.site-header__nav a[aria-current="page"]::after {
+  transform: scaleX(1);
+}
+
+.site-header a:focus-visible {
+  outline: 2px solid var(--tl-accent, var(--accent, #e8332e));
+  outline-offset: 3px;
+}
+
+@media (max-width: 900px) {
+  .site-header {
+    padding-inline: 18px;
+  }
+
+  .site-header__nav {
+    display: none;
+  }
+}
+
+@media (max-width: 540px) {
+  .site-header__brand-tag {
+    display: none;
+  }
+}

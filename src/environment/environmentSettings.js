@@ -248,7 +248,10 @@ function rangeForParameter(key) {
   if (key === 'cloudShadowScale') return { max: 0.1, min: 0, step: 0.0005 };
   if (key === 'specularShininess') return { max: 256, min: 1, step: 1 };
   if (key === 'heightFogDensity') return { max: 0.5, min: 0, step: 0.001 };
-  if (key === 'heightFogFalloff') return { max: 30, min: 0.05, step: 0.05 };
+  // Outdoor height fog commonly uses 200–500 m of vertical falloff. The old
+  // 30 m authoring ceiling forced presets toward a low, opaque soup even
+  // though the runtime accepted the correct larger values.
+  if (key === 'heightFogFalloff') return { max: 600, min: 0.05, step: 1 };
   if (key === 'planarReflectionFresnel') return { max: 8, min: 0.1, step: 0.05 };
   if (key === 'triplanarDetailScale') return { max: 64, min: 0.25, step: 0.25 };
   if (key === 'exposure' || key === 'saturation') return { max: 2, min: 0, step: 0.01 };

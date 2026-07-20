@@ -1231,6 +1231,7 @@ export const DEFAULT_STYLIZED_TREE_SETTINGS = Object.freeze({
     leafPlacement: 'canopy',
     seed: 1,
     size: 1,
+    trunkColor: Object.freeze([0xc9 / 255, 0xab / 255, 0x8a / 255]),
     trunkReceiveShadow: true,
   }),
   trunk: Object.freeze({
@@ -1315,7 +1316,12 @@ const stylizedTreePresetRegistry = new Map([
     label: 'Call Me Sensei',
     settings: Object.freeze({
       skeleton: Object.freeze({ attractionCount: 55, influenceRadius: 1.35 }),
-      tree: Object.freeze({ canopyWidth: 1.35, leafDensity: 0.9, leafPlacement: 'tips' }),
+      tree: Object.freeze({
+        canopyWidth: 1.35,
+        leafDensity: 1.15,
+        leafPlacement: 'tips',
+        trunkColor: Object.freeze([0.58, 0.36, 0.2]),
+      }),
       trunk: Object.freeze({
         ...TREE_TRUNK_STYLES.curved,
         bend: 0.24,
@@ -1405,6 +1411,7 @@ export function createStylizedTreeSettings(options = {}) {
       leafPlacement: treeSource.leafPlacement === 'tips' ? 'tips' : base.tree.leafPlacement,
       seed: finiteNumber(treeSource.seed, base.tree.seed),
       size: finiteNumber(treeSource.size, base.tree.size, { min: 0.01 }),
+      trunkColor: colorArray(treeSource.trunkColor, base.tree.trunkColor),
       trunkReceiveShadow: booleanOption(treeSource.trunkReceiveShadow, base.tree.trunkReceiveShadow),
     },
     trunk: {
@@ -1578,6 +1585,11 @@ const STYLIZED_TREE_FIELD_DEFINITIONS = Object.freeze({
       description: 'Whether the bark receives shadow maps. Massive pale-limbed trees read better with this off.',
       label: 'Trunk Receive Shadow',
       type: 'boolean',
+    },
+    trunkColor: {
+      description: 'Warm bark base color used by the generated trunk, branches, and roots.',
+      label: 'Trunk Color',
+      type: 'color',
     },
   },
   trunk: {
@@ -2035,6 +2047,7 @@ export class StylizedTree extends THREE.Group {
       leafDensity,
       canopyScale,
       leafPlacement,
+      trunkColor,
       // Massive pale-limbed trees read better without the canopy shadow-mapping
       // onto their own wood (the anime look keeps exposed limbs bright).
       trunkReceiveShadow,
@@ -2385,7 +2398,7 @@ export class StylizedTree extends THREE.Group {
     this.trunkMesh = new THREE.Mesh(
       trunkGeometry,
       trunkMaterial ?? createWoodySurfaceNodeMaterial({
-        color: 0xc9ab8a,
+        color: trunkColor,
         height: settings.trunk.height,
         vegetationShader,
       }),

@@ -6,9 +6,11 @@
 import { createStore } from '../../shared/ui/index.js';
 import { createEnvironmentSettings } from '../../../src/environment/environmentMaterialAdapter.js';
 import {
+  ENVIRONMENT_PRESET_ALIASES,
   ENVIRONMENT_PRESET_DOCUMENT_TYPE,
   ENVIRONMENT_PRESET_SCHEMA_VERSION,
   getEnvironmentPresetOptions,
+  getEnvironmentScenarioOptions,
   resolveEnvironmentPreset,
   validateEnvironmentPresetDocument,
 } from '../../../src/environment/environmentPresets.js';
@@ -63,30 +65,49 @@ function documentFromSettings(id, label, description, settings) {
   };
 }
 
-function settingsFromPreset(id) {
-  const preset = resolveEnvironmentPreset(id);
+function settingsFromPreset(id, scenario = null) {
+  const preset = resolveEnvironmentPreset(id, scenario ?? undefined);
   return createEnvironmentSettings({ features: preset.features, parameters: preset.parameters });
 }
 
+function scenarioLabel(id) {
+  return getEnvironmentScenarioOptions().find((entry) => entry.id === id)?.label ?? id;
+}
+
 function bootDocument(urlParams) {
-  const saved = loadDocument();
-  if (saved?.settings) {
-    return {
-      bootSource: 'persisted',
-      name: saved.name || 'Untitled environment',
-      presetId: saved.presetId ?? null,
-      settings: createEnvironmentSettings(saved.settings),
-      stage: saved.stage ?? 'builtin',
-    };
+  // Explicit lab / Pro deep links always beat the autosaved draft. Without
+  // this guard, "Open in Environment Lab" appeared to work in the URL while
+  // silently reopening whichever document happened to be edited last.
+  const hasExplicitStart = ['envPreset', 'preset', 'envScenario']
+    .some((key) => urlParams.has(key));
+  if (!hasExplicitStart) {
+    const saved = loadDocument();
+    if (saved?.settings) {
+      return {
+        bootSource: 'persisted',
+        name: saved.name || 'Untitled environment',
+        presetId: saved.presetId ?? null,
+        scenarioId: saved.scenarioId ?? null,
+        settings: createEnvironmentSettings(saved.settings),
+        stage: saved.stage ?? 'builtin',
+      };
+    }
   }
   const presetParam = urlParams.get('envPreset') || urlParams.get('preset') || 'call_me_sensei';
+  const scenarioParam = urlParams.get('envScenario');
+  // Legacy single-look ids open as the Default style at that scenario.
+  const alias = ENVIRONMENT_PRESET_ALIASES[presetParam];
   const known = getEnvironmentPresetOptions().find((entry) => entry.value === presetParam);
-  const presetId = known ? presetParam : 'default';
+  const presetId = known ? presetParam : (alias ? alias.preset : 'default');
+  const scenarioId = getEnvironmentScenarioOptions().some((entry) => entry.id === scenarioParam)
+    ? scenarioParam
+    : (alias?.scenario ?? null);
   return {
-    bootSource: 'fresh',
-    name: known?.label ?? 'Call Me Sensei',
+    bootSource: hasExplicitStart ? 'url' : 'fresh',
+    name: alias ? scenarioLabel(alias.scenario) : (known?.label ?? 'Call Me Sensei'),
     presetId,
-    settings: settingsFromPreset(presetId),
+    scenarioId,
+    settings: settingsFromPreset(presetId, scenarioId),
     stage: 'builtin',
   };
 }
@@ -109,6 +130,7 @@ export function createEnvironmentLabStore({ urlParams = new URLSearchParams(wind
     name: boot.name,
     presetDirty: false,
     presetId: boot.presetId,
+    scenarioId: boot.scenarioId,
     settings: boot.settings,
     status: boot.bootSource === 'persisted' ? 'Restored your last environment.' : '',
     view: {
@@ -125,6 +147,7 @@ export function createEnvironmentLabStore({ urlParams = new URLSearchParams(wind
     name: state().name,
     presetDirty: state().presetDirty,
     presetId: state().presetId,
+    scenarioId: state().scenarioId,
     settings: state().settings,
   });
 
@@ -132,6 +155,7 @@ export function createEnvironmentLabStore({ urlParams = new URLSearchParams(wind
     saveDocumentLocal({
       name: state().name,
       presetId: state().presetId,
+      scenarioId: state().scenarioId,
       settings: state().settings,
       stage: state().view.stage,
     });
@@ -173,9 +197,9 @@ export function createEnvironmentLabStore({ urlParams = new URLSearchParams(wind
     }, { status: 'History restored.' });
   }
 
-  function replaceForStart(settings, { name, presetId = null, status }) {
+  function replaceForStart(settings, { name, presetId = null, scenarioId = null, status }) {
     pushHistory();
-    store.setState({ name, presetDirty: false, presetId });
+    store.setState({ name, presetDirty: false, presetId, scenarioId });
     commit({ settings }, { status });
   }
 
@@ -184,18 +208,31 @@ export function createEnvironmentLabStore({ urlParams = new URLSearchParams(wind
       store.setState(patch);
     },
 
-    applyPreset(id) {
+    // Opens one scenario of a style (scenario null = the style's base look).
+    // Every style resolves in every canonical scenario.
+    applyPreset(id, scenario = undefined) {
       const option = [
         ...getEnvironmentPresetOptions().map((entry) => ({ id: entry.value, label: entry.label })),
         ...state().localPresets,
       ].find((entry) => entry.id === id);
       if (!option) return false;
-      replaceForStart(settingsFromPreset(id), {
+      const scenarioId = scenario === undefined ? state().scenarioId : scenario;
+      const validScenario = getEnvironmentScenarioOptions().some((entry) => entry.id === scenarioId)
+        ? scenarioId
+        : null;
+      replaceForStart(settingsFromPreset(id, validScenario), {
         name: option.label,
         presetId: id,
-        status: `Opened ${option.label}.`,
+        scenarioId: validScenario,
+        status: validScenario
+          ? `Opened ${option.label} · ${scenarioLabel(validScenario)}.`
+          : `Opened ${option.label}.`,
       });
       return true;
+    },
+
+    setScenario(scenario) {
+      return store.actions.applyPreset(state().presetId ?? 'default', scenario ?? null);
     },
 
     deletePreset(id) {

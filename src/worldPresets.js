@@ -45,44 +45,118 @@ const WORLD_PRESET_DEFINITIONS = new Map([
       near: 0.4,
     },
     environment: {
-      preset: 'call_me_sensei',
-      // Long sightlines: thinner height fog than the interior-scale default.
+      style: 'call_me_sensei',
+      // Production outdoor grade. These are intentionally opinionated: the
+      // composed world must not inherit the dense asset-lab fog or the
+      // near-zero ambient used by isolated material previews. The latter
+      // turns cast shadows into black holes in a real valley.
       overrides: {
         parameters: {
-          heightFogDensity: 0.002,
-          heightFogFalloff: 9,
+          ambientProbeBlend: 0.45,
+          ambientStrength: 0.38,
+          directLightStrength: 1.12,
+          exposure: 1.06,
+          heightFogColor: [0.63, 0.8, 0.98],
+          heightFogDensity: 0.00055,
+          heightFogFalloff: 400,
+          lightingInfluence: 0.96,
+          saturation: 1.2,
+          shadowLift: 0.42,
+          shadowTintColor: [0.68, 0.74, 0.94],
+          skyTintStrength: 0.16,
+          sunShadowStrength: 0.72,
+          triplanarDetail: 1,
+          triplanarDetailScale: 28,
+          triplanarEdgeHighlight: 0.7,
+          untexturedGradientStrength: 0.52,
         },
       },
     },
     sky: {
-      preset: 'call_me_sensei',
+      scenario: 'clear_day',
+      style: 'call_me_sensei',
       // Dome must clear the far plane and the fog band.
-      settings: { radius: 400 },
+      settings: {
+        cloudColor: [1, 1, 1],
+        cloudCoverage: 0.42,
+        cloudScale: 1.12,
+        cloudShadeColor: [0.58, 0.72, 0.95],
+        horizonColor: [0.58, 0.84, 1],
+        horizonScattering: 0.52,
+        quality: 'high',
+        radius: 400,
+        sunColor: [1, 0.97, 0.88],
+        sunDirection: [-0.4, 0.82, -0.3],
+        zenithColor: [0.1, 0.46, 0.93],
+      },
     },
     water: {
-      preset: 'call_me_sensei',
+      preset: 'lake',
+      style: 'call_me_sensei',
     },
     weather: {
-      preset: 'call_me_sensei',
+      preset: 'partlyCloudy',
+      style: 'call_me_sensei',
+    },
+    vegetationShader: {
+      style: 'call_me_sensei',
     },
     grass: {
       preset: 'call_me_sensei',
-      // Asset-lab blades (0.16–0.42 m) vanish at 50 m+; meadow scale reads.
+      // Dense but gameplay-scaled: the old 0.7 m blades swallowed a human
+      // character and turned the foreground into high-frequency neon lines.
       settings: {
-        bladeHeightRange: [0.35, 0.7],
-        bladeWidthRange: [0.08, 0.13],
+        baseColor: [0.3, 0.55, 0.2],
+        bladeHeightRange: [0.22, 0.48],
+        bladeWidthRange: [0.045, 0.075],
         pushRadius: 1.2,
+        shadowTint: [0.34, 0.49, 0.4],
+        tipColor: [0.56, 0.79, 0.32],
       },
-      scatter: { density: 6, radius: 45 },
+      // A high-density moving window keeps close grass lush while preserving
+      // a bounded one-draw-call budget and a soft distance fade.
+      scatter: { density: 18, maxCount: 155000, radius: 55 },
     },
     trees: {
       preset: 'call_me_sensei',
       // size 1 ≈ 3 m; open-world silhouettes want ~10 m canopies.
-      settings: { size: 3.2 },
-      scatter: { jitter: 0.5, keepChance: 0.85, radius: 120, spacing: 9 },
+      canopyColors: [
+        0x4f9844, 0x5ca64a, 0x6ab052, 0x438c3e, 0x71b85a,
+        0x559c48, 0x7dbc62, 0x4c9241, 0x8bc46a, 0xb4ad54,
+      ],
+      lod: {
+        castShadow: true,
+        detailCount: 140,
+        detailDistance: 165,
+        variants: 10,
+      },
+      settings: { size: 3.25 },
+      // Dense crowns, but with enough breathing room to avoid a continuous
+      // billboard wall. Far trees are one volumetric instanced draw/variant.
+      scatter: { jitter: 0.48, keepChance: 0.86, radius: 170, spacing: 6.6 },
+    },
+    understory: {
+      enabled: true,
+      scatter: {
+        groundCoverPerTree: 3.2,
+        maxGroundCover: 6200,
+        maxShrubs: 2400,
+        seed: 2309,
+        shrubsPerTree: 1.35,
+      },
+      settings: {
+        groundScaleRange: [0.5, 1.05],
+        shrubScaleRange: [0.72, 1.5],
+      },
+    },
+    contactShadows: {
+      color: 0x395469,
+      opacity: 0.15,
+      treeRadius: 1.25,
     },
     rocks: {
-      preset: 'call_me_sensei',
+      preset: 'boulder',
+      style: 'call_me_sensei',
       // Gradient normals: flat facets read near-black at gameplay range.
       quality: 'gameplayHigh',
     },

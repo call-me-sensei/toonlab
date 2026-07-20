@@ -4,9 +4,12 @@
 
 import { createStore } from '../../shared/ui/createStore.js';
 import {
+  DEFAULT_SKY_SCENARIO,
+  SKY_PRESET_ALIASES,
   createSkyPresetDocument,
   createSkySettings,
   getSkyPresetOptions,
+  getSkyScenarioOptions,
   parseSkyPresetDocument,
   serializeSkyPreset,
 } from '../../../src/sky/stylizedSky.js';
@@ -19,6 +22,7 @@ import {
 
 export const SKY_LAB_DOCUMENT_STORAGE_KEY = 'toonlab.skyLab.document.v1';
 export const SKY_LAB_PRESET_QUERY_PARAM = 'skyPreset';
+export const SKY_LAB_SCENARIO_QUERY_PARAM = 'skyScenario';
 
 const UNDO_LIMIT = 50;
 const HISTORY_COALESCE_MS = 500;
@@ -64,19 +68,43 @@ function clearDraft() {
 }
 
 function presetLabel(id) {
-  return getSkyPresetOptions().find((entry) => (entry.value ?? entry.id) === id)?.label ?? id;
+  const option = getSkyPresetOptions().find((entry) => (entry.value ?? entry.id) === id);
+  if (option) return option.label;
+  // Legacy single-look ids read as the scenario they alias to.
+  const alias = SKY_PRESET_ALIASES[id];
+  if (alias) return scenarioLabel(alias.scenario);
+  return id;
+}
+
+function scenarioLabel(id) {
+  return getSkyScenarioOptions().find((entry) => entry.id === id)?.label ?? id;
+}
+
+function normalizeScenarioId(value) {
+  return getSkyScenarioOptions().some((entry) => entry.id === value)
+    ? value
+    : DEFAULT_SKY_SCENARIO;
 }
 
 function bootDocument(urlParams) {
   // Explicit links win over an unrelated local draft. Pro can hydrate a
-  // cloud document, register it, then launch this route with ?skyPreset=id.
+  // cloud document, register it, then launch this route with
+  // ?skyPreset=id (&skyScenario=id for a specific scenario of the style).
   const linkedPresetId = urlParams.get(SKY_LAB_PRESET_QUERY_PARAM);
   if (linkedPresetId) {
+    const linkedScenario = urlParams.get(SKY_LAB_SCENARIO_QUERY_PARAM);
+    const scenarioId = linkedScenario !== null
+      ? normalizeScenarioId(linkedScenario)
+      : normalizeScenarioId(SKY_PRESET_ALIASES[linkedPresetId]?.scenario);
     return {
       bootSource: 'preset',
       name: presetLabel(linkedPresetId),
       presetId: linkedPresetId,
-      settings: authoredSettings({ preset: linkedPresetId }),
+      scenarioId,
+      settings: authoredSettings({
+        preset: linkedPresetId,
+        ...(linkedScenario === null ? {} : { scenario: scenarioId }),
+      }),
     };
   }
   const saved = readDraft();
@@ -85,6 +113,7 @@ function bootDocument(urlParams) {
       bootSource: 'persisted',
       name: saved.name || 'Untitled sky',
       presetId: saved.presetId ?? null,
+      scenarioId: normalizeScenarioId(saved.scenarioId),
       settings: authoredSettings(saved.settings),
     };
   }
@@ -93,6 +122,7 @@ function bootDocument(urlParams) {
     bootSource: 'fresh',
     name: presetLabel(presetId),
     presetId,
+    scenarioId: DEFAULT_SKY_SCENARIO,
     settings: authoredSettings({ preset: presetId }),
   };
 }
@@ -123,6 +153,7 @@ export function createSkyLabStore({
     name: boot.name,
     presetDirty: false,
     presetId: boot.presetId,
+    scenarioId: boot.scenarioId,
     settings: boot.settings,
     status: boot.bootSource === 'persisted' ? 'Restored your last sky.' : '',
     view: { ...DEFAULT_PREVIEW },
@@ -133,6 +164,7 @@ export function createSkyLabStore({
     name: state().name,
     presetDirty: state().presetDirty,
     presetId: state().presetId,
+    scenarioId: state().scenarioId,
     settings: state().settings,
   });
 
@@ -140,6 +172,7 @@ export function createSkyLabStore({
     writeDraft({
       name: state().name,
       presetId: state().presetId,
+      scenarioId: state().scenarioId,
       settings: withoutSkyDomeRadius(state().settings),
     });
   }
@@ -177,9 +210,14 @@ export function createSkyLabStore({
     commit({ ...document, settings: authoredSettings(document.settings) }, { status: 'History restored.' });
   }
 
-  function replaceForStart(settings, { name, presetId = null, status }) {
+  function replaceForStart(settings, { name, presetId = null, scenarioId = null, status }) {
     pushHistory();
-    store.setState({ name, presetDirty: false, presetId });
+    store.setState({
+      name,
+      presetDirty: false,
+      presetId,
+      ...(scenarioId === null ? {} : { scenarioId }),
+    });
     commit({ settings: authoredSettings(settings) }, { status });
   }
 
@@ -188,13 +226,24 @@ export function createSkyLabStore({
       store.setState(patch);
     },
 
-    applyPreset(id) {
-      replaceForStart({ preset: id }, {
+    // Opens one scenario of a style. Every style resolves in every scenario;
+    // omitting `scenario` keeps the current one (legacy alias ids pick their
+    // own scenario inside the runtime).
+    applyPreset(id, scenario = undefined) {
+      const scenarioId = normalizeScenarioId(
+        scenario ?? SKY_PRESET_ALIASES[id]?.scenario ?? state().scenarioId,
+      );
+      replaceForStart({ preset: id, scenario: scenarioId }, {
         name: presetLabel(id),
         presetId: id,
-        status: `Opened ${presetLabel(id)}.`,
+        scenarioId,
+        status: `Opened ${presetLabel(id)} · ${scenarioLabel(scenarioId)}.`,
       });
       return true;
+    },
+
+    setScenario(scenario) {
+      return store.actions.applyPreset(state().presetId ?? 'default', scenario);
     },
 
     deletePreset(id) {
@@ -232,9 +281,10 @@ export function createSkyLabStore({
     resetLab() {
       clearDraft();
       store.setState({ view: { ...DEFAULT_PREVIEW } });
-      replaceForStart({ preset: 'call_me_sensei' }, {
+      replaceForStart({ preset: 'call_me_sensei', scenario: DEFAULT_SKY_SCENARIO }, {
         name: presetLabel('call_me_sensei'),
         presetId: 'call_me_sensei',
+        scenarioId: DEFAULT_SKY_SCENARIO,
         status: 'Sky Lab reset.',
       });
     },

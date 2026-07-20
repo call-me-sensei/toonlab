@@ -56,6 +56,13 @@ shader/appearance section explicitly.
 | Scene/world state | Current time, sun direction, weather, wind, wetness, snow, exposure | Host game, Weather, or Lighting system |
 | Instance/interaction | Placement, seed, scale, bend target, splash source | Host game or preview scene |
 
+Every lab keeps the IP style axis visually and semantically separate from its
+own preset/scenario axis. `Call Me Sensei` belongs in **Style**; it must apply
+over `Boulder`, `River`, `Thunderstorm`, and other domain presets rather than
+appearing beside them as another preset. Legacy APIs may continue accepting a
+style id in a `preset` field, but lab pickers and new code use explicit
+`style × preset` state.
+
 Lab previews may expose scene and instance controls so an artifact can be
 tested, but preview-only values are labeled and excluded from exported preset
 documents. Sky-dome radius remains a runtime constructor option for

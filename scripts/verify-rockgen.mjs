@@ -12,9 +12,13 @@ import {
   compileDocument,
   createRockDocument,
   deserializeRockDocument,
+  getRockgenPresetOptions,
+  getRockgenStyleOptions,
   hashGeometry,
   meshDocument,
+  rebaseRockDocumentStyle,
   serializeRockDocument,
+  resolveRockgenPreset,
 } from '../src/rockgen/index.js';
 
 const RESOLUTION = 64;
@@ -28,7 +32,7 @@ const EXPECTED = {
   'cliff-wall-seed4': '229d8658',
   'column-arch-seed7': '06f97c40',
   'eroded-mesa-seed9': '2e82fc62',
-  'karst-spire-seed3': 'f538771b',
+  'karst-spire-seed3': '06f99041',
   'sea-stack-seed5': 'ed052cc1',
   'sketch-slab-seed3': '431d0cd2',
   'smooth-sphere': 'd2b53d83',
@@ -105,6 +109,64 @@ function check(condition, message) {
     console.error(`  FAIL  ${message}`);
   }
 }
+
+const rockPresetIds = getRockgenPresetOptions().map((entry) => entry.value);
+const rockStyleIds = getRockgenStyleOptions().map((entry) => entry.value);
+check(!rockPresetIds.includes('call_me_sensei'), 'Call Me Sensei is not an asset preset');
+check(
+  rockStyleIds.includes('default') && rockStyleIds.includes('call_me_sensei'),
+  'rock styles expose Default and Call Me Sensei',
+);
+check(
+  rockPresetIds.every((preset) => resolveRockgenPreset(preset, { style: 'call_me_sensei' }).surface.textureStyle === 'limestone'),
+  'Call Me Sensei style resolves over every rock preset',
+);
+check(
+  JSON.stringify(resolveRockgenPreset('call_me_sensei'))
+    === JSON.stringify(resolveRockgenPreset('boulder', { style: 'call_me_sensei' })),
+  'legacy Call Me Sensei preset calls resolve to the styled boulder',
+);
+const portableIdentity = deserializeRockDocument(serializeRockDocument(createRockDocument({
+  preset: 'sea-stack',
+  seed: 12,
+  style: 'call_me_sensei',
+})));
+check(
+  portableIdentity.preset === 'sea-stack' && portableIdentity.style === 'call_me_sensei',
+  'rock project JSON preserves separate preset and style identity',
+);
+const editedRock = createRockDocument({ preset: 'sea-stack', seed: 12, style: 'default' });
+editedRock.pieces[0].noise.amplitude = 0.123;
+const styledEditedRock = rebaseRockDocumentStyle(editedRock, 'call_me_sensei');
+check(
+  styledEditedRock.preset === 'sea-stack'
+    && styledEditedRock.style === 'call_me_sensei'
+    && styledEditedRock.pieces[0].noise.amplitude === 0.123
+    && styledEditedRock.surface.textureStyle === 'limestone',
+  'style rebasing preserves rock identity and edits while applying the new rendition',
+);
+const customRock = createRockDocument({
+  pieces: [{ name: 'Hand drawn', shape: { sizeX: 2.2, type: 'sphere' } }],
+  preset: null,
+  style: 'default',
+});
+const styledCustomRock = rebaseRockDocumentStyle(customRock, 'call_me_sensei');
+check(
+  styledCustomRock.preset === null
+    && styledCustomRock.pieces[0].name === 'Hand drawn'
+    && styledCustomRock.pieces[0].shape.sizeX === 2.2
+    && styledCustomRock.surface.textureStyle === 'limestone',
+  'Call Me Sensei styles custom Rock documents without replacing them with Boulder',
+);
+const legacyV1 = JSON.parse(serializeRockDocument(portableIdentity));
+legacyV1.schemaVersion = 1;
+delete legacyV1.preset;
+delete legacyV1.style;
+const migratedV1 = deserializeRockDocument(legacyV1);
+check(
+  migratedV1.preset === null && migratedV1.style === 'default',
+  'v1 rock projects migrate to custom geometry with the Default style',
+);
 
 function assertFinite(name, geometry) {
   for (const attribute of Object.values(geometry.attributes)) {

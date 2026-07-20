@@ -4,7 +4,9 @@ import { fileURLToPath } from 'node:url';
 import * as THREE from 'three';
 
 import {
+  DEFAULT_SKY_SCENARIO,
   DEFAULT_SKY_SETTINGS,
+  SKY_PRESET_ALIASES,
   SKY_PRESET_DOCUMENT_TYPE,
   SKY_QUALITY_TIERS,
   SKY_SCENE_OVERRIDE_PRIORITIES,
@@ -15,6 +17,7 @@ import {
   createSkyPresetDocument,
   createSkySettings,
   getSkyPresetOptions,
+  getSkyScenarioOptions,
   parseSkyPresetDocument,
   resolveSkyQuality,
   serializeSkyPreset,
@@ -234,16 +237,72 @@ assert.deepEqual(layeredSky.settings.zenithColor, authoredZenithBeforeQualityCha
   'Deployment quality changes must not enter the authored preset.');
 layeredSky.dispose();
 
-// Built-ins must remain useful starting points, not ten aliases of one look.
-const builtInIds = new Set(getSkyPresetOptions().map((entry) => entry.id));
-for (const id of ['default', 'call_me_sensei', 'clear_day', 'golden_hour', 'overcast', 'moonlit']) {
-  assert.ok(builtInIds.has(id), `Missing built-in sky preset: ${id}`);
+// Preset = style, scenario = moment. Every built-in style must resolve
+// distinctly in every canonical scenario — a style with only a daytime sky
+// is the exact conflation this contract exists to prevent.
+const styleOptions = getSkyPresetOptions();
+const builtInIds = new Set(styleOptions.map((entry) => entry.id));
+for (const id of ['default', 'call_me_sensei']) {
+  assert.ok(builtInIds.has(id), `Missing built-in sky style: ${id}`);
+}
+const scenarioIds = getSkyScenarioOptions().map((entry) => entry.id);
+assert.equal(DEFAULT_SKY_SCENARIO, 'clear_day');
+assert.deepEqual(scenarioIds, ['clear_day', 'golden_hour', 'overcast', 'moonlit']);
+for (const style of styleOptions) {
+  assert.deepEqual(
+    Object.keys(style.scenarios),
+    scenarioIds,
+    `Sky style ${style.id} must report coverage for every scenario.`,
+  );
+  const looks = new Set(scenarioIds.map((scenario) => {
+    const { radius: _radius, ...settings } = createSkySettings({ preset: style.id, scenario });
+    return JSON.stringify(settings);
+  }));
+  assert.equal(looks.size, scenarioIds.length,
+    `Sky style ${style.id} must render distinctly in every scenario.`);
+}
+assert.deepEqual(
+  Object.keys(styleOptions.find((entry) => entry.id === 'call_me_sensei').scenarios)
+    .filter((id) => styleOptions.find((entry) => entry.id === 'call_me_sensei').scenarios[id] === 'authored'),
+  scenarioIds,
+  'The signature style must author every scenario itself, not inherit any.',
+);
+
+// Legacy flat ids resolve as the Default style at that scenario, and stay
+// byte-identical to the historical single-look presets.
+for (const [legacyId, alias] of Object.entries(SKY_PRESET_ALIASES)) {
+  assert.deepEqual(
+    createSkySettings({ preset: legacyId }),
+    createSkySettings({ preset: alias.preset, scenario: alias.scenario }),
+    `Legacy sky preset ${legacyId} must alias ${alias.preset}/${alias.scenario}.`,
+  );
 }
 const distinctLooks = new Set(['clear_day', 'golden_hour', 'overcast', 'moonlit'].map((id) => {
   const { radius: _radius, ...settings } = createSkySettings({ preset: id });
   return JSON.stringify(settings);
 }));
-assert.equal(distinctLooks.size, 4, 'Curated sky starting points must remain visually distinct.');
+assert.equal(distinctLooks.size, 4, 'Canonical scenario renditions must remain visually distinct.');
+
+// Scenario selection composes with the layer system exactly like presets.
+const scenarioSky = new StylizedSky({ style: 'call_me_sensei', scenario: 'moonlit' });
+assert.ok(scenarioSky.settings.starsStrength > 1, 'Signature night must actually be night.');
+assert.equal(scenarioSky.style, 'call_me_sensei');
+assert.equal(scenarioSky.scenario, 'moonlit');
+scenarioSky.applySettings({ scenario: 'golden_hour' });
+assert.ok(scenarioSky.settings.sunDirection[1] < 0.3,
+  'Switching scenario alone must re-resolve the current style rendition.');
+assert.equal(scenarioSky.style, 'call_me_sensei',
+  'Switching scenarios must retain the IP-wide style identity.');
+assert.equal(scenarioSky.scenario, 'golden_hour');
+assert.deepEqual(
+  scenarioSky.settings,
+  createSkySettings({ style: 'call_me_sensei', scenario: 'golden_hour' }),
+  'Scenario changes must resolve within the active style, never fall back to Default.',
+);
+scenarioSky.setStyle('default');
+assert.equal(scenarioSky.scenario, 'golden_hour',
+  'Switching styles must retain the active runtime scenario.');
+scenarioSky.dispose();
 
 // Lab scope: preview fixtures do not mutate, autosave, or export the preset.
 const localValues = new Map();
@@ -283,7 +342,22 @@ const linkedStore = createSkyLabStore({
   urlParams: new URLSearchParams('skyPreset=moonlit'),
 });
 assert.equal(linkedStore.getState().presetId, 'moonlit');
+assert.equal(linkedStore.getState().scenarioId, 'moonlit',
+  'Legacy single-look links must land on their aliased scenario.');
 assert.equal(linkedStore.getState().settings.starsStrength, 1.1);
+
+// Style × scenario are independent axes in the lab.
+const scenarioStore = createSkyLabStore({
+  urlParams: new URLSearchParams('skyPreset=call_me_sensei&skyScenario=moonlit'),
+});
+assert.equal(scenarioStore.getState().presetId, 'call_me_sensei');
+assert.equal(scenarioStore.getState().scenarioId, 'moonlit');
+assert.ok(scenarioStore.getState().settings.starsStrength > 1);
+scenarioStore.actions.setScenario('golden_hour');
+assert.equal(scenarioStore.getState().presetId, 'call_me_sensei',
+  'Changing scenario must keep the current style.');
+assert.equal(scenarioStore.getState().scenarioId, 'golden_hour');
+assert.ok(scenarioStore.getState().settings.sunDirection[1] < 0.3);
 
 // Catalog and standalone-route wiring.
 const skyIndex = WORLD_SYSTEMS_SHOWCASE.findIndex((entry) => entry.id === 'sky');

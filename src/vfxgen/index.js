@@ -7,6 +7,16 @@ export * from './vfxPresets.js';
 export * from './vfxSystem.js';
 export { BURST_KIND, GROUP_FOR_BURST_KIND, createBurstBackbone } from './core/burstBackbone.js';
 export { createTrailRibbon } from './core/trailRibbon.js';
+export {
+  DEFAULT_GLOW_RING_SETTINGS,
+  createGlowRing,
+  createGlowRingSettings,
+} from './core/glowRing.js';
+export {
+  DEFAULT_MOTION_TRAIL_SETTINGS,
+  createMotionTrailSettings,
+  createMotionTrails,
+} from './core/motionTrails.js';
 export { createProjectileCore } from './core/projectileCore.js';
 export { emitImpact, emitSlashSparkle } from './effects/weaponEffects.js';
 export { emitFireballEmbers, emitFireballExplosion } from './effects/magicEffects.js';

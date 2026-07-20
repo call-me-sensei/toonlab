@@ -38,15 +38,21 @@ function write(key, value) {
 export function loadWaterDocument() {
   const saved = read(DOCUMENT_KEY);
   if (!saved || typeof saved !== 'object' || !saved.settings) return null;
+  const legacyStylePreset = saved.presetId === 'call_me_sensei' || saved.presetId === 'call-me-sensei';
+  const inferredStyle = saved.settings?.style
+    ?? (legacyStylePreset || saved.settings?.colorTone === 'anime' ? 'call_me_sensei' : 'default');
+  const legacyMode = ['mirror', 'calm', 'lake', 'river', 'coast', 'ocean', 'storm']
+    .includes(saved.settings?.mode) ? saved.settings.mode : 'lake';
   return {
     name: typeof saved.name === 'string' ? saved.name : 'Untitled water',
-    presetId: saved.presetId ?? null,
+    presetId: legacyStylePreset ? legacyMode : (saved.presetId ?? null),
+    styleId: saved.styleId ?? inferredStyle,
     settings: createWaterSettings(saved.settings),
   };
 }
 
-export function saveWaterDocument({ name, presetId, settings }) {
-  write(DOCUMENT_KEY, { name, presetId, settings });
+export function saveWaterDocument({ name, presetId, settings, styleId = 'default' }) {
+  write(DOCUMENT_KEY, { name, presetId, settings, styleId });
 }
 
 export function clearWaterDocument() {

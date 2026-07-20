@@ -117,9 +117,9 @@ export function createVfxLabEngine({ mount, store }) {
     vfx?.dispose();
     vfx = createVfxSystem({
       heightAt: () => 0,
-      preset: state.presetId,
       seed: state.seed,
       settings: state.overrides,
+      style: state.styleId,
     });
     scene.add(vfx.root);
     rebuildAttack();
@@ -129,7 +129,7 @@ export function createVfxLabEngine({ mount, store }) {
   let lastSignature = null;
   let rebuildTimer = null;
   function signatureOf(state) {
-    return `${state.seed}|${state.presetId}|${JSON.stringify(state.overrides)}`;
+    return `${state.seed}|${state.styleId}|${JSON.stringify(state.overrides)}`;
   }
   store.subscribe(() => {
     const signature = signatureOf(store.getState());

@@ -37,3 +37,4 @@ export * from './stylizedWorld.js';
 export * from './worldCollision.js';
 export * from './worldMinimap.js';
 export * from './stylizedTerrain.js';
+export * from './worldLandmarks.js';

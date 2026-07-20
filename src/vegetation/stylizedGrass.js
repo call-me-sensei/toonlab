@@ -70,6 +70,8 @@ export const DEFAULT_GRASS_SETTINGS = Object.freeze({
   baseColor: Object.freeze([0.42, 0.68, 0.24]),
   bladeHeightRange: Object.freeze([0.16, 0.42]),
   bladeWidthRange: Object.freeze([0.05, 0.085]),
+  bladesPerClump: 1,
+  clumpRadius: 0.055,
   cloudShadowCoverage: 0.45,
   cloudShadowScale: 0.012,
   cloudShadowStrength: 0,
@@ -110,8 +112,26 @@ const grassPresetRegistry = new Map([
     label: 'Call Me Sensei',
     settings: Object.freeze({}),
   })],
+  // Genshin-style clumped meadow, after StylizedStation's "ULTIMATE Guide to
+  // Making Genshin Grass": several blades per placement splaying from a
+  // shared base, strong root-to-tip gradient, soft height-masked wind, no
+  // cast shadows. The up-facing lighting normal and gradient the tutorial
+  // authors in Blender/Unreal are already how this field shades.
+  ['anime_clump', Object.freeze({
+    description: 'Genshin-inspired clumped grass: 6 blades per placement rising from a shared base with varied heights, light tips over dark roots, gentle wind.',
+    label: 'Anime Clump',
+    settings: Object.freeze({
+      backlitStrength: 0.4,
+      baseColor: Object.freeze([0.21, 0.43, 0.14]),
+      bladeHeightRange: Object.freeze([0.18, 0.5]),
+      bladeWidthRange: Object.freeze([0.05, 0.09]),
+      bladesPerClump: 6,
+      clumpRadius: 0.055,
+      tipColor: Object.freeze([0.67, 0.85, 0.34]),
+    }),
+  })],
 ]);
-const BUILT_IN_GRASS_PRESET_IDS = new Set(['default', 'call_me_sensei']);
+const BUILT_IN_GRASS_PRESET_IDS = new Set(['default', 'call_me_sensei', 'anime_clump']);
 
 /**
  * Registers a named grass preset so it resolves in `createGrassSettings({
@@ -168,6 +188,8 @@ export function createGrassSettings(options = {}) {
     baseColor: colorArray(source.baseColor, base.baseColor),
     bladeHeightRange: vectorArray(source.bladeHeightRange, base.bladeHeightRange, 2),
     bladeWidthRange: vectorArray(source.bladeWidthRange, base.bladeWidthRange, 2),
+    bladesPerClump: Math.round(finiteNumber(source.bladesPerClump, base.bladesPerClump, { min: 1, max: 16 })),
+    clumpRadius: finiteNumber(source.clumpRadius, base.clumpRadius, { min: 0, max: 1 }),
     cloudShadowCoverage: finiteNumber(source.cloudShadowCoverage, base.cloudShadowCoverage, { min: 0, max: 1 }),
     cloudShadowScale: finiteNumber(source.cloudShadowScale, base.cloudShadowScale, { min: 0.0001 }),
     cloudShadowStrength: finiteNumber(source.cloudShadowStrength, base.cloudShadowStrength, { min: 0, max: 1 }),
@@ -257,6 +279,18 @@ const GRASS_FIELD_DEFINITIONS = Object.freeze({
       description: 'Min/max blade width in meters for placements without an explicit width. Construction-only: baked into instance attributes.',
       label: 'Blade Width Range',
       type: 'vector2',
+    },
+    bladesPerClump: {
+      description: 'Blades grown from each placement. 1 keeps the classic lone-blade field; higher values build anime-style clumps whose blades share a base and splay apart. Construction-only.',
+      label: 'Blades Per Clump',
+      range: { max: 16, min: 1, step: 1 },
+      type: 'number',
+    },
+    clumpRadius: {
+      description: 'Base scatter radius in meters for the extra blades of a clump. Small values read as one tuft; larger values loosen the clump. Construction-only.',
+      label: 'Clump Radius',
+      range: { max: 0.3, min: 0, step: 0.005 },
+      type: 'number',
     },
   },
   wind: {
@@ -585,23 +619,35 @@ export class StylizedGrassField extends THREE.Mesh {
     geometry.setAttribute('position', blade.attributes.position);
     geometry.setAttribute('uv', blade.attributes.uv);
 
-    const count = Math.max(placements.length, 1);
+    // Each placement grows `bladesPerClump` instances. The first blade sits
+    // on the placement itself; the rest scatter within `clumpRadius` so the
+    // tuft shares a base, and the shader's per-blade facing + static lean
+    // splays them apart like a hand-modeled clump.
+    const { bladesPerClump, clumpRadius } = settings;
+    const bladeCount = placements.length * bladesPerClump;
+    const count = Math.max(bladeCount, 1);
     const origins = new Float32Array(count * 3);
     const infos = new Float32Array(count * 4);
-    placements.forEach((placement, i) => {
-      origins[i * 3] = placement.x ?? 0;
-      origins[i * 3 + 1] = placement.y ?? 0;
-      origins[i * 3 + 2] = placement.z ?? 0;
-      infos[i * 4] = placement.height ??
-        THREE.MathUtils.lerp(bladeHeightRange[0], bladeHeightRange[1], Math.random());
-      infos[i * 4 + 1] = placement.phase ?? Math.random();
-      infos[i * 4 + 2] = placement.width ??
-        THREE.MathUtils.lerp(bladeWidthRange[0], bladeWidthRange[1], Math.random());
-      infos[i * 4 + 3] = Math.random() * Math.PI * 2;
-    });
+    let bladeIndex = 0;
+    for (const placement of placements) {
+      for (let clumpBlade = 0; clumpBlade < bladesPerClump; clumpBlade += 1) {
+        const spreadAngle = Math.random() * Math.PI * 2;
+        const spread = clumpBlade === 0 ? 0 : Math.sqrt(Math.random()) * clumpRadius;
+        origins[bladeIndex * 3] = (placement.x ?? 0) + Math.cos(spreadAngle) * spread;
+        origins[bladeIndex * 3 + 1] = placement.y ?? 0;
+        origins[bladeIndex * 3 + 2] = (placement.z ?? 0) + Math.sin(spreadAngle) * spread;
+        infos[bladeIndex * 4] = placement.height ??
+          THREE.MathUtils.lerp(bladeHeightRange[0], bladeHeightRange[1], Math.random());
+        infos[bladeIndex * 4 + 1] = placement.phase ?? Math.random();
+        infos[bladeIndex * 4 + 2] = placement.width ??
+          THREE.MathUtils.lerp(bladeWidthRange[0], bladeWidthRange[1], Math.random());
+        infos[bladeIndex * 4 + 3] = Math.random() * Math.PI * 2;
+        bladeIndex += 1;
+      }
+    }
     geometry.setAttribute('iOrigin', new THREE.InstancedBufferAttribute(origins, 3));
     geometry.setAttribute('iInfo', new THREE.InstancedBufferAttribute(infos, 4));
-    geometry.instanceCount = placements.length;
+    geometry.instanceCount = bladeCount;
     geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
 
     const material = createGrassNodeMaterial(settings, vegetationShader);
@@ -623,9 +669,10 @@ export class StylizedGrassField extends THREE.Mesh {
    * Runtime re-tune: merges `options` into the current settings and pushes
    * every material-driven value (asset response, current scene fields,
    * palette, sun, shadows, and push radius)
-   * into the uniforms. `bladeHeightRange` / `bladeWidthRange` are baked into
-   * the instance attributes at construction and are construction-only; new
-   * values are stored but do not reshape existing blades.
+   * into the uniforms. `bladeHeightRange` / `bladeWidthRange` /
+   * `bladesPerClump` / `clumpRadius` are baked into the instance attributes
+   * at construction and are construction-only; new values are stored but do
+   * not reshape existing blades.
    *
    * @param {Object} [options] Partial flat settings, same keys as
    *   {@link DEFAULT_GRASS_SETTINGS}.

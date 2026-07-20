@@ -12,6 +12,8 @@ import * as THREE from 'three';
 
 import {
   collectMoveEvents,
+  createGlowRing,
+  createMotionTrails,
   createVfxSystem,
   emitImpact,
   emitLanding,
@@ -117,6 +119,50 @@ check('all bursts expire', statsLate.live.glow === 0 && statsLate.live.puff === 
   JSON.stringify(statsLate.live));
 check('stopped ribbon returns to the pool', statsLate.live.trails === 0);
 check('no draws once everything is dead', statsLate.drawCalls === 0, `drawCalls ${statsLate.drawCalls}`);
+
+// --- speed-gated vehicle/glider trails ------------------------------------------
+{
+  const target = new THREE.Object3D();
+  const trails = createMotionTrails({
+    anchors: [[-0.5, 0, 0], [0.5, 0, 0]],
+    target,
+  });
+  trails.update(DT, camera);
+  target.position.x += 0.02; // 1.2 m/s: below the 10 m/s default threshold
+  trails.update(DT, camera);
+  check('motion trails stay hidden at low speed', trails.active === false);
+  target.position.x += 1;
+  trails.update(DT, camera);
+  target.position.x += 1;
+  trails.update(DT, camera);
+  check('motion trails appear only at speed', trails.active === true);
+  check('motion trails use short bounded histories',
+    trails.settings.lifetime <= 0.25 && trails.settings.maxPoints <= 24);
+  for (let frame = 0; frame < 20; frame += 1) trails.update(DT, camera);
+  check('motion trails taper away after the target slows', trails.active === false);
+  trails.dispose();
+}
+
+// --- objective ring: open hoop, never a filled screen veil -----------------------
+{
+  const ring = createGlowRing();
+  const meshes = ring.root.children.filter((child) => child.isMesh);
+  check('glow ring uses only open torus geometry',
+    meshes.length === 2 && meshes.every((mesh) => mesh.geometry.type === 'TorusGeometry'));
+  check('glow ring keeps line halo restrained',
+    ring.settings.haloOpacity <= 0.2
+      && ring.settings.tubeRatio * ring.settings.haloScale <= 0.14);
+  check('glow ring point light is local and shadow-free',
+    ring.pointGlow.distance <= ring.settings.radius * 2 && ring.pointGlow.castShadow === false);
+  const ringCamera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+  ringCamera.position.set(0, 0, 3.4);
+  ring.update(DT, ringCamera);
+  check('glow ring fades before becoming a screen-sized obstruction',
+    ring.settings.maxScreenFraction <= 0.25
+      && ring.root.userData.screenVisibility < 0.35
+      && ring.core.material.opacity < ring.settings.coreOpacity * 0.35);
+  ring.dispose();
+}
 
 // --- fireball flight + detonation ------------------------------------------------
 {

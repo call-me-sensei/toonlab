@@ -1,6 +1,6 @@
 // The gameplay-VFX layer. Import from '@call-me-sensei/toonlab/vfxgen'.
 //
-//   const vfx = createVfxSystem({ seed, preset: 'call_me_sensei', heightAt });
+//   const vfx = createVfxSystem({ seed, style: 'call_me_sensei', heightAt });
 //   scene.add(vfx.root);
 //   vfx.update(delta, camera);                          // each frame
 //
@@ -31,7 +31,7 @@
 import * as THREE from 'three';
 
 import { createVfxSettings, VFX_EFFECT_IDS } from './vfxSettings.js';
-import { resolveVfxPreset } from './vfxPresets.js';
+import { resolveVfxStyle } from './vfxPresets.js';
 import { createBurstBackbone } from './core/burstBackbone.js';
 import { createTrailRibbon } from './core/trailRibbon.js';
 import { createProjectileCore } from './core/projectileCore.js';
@@ -62,6 +62,8 @@ function toArray3(value, fallback = [0, 0, 0]) {
 
 export function createVfxSystem({
   seed = 1,
+  style = null,
+  // Compatibility alias: VFX looks were originally exposed as presets.
   preset = null,
   settings = {},
   effects = {},
@@ -79,7 +81,7 @@ export function createVfxSystem({
     else if (raw && typeof raw === 'object') effectOverrides[id] = { enabled: true, ...raw };
   }
   const resolved = createVfxSettings(
-    mergeGroupOverrides(resolveVfxPreset(preset), settings, effectOverrides));
+    mergeGroupOverrides(resolveVfxStyle(style ?? preset), settings, effectOverrides));
 
   const backbone = createBurstBackbone(resolved);
   const u = backbone.uniforms;

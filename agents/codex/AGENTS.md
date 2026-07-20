@@ -34,6 +34,12 @@ own Three.js app.
   order, frame-loop contract, task→skill routing). When sourcing or generating
   assets, use the `asset-sourcing` skill (package-first; MCP for external
   CC0 discovery and workspace reuse).
+- For outdoor construction, Call Me Sensei tuning, screenshot review, or
+  modern anime action-RPG quality comparisons, use the `outdoor-world` skill.
+  Its environment, lush-karst balance, layered vegetation, volumetric far-tree LOD,
+  baked/contact grounding, horizon landmark, water, cloud-light, ring, trail,
+  and visual-QA rules are a coupled production contract; do not replace them
+  with copied legacy overrides.
 - ToonLab materials are TSL/NodeMaterial-first for Three.js WebGPU with WebGL2
   fallback through the same TSL path. Do not guide developers toward raw GLSL,
   `ShaderMaterial`, or classic WebGL-only forks for ToonLab features.

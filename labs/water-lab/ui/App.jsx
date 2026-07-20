@@ -31,6 +31,7 @@ import {
   WATER_SETTING_FIELD_SCHEMA_BY_GROUP,
   WATER_SETTING_GROUPS,
   getWaterPresetOptions,
+  getWaterStyleOptions,
 } from '../../../src/water/index.js';
 import { WATER_LAB_STAGES } from '../engine/waterLabEngine.js';
 
@@ -86,28 +87,45 @@ function WaterSchemaGroup({ actions, group, settings, showCaption = true }) {
 }
 
 function PresetRow({ actions, state }) {
+  const styles = getWaterStyleOptions();
+  const coverage = styles.find((entry) => entry.id === state.styleId)?.presets;
   const options = [
     ...(state.presetId === null ? [{ label: 'Custom…', value: '' }] : []),
-    ...getWaterPresetOptions().map((entry) => ({ label: entry.label, value: entry.id })),
+    ...getWaterPresetOptions().map((entry) => ({
+      label: state.styleId !== 'default' && coverage?.[entry.id]
+        ? `${entry.label} · ${coverage[entry.id]}`
+        : entry.label,
+      value: entry.id,
+    })),
     ...state.localPresets.map((entry) => ({ label: `${entry.label} · saved`, value: entry.id })),
   ];
   const isLocal = state.localPresets.some((entry) => entry.id === state.presetId);
   return (
-    <PresetRowShell title="The water preset you are editing — switching replaces every value in this panel.">
-      <Select
-        onChange={(id) => { if (id) actions.applyPreset(id); }}
-        options={options}
-        testId="preset-select"
-        value={state.presetId ?? ''}
-      />
-      {isLocal && (
-        <IconButton
-          icon="trash"
-          label="Delete this saved preset"
-          onClick={() => actions.deletePreset(state.presetId)}
+    <>
+      <PresetRowShell label="Style" title="The IP-wide water rendition applied across every water preset.">
+        <Select
+          onChange={(id) => actions.setStyle(id)}
+          options={styles.map((entry) => ({ label: entry.label, value: entry.id }))}
+          testId="style-select"
+          value={state.styleId}
         />
-      )}
-    </PresetRowShell>
+      </PresetRowShell>
+      <PresetRowShell title="The water recipe being rendered through the selected IP style.">
+        <Select
+          onChange={(id) => { if (id) actions.applyPreset(id); }}
+          options={options}
+          testId="preset-select"
+          value={state.presetId ?? ''}
+        />
+        {isLocal && (
+          <IconButton
+            icon="trash"
+            label="Delete this saved preset"
+            onClick={() => actions.deletePreset(state.presetId)}
+          />
+        )}
+      </PresetRowShell>
+    </>
   );
 }
 

@@ -1,4 +1,4 @@
-import { createDebrisSettings } from '../../src/debrisgen/index.js';
+import { applyDebrisStyle, createDebrisSettings } from '../../src/debrisgen/index.js';
 
 const DOCUMENT_KEY = 'toonlab.debris-lab.document.v1';
 const PRESETS_KEY = 'toonlab.debris-lab.presets.v1';
@@ -31,10 +31,17 @@ function write(key, value) {
 export function loadDebrisDocument() {
   const saved = read(DOCUMENT_KEY, null);
   if (!saved?.settings) return null;
+  const legacyStylePreset = saved.presetId === 'call_me_sensei' || saved.presetId === 'call-me-sensei';
+  const styleId = saved.styleId || (legacyStylePreset ? 'call_me_sensei' : 'default');
+  const baseSettings = createDebrisSettings(saved.baseSettings ?? saved.settings);
   return {
+    baseSettings,
     name: String(saved.name || 'Untitled debris'),
-    presetId: saved.presetId || null,
-    settings: createDebrisSettings(saved.settings),
+    presetId: legacyStylePreset ? 'bleached-driftwood' : (saved.presetId || null),
+    settings: saved.baseSettings
+      ? createDebrisSettings(saved.settings)
+      : applyDebrisStyle(baseSettings, styleId),
+    styleId,
   };
 }
 

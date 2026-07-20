@@ -72,6 +72,11 @@ export const FADE_START_FRACTION = 0.55;
 export const FADE_END_FRACTION = 0.8;
 export const RECENTER_FRACTION = 0.18;
 
+// Cutout particles can pass through the camera. Without a near fade, a
+// 10 cm petal at a few centimeters distance becomes a screen-sized pink or
+// orange blob. Collapse it before that can happen.
+export const CUTOUT_NEAR_FADE_METERS = Object.freeze([0.45, 1.35]);
+
 /** CPU mirror of the shader's wind drift heading (for hosts and verify). */
 export function windDriftVector(windDirection) {
   const x = Number(windDirection?.[0]) || 0;
@@ -136,7 +141,7 @@ export function createParticleBackbone(settings) {
   };
 
   // Mirror of the environment shader's world-height fog (same formula as the
-  // forest impostors' _fogUniforms): dense near the world floor, thinning
+  // forest far proxies' _fogUniforms): dense near the world floor, thinning
   // with altitude, exponential in view distance. Density 0 disables.
   const heightFogFactor = (worldPos) => {
     const heightFalloff = exp(
@@ -230,19 +235,27 @@ export function createParticleBackbone(settings) {
       const endFade = smoothstep(0.0, 0.06, progress)
         .mul(smoothstep(0.92, 1.0, progress).oneMinus());
       const gateW = mix(u.uGatePetals, u.uGateLeaves, isLeaf);
+      const anchor = vec3(
+        iSpawn.x.add(sway.x).add(advect.x),
+        iSpawn.y.sub(drop),
+        iSpawn.z.add(sway.y).add(advect.y),
+      ).toVar();
+      const anchorWorld = modelWorldMatrix.mul(vec4(anchor, 1.0)).xyz;
+      const nearFade = smoothstep(
+        CUTOUT_NEAR_FADE_METERS[0],
+        CUTOUT_NEAR_FADE_METERS[1],
+        distance(cameraPosition, anchorWorld),
+      );
       const scale = iData.z
         .mul(endFade)
         .mul(windowFade(worldSpawn.xz))
         .mul(gateFade(gateW, iAux.z))
+        .mul(nearFade)
         .toVar();
 
       // PlaneGeometry corners live in local XY; rotate the scaled quad.
       const offset = rotate(positionLocal.mul(scale), vec3(pitch, yaw, roll));
-      const position = vec3(
-        iSpawn.x.add(sway.x).add(advect.x),
-        iSpawn.y.sub(drop),
-        iSpawn.z.add(sway.y).add(advect.y),
-      ).add(offset);
+      const position = anchor.add(offset);
       const worldPosition = modelWorldMatrix.mul(vec4(position, 1.0));
       vWorldPos.assign(worldPosition.xyz);
       return cameraProjectionMatrix.mul(cameraViewMatrix).mul(worldPosition);

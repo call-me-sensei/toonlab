@@ -6,7 +6,7 @@
 //   2. Mesh a few rockgen presets and scatter boulders, shore stones, and
 //      karst spires.
 //   3. createStylizedWorld() — environment shader, sun rig, sky, water,
-//      LOD forests (instanced impostors far / live trees near), a grass
+//      LOD forests (instanced volumetric proxies far / live trees near), a grass
 //      window that follows the player, shared cloud shadows.
 //   4. Load the bundled mannequin, toon-shade it, walk around.
 //
@@ -67,17 +67,26 @@ function hashCell(ix, iz) {
 // on an interval from the frame loop). Full-res rocks in the water passes
 // were a measurable chunk of the frame.
 const ROCK_LOD_DISTANCE = 200;
+function addNeutralUv(geometry) {
+  if (!geometry.attributes.uv) {
+    geometry.setAttribute('uv', new THREE.BufferAttribute(
+      new Float32Array(geometry.attributes.position.count * 2), 2,
+    ));
+  }
+  return geometry;
+}
+
 function buildRocks() {
   const quality = resolveRockgenQuality('gameplayHigh');
-  const rockGeometry = (preset, seed, resolution) => meshDocument(
-    createRockDocument({ preset, seed }),
+  const rockGeometry = (preset, seed, resolution) => addNeutralUv(meshDocument(
+    createRockDocument({ preset, seed, style: 'call_me_sensei' }),
     { normals: quality.normalsMode, resolution },
-  );
+  ));
   const rockPair = (preset, seed) => ({
     hi: rockGeometry(preset, seed, quality.previewResolution),
     lo: rockGeometry(preset, seed, Math.min(quality.previewResolution, 20)),
   });
-  const boulders = [rockPair('call_me_sensei', 41), rockPair('granite-boulder', 42), rockPair('river-boulder', 43)];
+  const boulders = [rockPair('boulder', 41), rockPair('granite-boulder', 42), rockPair('river-boulder', 43)];
   const spire = rockPair('karst-spire', 44);
   const rockMaterial = new THREE.MeshStandardMaterial({ vertexColors: true });
 
@@ -107,18 +116,18 @@ function buildRocks() {
     createWaterMask({ heightAt, margin: 0.3, waterLevel: WORLD.waterLevel }),
     createSlopeMask({ heightAt, maxSlope: 0.9 }),
   );
-  scatterInRect({ ...bounds, count: 90, heightAt, mask: dry, minSpacing: 26, seed: 5 })
+  scatterInRect({ ...bounds, count: 45, heightAt, mask: dry, minSpacing: 34, seed: 5 })
     .forEach((p, i) => place(boulders[i % boulders.length], p, 1.2 + ((i * 2654435761) % 100) / 50, 0.25, i * 2.39996));
 
   // Shore stones — the waterline detail that sells lake edges.
   scatterInRect({
-    ...bounds, count: 150, heightAt, minSpacing: 9, seed: 6,
+    ...bounds, count: 84, heightAt, minSpacing: 12, seed: 6,
     mask: (x, z) => Math.abs(heightAt(x, z) - WORLD.waterLevel) < 2.4,
   }).forEach((p, i) => place(boulders[(i + 1) % boulders.length], p, 0.55 + ((i * 40503) % 100) / 70, 0.3, i * 1.61803));
 
   // Karst spires — only in the mountain band, Guilin-style.
   scatterInRect({
-    ...bounds, count: 14, heightAt, minSpacing: 70, seed: 9,
+    ...bounds, count: 7, heightAt, minSpacing: 95, seed: 9,
     mask: (x, z) => heightAt(x, z) > 60,
   }).forEach((p, i) => place(spire, p, 9 + ((i * 7919) % 100) / 15, 0.32, i * 1.7));
 
@@ -128,7 +137,7 @@ function buildRocks() {
 
   // Interval LOD reassignment: near rocks get the high-res geometry, far
   // rocks the low; slab instances swap between their hi/lo InstancedMesh
-  // pair the same way the forest swaps live trees for billboards.
+  // pair the same way the forest swaps live trees for volumetric proxies.
   const nearSq = ROCK_LOD_DISTANCE * ROCK_LOD_DISTANCE;
   const updateLod = (focus) => {
     for (const entry of lodEntries) {
@@ -154,10 +163,10 @@ function buildCliffSlabs(group, blockers) {
   // Hi/lo LOD pair per variant: near slabs keep silhouette detail, far
   // slabs (the vast majority) drop to a quarter of the vertices — they all
   // ride through every water pass, so distance LOD is where the frame goes.
-  const slabGeometry = (seed, resolution) => meshDocument(
-    createRockDocument({ preset: 'call_me_sensei', seed }),
+  const slabGeometry = (seed, resolution) => addNeutralUv(meshDocument(
+    createRockDocument({ preset: 'boulder', seed, style: 'call_me_sensei' }),
     { normals: quality.normalsMode, resolution },
-  );
+  ));
   const variants = [51, 52, 53, 54].map((seed) => ({
     hi: slabGeometry(seed, Math.min(quality.previewResolution, 40)),
     lo: slabGeometry(seed, 18),
@@ -348,7 +357,7 @@ async function main() {
   // in relief-relative bands). ?seed=… re-rolls everything downstream too —
   // rocks, cliffs, forests, and reeds all derive from heightAt/waterLevel.
   const terrain = createStylizedTerrain({
-    archetype: params.get('archetype') ?? 'terracedKarst',
+    archetype: params.get('archetype') ?? 'lushKarst',
     depth: params.has('d') ? Number(params.get('d')) : undefined,
     floatingIslands: params.has('islands')
       ? { count: Number(params.get('islands')) || 3 }
@@ -382,70 +391,35 @@ async function main() {
   terrainRoot.add(rocks.group);
   scene.add(terrainRoot);
 
-  // Painted stone diffuse for every steep face (cliff walls, boulders,
-  // spires): the environment shader samples it triplanar in world space and
-  // blends it in by slope (userData.envTriplanarMap). The tile is NOT
-  // bundled (supply your own painterly stone at examples/outdoor-world/
-  // stone.png); without it, cliffs simply skip the triplanar detail layer.
-  try {
-    const stoneTexture = await new THREE.TextureLoader()
-      .loadAsync(new URL('./stone.png', import.meta.url).href);
-    stoneTexture.wrapS = THREE.RepeatWrapping;
-    stoneTexture.wrapT = THREE.RepeatWrapping;
-    stoneTexture.colorSpace = THREE.SRGBColorSpace;
-    terrainRoot.traverse((object) => {
-      if (object.isMesh) object.material.userData.envTriplanarMap = stoneTexture;
-    });
-  } catch {
-    console.info('outdoor-world: no stone.png — cliffs render without the triplanar stone layer.');
-  }
+  // Generated terrain already carries ToonLab's warm banded-limestone
+  // triplanar map. Hosts can replace `material.userData.envTriplanarMap`
+  // for bespoke art direction; the golden path needs no missing asset or
+  // private texture to produce geological cliff faces.
 
   const { actions, character, mixer } = await loadCharacter();
   scene.add(character);
 
   // Forests cluster in noise patches instead of uniform sprinkling —
   // uniform scatter reads as confetti from any aerial camera.
-  const forestPatches = createNoisePatchMask({ scale: 0.006, seed: 77, threshold: 0.5 });
+  const forestPatches = createNoisePatchMask({ scale: 0.0048, seed: 77, threshold: 0.43 });
 
   const world = await createStylizedWorld({
     camera,
     environment: {
-      bakeVertexAo: false, // terrain AO lives in the vertex palette; skip the baker for fast startup
-      parameters: {
-        // The reference look is mostly atmosphere: sky-blue height fog pooling
-        // in valleys. White fog here is the #1 "looks wrong" mistake.
-        heightFogColor: [0.63, 0.8, 0.98],
-        heightFogDensity: 0.0012,
-        heightFogFalloff: 400,
-        directLightStrength: 1.35,
-        exposure: 1.1,
-        saturation: 1.24,
-        shadowTintColor: [0.6, 0.66, 0.82],
-        skyTintStrength: 0.1,
-        // This look runs near-zero ambient; full-strength cast shadows
-        // crush building-scale masses (village walls) to black. 0.72 keeps
-        // them painted mid-tones.
-        sunShadowStrength: 0.72,
-        // World-projected detail so cliff walls keep texture density —
-        // planar terrain UVs stretch to nothing on near-vertical faces.
-        // The painted stone diffuse (envTriplanarMap) tiles every ~14 m so
-        // its features read at cliff scale.
-        triplanarDetail: 1,
-        triplanarDetailScale: 14,
-      },
+      // Terrain and rockgen assets already ship generation-time vertex/SDF
+      // AO. Skip the scene ray bake: the result is present without a long
+      // boot stall, and soft object contact is a bounded instanced layer.
+      bakeVertexAo: false,
+      // No look overrides here: this example is the visual regression target
+      // for the production-grade outdoorGameplay / Call Me Sensei defaults.
+      // Games can still override them, but the golden path must look finished
+      // without copying a private pile of lighting and atmosphere numbers.
     },
     // Perf-triage toggles (?nograss=1 &notrees=1 &noshadow=1 &noflowers=1
     // &nowater=1): isolate each system's frame cost under the FPS meter.
     flowers: params.has('noflowers') ? false : { scatter: { density: 0.8, radius: 30, seed: 11 } },
     followTarget: character,
-    grass: params.has('nograss') ? false : {
-      scatter: { density: 45, maxCount: 320000, radius: 55 },
-      settings: {
-        baseColor: [0.31, 0.56, 0.2],
-        shadowStrength: 0.7,
-        tipColor: [0.56, 0.84, 0.31],
-      },
-    },
+    grass: params.has('nograss') ? false : {},
     // The living layer (?birds=0&butterflies=0&dragonflies=0&fish=0 for
     // per-species perf triage; ?nofauna kills the cluster).
     fauna: params.has('nofauna') ? false : {
@@ -521,31 +495,19 @@ async function main() {
     },
     trees: params.has('notrees') ? false : {
       center: { x: 0, z: 0 },
-      // Vivid green-dominant canopies with a single clear gold accent
-      // variant (~1 in 8). The reference look is NOT an autumn mix — it is
-      // saturated greens with occasional golden hero trees; muddy in-between
-      // hues (olive, dull orange) read as confetti and kill the vividness.
-      canopyColors: [0x5cb44a, 0x6cc258, 0x55aa45, 0x7cc75e, 0x63b84f, 0xe8bb4f, 0x6fbd52, 0x8bce5a],
-      // Open-branching live trees carry real limb geometry; the billboard
-      // far LOD holds up well enough to swap a little earlier.
-      lod: { castShadow: true, detailCount: 60, detailDistance: 115, variants: 8 },
-      settings: { leafShape: { preset: 'round' }, size: 2.7 },
+      // Deliberately use the world preset palette here: this example is the
+      // visual regression target for the public default, not a hidden fix.
+      settings: { leafShape: { preset: 'round' } },
       mask: forestPatches,
-      scatter: { keepChance: 0.9, radius: Math.max(WORLD.bounds.x, WORLD.bounds.z), spacing: 11 },
+      scatter: { radius: Math.max(WORLD.bounds.x, WORLD.bounds.z) },
     },
     water: params.has('nowater') ? false : {
       level: WORLD.waterLevel,
       settings: {
-        colorTone: 'anime',
-        deepColor: [0.05, 0.44, 0.58],
-        detailNormalStrength: 0.15,
-        midColor: [0.15, 0.68, 0.7],
         // The water re-renders the scene for refraction/reflection; at
         // open-world scene sizes those passes must not run full-res.
         passes: { reflectionScale: 0.4, sceneColorScale: 0.6 },
         quality: 'medium',
-        shallowColor: [0.42, 0.88, 0.82],
-        waveIntensity: 0.14,
       },
     },
   });
@@ -683,7 +645,7 @@ async function main() {
     atmosphere: [160, 1250, 0.4],
     camera: { far: 4000, fov: 45, near: 0.4 },
     fog: [180, 2500],
-    heightFogDensity: 0.0012,
+    heightFogDensity: 0.00055,
     update(delta) {
       camera.getWorldDirection(forward);
       forward.y = 0;
@@ -769,10 +731,10 @@ async function main() {
   const flyover = {
     // Light haze only: the aerial view is where the palette has to sing —
     // heavy depth cue at altitude grays the entire frame.
-    atmosphere: [260, 1500, 0.28],
+    atmosphere: [420, 1900, 0.14],
     camera: { far: 4000, fov: 52, near: 0.5 },
     fog: [420, 3000],
-    heightFogDensity: 0.0008,
+    heightFogDensity: 0.00035,
     update(delta) {
       flyTime += delta * 0.05;
       const radius = 330 + Math.sin(flyTime * 0.7) * 90;
@@ -788,10 +750,10 @@ async function main() {
 
   const pan = new THREE.Vector3(0, 0, 0);
   const topdown = {
-    atmosphere: [450, 1900, 0.22],
+    atmosphere: [700, 2400, 0.1],
     camera: { far: 4000, fov: 40, near: 1 },
     fog: [650, 3000],
-    heightFogDensity: 0.0005,
+    heightFogDensity: 0.00022,
     update(delta) {
       const speed = 180 * delta;
       if (keys.has('KeyW')) pan.z -= speed;
@@ -807,7 +769,7 @@ async function main() {
   let activeView = 'explore';
   // Height fog is authored for the ground-level camera; from altitude the
   // same density washes the whole frame gray. Each view sets its own density
-  // — terrain, water, and tree impostors together, or they visibly split.
+  // — terrain, water, and tree far proxies together, or they visibly split.
   const setHeightFogDensity = (density) => {
     terrainRoot.traverse((object) => {
       const uniform = object.material?.uniforms?.heightFogDensity;
@@ -826,7 +788,7 @@ async function main() {
     if (world.fog && views[name].fog) {
       [world.fog.near, world.fog.far] = views[name].fog;
     }
-    setHeightFogDensity(views[name].heightFogDensity ?? 0.0016);
+    setHeightFogDensity(views[name].heightFogDensity ?? 0.00055);
     setAtmosphere(...views[name].atmosphere);
     for (const button of document.querySelectorAll('#hud button')) {
       button.dataset.active = String(button.id === `view-${name}`);
@@ -909,7 +871,10 @@ async function main() {
     const {
       createPropAsset, placeAlongSpline,
     } = await import('@call-me-sensei/toonlab/propgen');
-    const { applyEnvironmentShader } = await import('@call-me-sensei/toonlab/environment');
+    const {
+      applyEnvironmentShader,
+      resolveEnvironmentPreset,
+    } = await import('@call-me-sensei/toonlab/environment');
     const propsRoot = new THREE.Group();
     propsRoot.name = 'PathDressing';
     const worldSeed = Number(params.get('seed')) || 20260712;
@@ -949,14 +914,10 @@ async function main() {
     });
     // The world's environment conversion ran at creation; dressing added
     // afterwards converts itself with the same fog/palette parameters.
-    await applyEnvironmentShader(propsRoot, {
-      parameters: {
-        heightFogColor: [0.63, 0.8, 0.98],
-        heightFogDensity: 0.0012,
-        heightFogFalloff: 400,
-        saturation: 1.24,
-      },
-    });
+    await applyEnvironmentShader(
+      propsRoot,
+      resolveEnvironmentPreset('call_me_sensei', 'exteriorDay'),
+    );
     terrainRoot.add(propsRoot);
   }
 

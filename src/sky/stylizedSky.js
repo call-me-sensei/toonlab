@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 
 import {
-  createSettingsPresetDocument,
   parsePresetDocument,
   serializePresetDocument,
   validateSettingsPresetDocument,
@@ -81,18 +80,154 @@ export const DEFAULT_SKY_SETTINGS = Object.freeze({
 /** Document `type` discriminator for portable sky-look presets. */
 export const SKY_PRESET_DOCUMENT_TYPE = 'toonlab/sky-preset';
 
-/** Current portable sky preset schema version. */
-export const SKY_PRESET_SCHEMA_VERSION = 1;
+/** Current portable sky preset schema version. v2 adds per-scenario variants. */
+export const SKY_PRESET_SCHEMA_VERSION = 2;
 
-// Named sky looks. Built-ins and imported preset documents use the same
+/**
+ * Canonical sky scenarios — the world-state axis (time of day / weather
+ * condition), deliberately separate from the style axis. A sky preset is a
+ * STYLE (an identity: palette bias, cloud character, glow personality) and
+ * every style resolves in every scenario, exactly like a lighting style's
+ * `dayCycle` covers every hour. Selecting "Call Me Sensei" never means
+ * "daytime only"; it means the Call Me Sensei rendition of whichever
+ * scenario the scene is in.
+ */
+export const SKY_SCENARIOS = Object.freeze([
+  Object.freeze({
+    description: 'Crisp daylight with sparse, slow-moving clouds.',
+    id: 'clear_day',
+    label: 'Clear Day',
+  }),
+  Object.freeze({
+    description: 'Low warm sun, glowing horizon, and softly lit evening clouds.',
+    id: 'golden_hour',
+    label: 'Golden Hour',
+  }),
+  Object.freeze({
+    description: 'Dense cloud cover with broad, low-contrast daylight.',
+    id: 'overcast',
+    label: 'Overcast',
+  }),
+  Object.freeze({
+    description: 'Deep night with a cool moon glow, quiet clouds, and stars.',
+    id: 'moonlit',
+    label: 'Moonlit Night',
+  }),
+]);
+
+/** The scenario a style shows when no scenario is requested. */
+export const DEFAULT_SKY_SCENARIO = 'clear_day';
+
+const SKY_SCENARIO_IDS = new Set(SKY_SCENARIOS.map((scenario) => scenario.id));
+
+/** Lists the canonical scenarios as `{ id, label, description }` (for HUDs). */
+export function getSkyScenarioOptions() {
+  return SKY_SCENARIOS.map(({ description, id, label }) => ({ description, id, label }));
+}
+
+/**
+ * Historical single-look preset ids. Each was really the Default style's
+ * rendition of one scenario, so they now resolve as exactly that — settings
+ * are byte-identical to the old flat presets. Kept indefinitely: saved
+ * style bundles, lab links, and downstream games reference these ids.
+ */
+export const SKY_PRESET_ALIASES = Object.freeze({
+  clear_day: Object.freeze({ preset: 'default', scenario: 'clear_day' }),
+  golden_hour: Object.freeze({ preset: 'default', scenario: 'golden_hour' }),
+  moonlit: Object.freeze({ preset: 'default', scenario: 'moonlit' }),
+  overcast: Object.freeze({ preset: 'default', scenario: 'overcast' }),
+});
+
+// Canonical rendition of each scenario — settings identical to the historical
+// flat presets of the same name. These are the Default style's variants and
+// the inherited fallback for styles that do not author a scenario.
+const SKY_SCENARIO_CANONICAL = Object.freeze({
+  clear_day: Object.freeze({
+    cloudCoverage: 0.12,
+    cloudEdgeOpacity: 0.48,
+    cloudScale: 1.9,
+    cloudSeed: 12,
+    cloudSoftness: 0.075,
+    cloudSpeed: 0.65,
+    horizonColor: Object.freeze([0.76, 0.93, 1.0]),
+    horizonScattering: 0.42,
+    sunGlowStrength: 1.15,
+    zenithColor: Object.freeze([0.2, 0.52, 0.95]),
+  }),
+  golden_hour: Object.freeze({
+    cloudColor: Object.freeze([1.0, 0.78, 0.6]),
+    cloudCoverage: 0.34,
+    cloudProjection: 0.28,
+    cloudSeed: 47,
+    cloudShadeColor: Object.freeze([0.58, 0.38, 0.52]),
+    cloudSilverLiningStrength: 0.62,
+    groundColor: Object.freeze([0.3, 0.22, 0.28]),
+    horizonColor: Object.freeze([1.0, 0.55, 0.28]),
+    horizonScattering: 0.76,
+    starsStrength: 0.04,
+    sunColor: Object.freeze([1.0, 0.62, 0.3]),
+    sunDirection: Object.freeze([0.76, 0.18, 0.36]),
+    sunGlowStrength: 1.85,
+    sunGlowSpread: 3.8,
+    sunDiscIntensity: 3.0,
+    sunSize: 0.036,
+    zenithColor: Object.freeze([0.22, 0.36, 0.68]),
+  }),
+  moonlit: Object.freeze({
+    cloudColor: Object.freeze([0.2, 0.27, 0.42]),
+    cloudCoverage: 0.28,
+    cloudSeed: 31,
+    cloudShadeColor: Object.freeze([0.06, 0.08, 0.17]),
+    cloudSpeed: 0.35,
+    groundColor: Object.freeze([0.015, 0.02, 0.05]),
+    horizonColor: Object.freeze([0.09, 0.14, 0.25]),
+    horizonScattering: 0.25,
+    starsStrength: 1.1,
+    starsColor: Object.freeze([0.72, 0.82, 1.0]),
+    starsDensity: 0.42,
+    starsScale: 18,
+    starsSeed: 173,
+    starsSize: 0.045,
+    starsTwinkleStrength: 0.9,
+    sunColor: Object.freeze([0.58, 0.7, 1.0]),
+    sunDirection: Object.freeze([-0.45, 0.6, 0.3]),
+    sunGlowStrength: 0.38,
+    sunSize: 0.018,
+    zenithColor: Object.freeze([0.015, 0.035, 0.11]),
+  }),
+  overcast: Object.freeze({
+    cloudColor: Object.freeze([0.78, 0.83, 0.9]),
+    cloudCoverage: 0.88,
+    cloudEdgeOpacity: 0.82,
+    cloudScale: 1.2,
+    cloudSeed: 88,
+    cloudShadeColor: Object.freeze([0.42, 0.5, 0.62]),
+    cloudShadeSoftness: 0.1,
+    cloudSoftness: 0.17,
+    cloudSpeed: 0.72,
+    groundColor: Object.freeze([0.3, 0.35, 0.42]),
+    horizonColor: Object.freeze([0.62, 0.7, 0.78]),
+    horizonScattering: 0.72,
+    sunColor: Object.freeze([0.82, 0.88, 1.0]),
+    sunGlowStrength: 0.16,
+    sunSize: 0.018,
+    zenithColor: Object.freeze([0.38, 0.49, 0.62]),
+  }),
+});
+
+// Named sky styles. Built-ins and imported preset documents use the same
 // registry so a preset behaves identically whether it shipped with Toonlab or
 // was authored in a lab and registered at runtime.
 const skyPresetRegistry = new Map();
 
 /**
- * Registers a named sky preset so it resolves in `createSkySettings({
- * preset })` exactly like the built-ins. Accepts `{ label?, description?,
- * settings? }` or flat settings.
+ * Registers a named sky style so it resolves in `createSkySettings({
+ * preset, scenario })` exactly like the built-ins. Accepts `{ label?,
+ * description?, settings?, scenarios? }` or flat settings. `settings` is the
+ * style's base identity; `scenarios` maps canonical scenario ids to partial
+ * settings layered over that base. Scenarios the style does not author
+ * inherit the canonical rendition (the Default style's variant keys) over
+ * the style base, so every style resolves in every scenario either way.
  */
 export function registerSkyPreset(name, preset = {}, { overwrite = false } = {}) {
   const document = createSkyPresetDocument(name, preset);
@@ -102,19 +237,39 @@ export function registerSkyPreset(name, preset = {}, { overwrite = false } = {})
   const entry = Object.freeze({
     description: document.description,
     label: document.label,
+    scenarios: Object.freeze(Object.fromEntries(
+      Object.entries(document.scenarios ?? {})
+        .map(([scenarioId, partial]) => [scenarioId, Object.freeze({ ...partial })]),
+    )),
     settings: Object.freeze({ ...document.settings }),
   });
   skyPresetRegistry.set(document.id, entry);
   return { description: entry.description, id: document.id, label: entry.label };
 }
 
-/** Lists registered sky presets as `{ id, label, description }` (for HUDs). */
+/**
+ * Lists registered sky styles as `{ id, label, description, scenarios }`,
+ * where `scenarios` reports per-scenario coverage: `'authored'` when the
+ * style ships its own variant, `'inherited'` when the canonical rendition
+ * fills in. Every style always covers every scenario.
+ */
 export function getSkyPresetOptions() {
   return Array.from(skyPresetRegistry.entries()).map(([id, preset]) => ({
     description: preset.description,
     id,
     label: preset.label,
+    scenarios: Object.fromEntries(SKY_SCENARIOS.map((scenario) => [
+      scenario.id,
+      preset.scenarios[scenario.id] ? 'authored' : 'inherited',
+    ])),
   }));
+}
+
+/** Preferred style-axis normalizer; legacy scenario aliases fold to Default. */
+export function resolveSkyStyleName(name) {
+  const requested = String(name ?? '').trim();
+  if (skyPresetRegistry.has(requested)) return requested;
+  return SKY_PRESET_ALIASES[requested]?.preset ?? 'default';
 }
 
 function finiteNumber(value, fallback, { max = Infinity, min = -Infinity } = {}) {
@@ -171,10 +326,50 @@ function direction2Array(value, fallback) {
     .map((channel) => Number(channel.toFixed(10)));
 }
 
+// A style's complete partial for one scenario: authored variant over the
+// style base when the style ships one, otherwise the canonical rendition
+// over the style base. The base scenario without an authored variant is the
+// style base verbatim, so single-look presets (user saves, v1 documents)
+// keep reading as themselves until a scenario is requested.
+function resolveSkyStyleVariant(entry, scenarioId) {
+  const authored = entry.scenarios?.[scenarioId];
+  if (authored) return { ...entry.settings, ...authored };
+  if (scenarioId === DEFAULT_SKY_SCENARIO) return entry.settings;
+  return { ...entry.settings, ...SKY_SCENARIO_CANONICAL[scenarioId] };
+}
+
+// Resolves `{ preset?, scenario? }` to one style entry + scenario id,
+// following legacy single-look aliases (`preset: 'moonlit'` → Default style
+// at the moonlit scenario). An explicit `scenario` wins over an alias's.
+function resolveSkyPresetReference(preset, scenario) {
+  const scenarioId = SKY_SCENARIO_IDS.has(scenario) ? scenario : undefined;
+  let entry = skyPresetRegistry.get(preset);
+  if (entry) return { entry, scenarioId: scenarioId ?? DEFAULT_SKY_SCENARIO, styleId: preset };
+  const alias = preset === undefined ? undefined : SKY_PRESET_ALIASES[preset];
+  if (alias) {
+    return {
+      entry: skyPresetRegistry.get(alias.preset),
+      scenarioId: scenarioId ?? alias.scenario,
+      styleId: alias.preset,
+    };
+  }
+  // Scenario without a style: the Default style's rendition of it.
+  if (scenarioId !== undefined) {
+    return { entry: skyPresetRegistry.get('default'), scenarioId, styleId: 'default' };
+  }
+  return { entry: undefined, scenarioId: undefined, styleId: 'default' };
+}
+
 /**
  * Validates and merges partial sky options over {@link DEFAULT_SKY_SETTINGS}.
  * Unknown keys are ignored; malformed values fall back to their defaults.
  * `createSkySettings()` deep-equals the defaults object.
+ *
+ * `style` names a sky STYLE (`preset` is the compatibility alias) and
+ * `scenario` one of {@link SKY_SCENARIOS};
+ * every style resolves in every scenario. Legacy single-look ids
+ * (`clear_day`, `golden_hour`, `overcast`, `moonlit`) resolve as the Default
+ * style at that scenario with identical settings.
  *
  * @param {Object} [options] Partial settings (legacy constructor options are
  *   the same flat shape, so they work unchanged).
@@ -184,7 +379,8 @@ export function createSkySettings(options = {}) {
   const source = typeof options === 'string'
     ? { preset: options }
     : (options && typeof options === 'object' ? options : {});
-  const presetSettings = skyPresetRegistry.get(source.preset)?.settings;
+  const { entry, scenarioId } = resolveSkyPresetReference(source.style ?? source.preset, source.scenario);
+  const presetSettings = entry ? resolveSkyStyleVariant(entry, scenarioId) : undefined;
   const base = presetSettings ? { ...DEFAULT_SKY_SETTINGS, ...presetSettings } : DEFAULT_SKY_SETTINGS;
   return {
     radius: Math.max(finiteNumber(source.radius, base.radius), 0.1),
@@ -644,6 +840,37 @@ export function sanitizeSkyPresetSettings(settings = {}) {
   );
 }
 
+// One scenario variant, sanitized but kept PARTIAL: only the keys the style
+// actually overrides for that scenario, each normalized to schema ranges.
+function sanitizeSkyScenarioPartial(partial) {
+  const known = collectTopLevelSkySettings(partial);
+  const normalized = createSkySettings(known);
+  return Object.fromEntries(
+    Object.keys(known)
+      .filter((key) => SKY_FIELDS_BY_KEY[key].serializable)
+      .map((key) => [key, normalized[key]]),
+  );
+}
+
+function sanitizeSkyPresetScenarios(input) {
+  const warnings = [];
+  if (input === undefined) return { scenarios: undefined, warnings };
+  const scenarios = {};
+  for (const [scenarioId, partial] of Object.entries(cleanSkyObject(input))) {
+    if (!SKY_SCENARIO_IDS.has(scenarioId)) {
+      warnings.push(`Unknown sky scenario "${scenarioId}" was ignored.`);
+      continue;
+    }
+    warnings.push(...collectSkyPresetWarnings(cleanSkyObject(partial))
+      .map((warning) => `Scenario "${scenarioId}": ${warning}`));
+    scenarios[scenarioId] = sanitizeSkyScenarioPartial(cleanSkyObject(partial));
+  }
+  return {
+    scenarios: Object.keys(scenarios).length > 0 ? scenarios : undefined,
+    warnings,
+  };
+}
+
 function migrateSkyPresetDocument(input) {
   const source = cleanSkyObject(input);
   const numericVersion = Number(source.version ?? source.schemaVersion ?? 0);
@@ -654,6 +881,10 @@ function migrateSkyPresetDocument(input) {
     description: source.description ?? '',
     id: source.id ?? source.name ?? source.preset ?? '',
     label: source.label ?? source.title ?? source.name ?? source.id ?? '',
+    // v1 documents carry a single flat look and no scenarios; they stay
+    // valid as a style whose non-base scenarios inherit the canonical
+    // renditions at resolve time.
+    ...(source.scenarios === undefined ? {} : { scenarios: source.scenarios }),
     settings: Object.keys(nestedSettings).length > 0
       ? nestedSettings
       : collectTopLevelSkySettings(source),
@@ -672,7 +903,7 @@ export function validateSkyPresetDocument(input) {
       warnings: [],
     };
   }
-  return validateSettingsPresetDocument(input, {
+  const result = validateSettingsPresetDocument(input, {
     collectWarnings: collectSkyPresetWarnings,
     documentType: SKY_PRESET_DOCUMENT_TYPE,
     migrateDocument: migrateSkyPresetDocument,
@@ -680,6 +911,14 @@ export function validateSkyPresetDocument(input) {
     sanitizeSettings: sanitizeSkyPresetSettings,
     schemaVersion: SKY_PRESET_SCHEMA_VERSION,
   });
+  if (!result.ok) return result;
+  // The shared settings-document helper only knows `settings`; the scenario
+  // variants ride alongside it and are sanitized here.
+  const migrated = migrateSkyPresetDocument(input);
+  const { scenarios, warnings } = sanitizeSkyPresetScenarios(migrated.scenarios);
+  result.warnings.push(...warnings);
+  if (scenarios !== undefined) result.value = { ...result.value, scenarios };
+  return result;
 }
 
 /** Parses JSON text or an object into a validated sky preset document. */
@@ -691,12 +930,19 @@ export function parseSkyPresetDocument(input) {
 
 /** Creates a canonical, versioned sky preset document. */
 export function createSkyPresetDocument(id, definition = {}) {
-  return createSettingsPresetDocument(id, definition, {
-    collectSettings: (source) => source.settings ?? collectTopLevelSkySettings(source),
-    documentType: SKY_PRESET_DOCUMENT_TYPE,
-    schemaVersion: SKY_PRESET_SCHEMA_VERSION,
-    validateDocument: validateSkyPresetDocument,
-  });
+  const source = cleanSkyObject(definition);
+  const document = {
+    description: source.description ?? '',
+    id: id ?? source.id ?? source.name ?? source.preset,
+    label: source.label ?? source.title ?? source.name ?? id,
+    ...(source.scenarios === undefined ? {} : { scenarios: source.scenarios }),
+    settings: source.settings ?? collectTopLevelSkySettings(source),
+    type: SKY_PRESET_DOCUMENT_TYPE,
+    version: SKY_PRESET_SCHEMA_VERSION,
+  };
+  const result = validateSkyPresetDocument(document);
+  if (!result.ok) throw new Error(result.errors.join(' '));
+  return result.value;
 }
 
 /** Serializes a sky preset id/definition or document-like object as JSON. */
@@ -717,16 +963,25 @@ export function registerSerializedSkyPreset(input, options = {}) {
   });
 }
 
-// Keep the historical ids stable, then provide distinct looks that are useful
-// as authoring starting points rather than aliases for the same daytime sky.
+// Built-in STYLES. A style is an identity, not a moment: each one authors
+// (or inherits) a variant for every canonical scenario, the same way a
+// lighting style's dayCycle covers every hour. The historical single-look
+// ids (clear_day/golden_hour/overcast/moonlit) resolve through
+// SKY_PRESET_ALIASES as the Default style at that scenario, byte-identical
+// to the flat presets they replaced.
+
 registerSkyPreset('default', {
-  description: 'Baseline stylized daytime sky.',
+  description: 'Baseline stylized sky in every scenario — the canonical renditions.',
   label: 'Default',
+  scenarios: SKY_SCENARIO_CANONICAL,
 });
 
 registerSkyPreset('call_me_sensei', {
-  description: 'Studio-managed signature sky, curated by Call Me Sensei and updated over releases.',
+  description: 'Studio-managed signature sky in every scenario, curated by Call Me Sensei and updated over releases.',
   label: 'Call Me Sensei',
+  // Identity base: saturated zenith, soft painterly clouds, generous glow.
+  // cloudSeed stays fixed across scenarios so the style keeps the same cloud
+  // shapes while the light moves through them.
   settings: {
     cloudCoverage: 0.36,
     cloudScale: 1.45,
@@ -736,96 +991,72 @@ registerSkyPreset('call_me_sensei', {
     sunGlowStrength: 1.1,
     zenithColor: [0.24, 0.52, 0.92],
   },
-});
-
-registerSkyPreset('clear_day', {
-  description: 'Crisp blue daylight with sparse, slow-moving clouds.',
-  label: 'Clear Day',
-  settings: {
-    cloudCoverage: 0.12,
-    cloudEdgeOpacity: 0.48,
-    cloudScale: 1.9,
-    cloudSeed: 12,
-    cloudSoftness: 0.075,
-    cloudSpeed: 0.65,
-    horizonColor: [0.76, 0.93, 1.0],
-    horizonScattering: 0.42,
-    sunGlowStrength: 1.15,
-    zenithColor: [0.2, 0.52, 0.95],
-  },
-});
-
-registerSkyPreset('golden_hour', {
-  description: 'Low warm sun, peach horizon, and softly lit evening clouds.',
-  label: 'Golden Hour',
-  settings: {
-    cloudColor: [1.0, 0.78, 0.6],
-    cloudCoverage: 0.34,
-    cloudProjection: 0.28,
-    cloudSeed: 47,
-    cloudShadeColor: [0.58, 0.38, 0.52],
-    cloudSilverLiningStrength: 0.62,
-    groundColor: [0.3, 0.22, 0.28],
-    horizonColor: [1.0, 0.55, 0.28],
-    horizonScattering: 0.76,
-    starsStrength: 0.04,
-    sunColor: [1.0, 0.62, 0.3],
-    sunDirection: [0.76, 0.18, 0.36],
-    sunGlowStrength: 1.85,
-    sunGlowSpread: 3.8,
-    sunDiscIntensity: 3.0,
-    sunSize: 0.036,
-    zenithColor: [0.22, 0.36, 0.68],
-  },
-});
-
-registerSkyPreset('overcast', {
-  description: 'Dense cool cloud cover with broad, low-contrast daylight.',
-  label: 'Overcast',
-  settings: {
-    cloudColor: [0.78, 0.83, 0.9],
-    cloudCoverage: 0.88,
-    cloudEdgeOpacity: 0.82,
-    cloudScale: 1.2,
-    cloudSeed: 88,
-    cloudShadeColor: [0.42, 0.5, 0.62],
-    cloudShadeSoftness: 0.1,
-    cloudSoftness: 0.17,
-    cloudSpeed: 0.72,
-    groundColor: [0.3, 0.35, 0.42],
-    horizonColor: [0.62, 0.7, 0.78],
-    horizonScattering: 0.72,
-    sunColor: [0.82, 0.88, 1.0],
-    sunGlowStrength: 0.16,
-    sunSize: 0.018,
-    zenithColor: [0.38, 0.49, 0.62],
-  },
-});
-
-registerSkyPreset('moonlit', {
-  description: 'Deep blue night with a cool moon glow, quiet clouds, and bright stars.',
-  label: 'Moonlit Night',
-  settings: {
-    cloudColor: [0.2, 0.27, 0.42],
-    cloudCoverage: 0.28,
-    cloudSeed: 31,
-    cloudShadeColor: [0.06, 0.08, 0.17],
-    cloudSpeed: 0.35,
-    groundColor: [0.015, 0.02, 0.05],
-    horizonColor: [0.09, 0.14, 0.25],
-    horizonScattering: 0.25,
-    starsStrength: 1.1,
-    starsColor: [0.72, 0.82, 1.0],
-    starsDensity: 0.42,
-    starsScale: 18,
-    starsSeed: 173,
-    starsSize: 0.045,
-    starsTwinkleStrength: 0.9,
-    sunColor: [0.58, 0.7, 1.0],
-    sunDirection: [-0.45, 0.6, 0.3],
-    sunGlowStrength: 0.38,
-    sunSize: 0.018,
-    zenithColor: [0.015, 0.035, 0.11],
+  // Palette-matched to the call-me-sensei lighting style dayCycle (hour 12 /
+  // 18 / 0 keyframes) so sky and lighting agree when both are active.
+  scenarios: {
+    clear_day: {
+      cloudCoverage: 0.22,
+      cloudEdgeOpacity: 0.55,
+      cloudSpeed: 0.7,
+      horizonColor: [0.72, 0.9, 1.0],
+      sunGlowStrength: 1.2,
+      zenithColor: [0.18, 0.5, 1.0],
+    },
+    golden_hour: {
+      cloudColor: [1.0, 0.72, 0.55],
+      cloudCoverage: 0.34,
+      cloudProjection: 0.28,
+      cloudShadeColor: [0.5, 0.3, 0.6],
+      cloudSilverLiningStrength: 0.7,
+      groundColor: [0.32, 0.2, 0.28],
+      horizonColor: [1.0, 0.5, 0.32],
+      horizonScattering: 0.8,
+      starsStrength: 0.08,
+      sunColor: [1.0, 0.55, 0.24],
+      sunDirection: [0.76, 0.16, 0.36],
+      sunDiscIntensity: 3.2,
+      sunGlowSpread: 3.6,
+      sunGlowStrength: 2.0,
+      sunSize: 0.038,
+      zenithColor: [0.3, 0.3, 0.78],
+    },
+    overcast: {
+      cloudColor: [0.82, 0.87, 0.95],
+      cloudCoverage: 0.85,
+      cloudEdgeOpacity: 0.8,
+      cloudShadeColor: [0.46, 0.54, 0.7],
+      cloudShadeSoftness: 0.1,
+      cloudSoftness: 0.16,
+      cloudSpeed: 0.72,
+      groundColor: [0.32, 0.38, 0.48],
+      horizonColor: [0.68, 0.76, 0.86],
+      horizonScattering: 0.7,
+      sunColor: [0.85, 0.9, 1.0],
+      sunGlowStrength: 0.2,
+      sunSize: 0.018,
+      zenithColor: [0.36, 0.5, 0.72],
+    },
+    moonlit: {
+      cloudColor: [0.16, 0.24, 0.46],
+      cloudCoverage: 0.3,
+      cloudShadeColor: [0.05, 0.08, 0.2],
+      cloudSpeed: 0.35,
+      groundColor: [0.015, 0.025, 0.06],
+      horizonColor: [0.12, 0.2, 0.5],
+      horizonScattering: 0.3,
+      starsColor: [0.75, 0.85, 1.0],
+      starsDensity: 0.46,
+      starsScale: 18,
+      starsSeed: 173,
+      starsSize: 0.045,
+      starsStrength: 1.15,
+      starsTwinkleStrength: 0.9,
+      sunColor: [0.62, 0.74, 1.0],
+      sunDirection: [-0.45, 0.6, 0.3],
+      sunGlowStrength: 0.42,
+      sunSize: 0.018,
+      zenithColor: [0.02, 0.05, 0.2],
+    },
   },
 });
 
@@ -839,8 +1070,9 @@ export function applySkySettingsToMaterial(material, options = {}) {
   const uniforms = material?.uniforms;
   if (!uniforms) return material;
   const source = cleanSkyObject(options);
+  const replacesLook = source.preset !== undefined || source.scenario !== undefined;
   const settings = createSkySettings({
-    ...(source.preset === undefined ? cleanSkyObject(material.userData?.skySettings) : {}),
+    ...(replacesLook ? {} : cleanSkyObject(material.userData?.skySettings)),
     ...source,
   });
   setSrgbColorUniform(uniforms.uZenithColor, settings.zenithColor);
@@ -909,6 +1141,8 @@ export class StylizedSky extends THREE.Mesh {
   constructor(options = {}) {
     const settings = createSkySettings(options);
     const quality = resolveSkyQuality(options?.quality);
+    const source = typeof options === 'string' ? { preset: options } : cleanSkyObject(options);
+    const identity = resolveSkyPresetReference(source.style ?? source.preset, source.scenario);
     super(
       new THREE.SphereGeometry(settings.radius, 48, 24),
       createSkyMaterial({ ...settings, quality }),
@@ -917,6 +1151,8 @@ export class StylizedSky extends THREE.Mesh {
     this.frustumCulled = false;
     this.renderOrder = -100;
     this._authoredSettings = settings;
+    this._style = identity.styleId;
+    this._scenario = identity.scenarioId ?? DEFAULT_SKY_SCENARIO;
     this._quality = quality;
     this._retiredMaterials = [];
     this._sceneOverrideLayers = new Map();
@@ -926,6 +1162,16 @@ export class StylizedSky extends THREE.Mesh {
 
   get settings() {
     return this._authoredSettings;
+  }
+
+  /** Current authored IP-wide style identity. */
+  get style() {
+    return this._style;
+  }
+
+  /** Current authored world-state scenario. */
+  get scenario() {
+    return this._scenario;
   }
 
   /** Current compile-time deployment tier; not part of the authored preset. */
@@ -988,20 +1234,50 @@ export class StylizedSky extends THREE.Mesh {
    * @returns {Object} The updated settings object.
    */
   applySettings(options = {}) {
-    if (cleanSkyObject(options).preset !== undefined) {
-      const { preset, ...overrides } = options;
-      return this.setPreset(preset, overrides);
+    const source = cleanSkyObject(options);
+    if (source.style !== undefined || source.preset !== undefined) {
+      const { preset, style, ...overrides } = source;
+      return this.setStyle(style ?? preset, overrides);
+    }
+    if (source.scenario !== undefined) {
+      const { scenario, ...overrides } = source;
+      return this.setScenario(scenario, overrides);
     }
     this._authoredSettings = createSkySettings({ ...this._authoredSettings, ...options });
     this._applyComposedSceneSettings();
     return this.settings;
   }
 
-  /** Replaces the authored look from a registered preset, then recomposes runtime layers. */
+  /**
+   * Replaces the authored look from a registered style, then recomposes
+   * runtime layers. `overrides.scenario` selects which canonical scenario of
+   * the style to show (defaults to {@link DEFAULT_SKY_SCENARIO}).
+   */
   setPreset(name, overrides = {}) {
-    this._authoredSettings = createSkySettings({ preset: name, ...cleanSkyObject(overrides) });
+    return this.setStyle(name, overrides);
+  }
+
+  /** Preferred style-axis name; setPreset() remains the compatibility alias. */
+  setStyle(name, overrides = {}) {
+    const source = cleanSkyObject(overrides);
+    const alias = SKY_PRESET_ALIASES[name];
+    const scenario = source.scenario ?? alias?.scenario ?? this._scenario;
+    const identity = resolveSkyPresetReference(alias?.preset ?? name, scenario);
+    const { scenario: _scenario, ...settingsOverrides } = source;
+    this._style = identity.styleId;
+    this._scenario = identity.scenarioId ?? DEFAULT_SKY_SCENARIO;
+    this._authoredSettings = createSkySettings({
+      style: this._style,
+      scenario: this._scenario,
+      ...settingsOverrides,
+    });
     this._applyComposedSceneSettings();
     return this.settings;
+  }
+
+  /** Changes the world-state moment without changing the selected style. */
+  setScenario(name, overrides = {}) {
+    return this.setStyle(this._style, { ...cleanSkyObject(overrides), scenario: name });
   }
 
   /**

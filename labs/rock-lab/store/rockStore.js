@@ -18,11 +18,14 @@ import {
   createRockPiece,
   deserializeRockDocument,
   normalizeRockgenPresetName,
+  rebaseRockDocumentStyle,
   removePieceFromDocument,
   ROCK_SURFACE_TEXTURE_PRESETS,
   getRockgenPresetOptions,
+  getRockgenStyleOptions,
   isRockHelperPiece,
   serializeRockDocument,
+  normalizeRockgenStyleName,
 } from '../../../src/rockgen/index.js';
 import { loadRockProject, removeRockProject, saveRockProject } from '../rockProjectStore.js';
 import { setLabParams } from '../../shared/labParams.js';
@@ -64,6 +67,14 @@ const PROCEDURAL_START_PRESETS = Object.freeze([
   'mossy-boulder',
   'shard-monolith',
 ]);
+
+const CUSTOM_ROCK_PRESET = 'custom';
+
+function rockPresetStateName(value) {
+  return value === null || value === CUSTOM_ROCK_PRESET
+    ? CUSTOM_ROCK_PRESET
+    : normalizeRockgenPresetName(value);
+}
 const SCRATCH_OUTLINE = Object.freeze([
   [-0.82, -0.42],
   [0.66, -0.5],
@@ -381,7 +392,8 @@ function createGroundSupportPiece(doc, placement) {
 }
 
 function hasExplicitRockStart(urlParams) {
-  return ['rockPreset', 'rockSeed', 'rockRes'].some((key) => urlParams.has(key));
+  return ['rockProject', 'rockPreset', 'rockStyle', 'rockSeed', 'rockRes']
+    .some((key) => urlParams.has(key));
 }
 
 function randomSeed() {
@@ -392,6 +404,7 @@ function createScratchRockDocument({ seed = 0 } = {}) {
   return createRockDocument({
     meshing: { normalsMode: 'flat', previewResolution: 64 },
     name: 'Untitled Rock',
+    preset: null,
     pieces: [{
       cuts: { enabled: false },
       falloff: { bottomFlatten: 0.08 },
@@ -428,20 +441,39 @@ function shouldStartMerged(doc) {
 }
 
 export function createRockStore({ urlParams }) {
-  const presetName = normalizeRockgenPresetName(urlParams.get('rockPreset'));
-  const seed = Math.max(Math.round(Number(urlParams.get('rockSeed'))) || 0, 0);
+  const requestedProjectId = urlParams.get('rockProject');
+  const linkedProject = requestedProjectId ? loadRockProject(requestedProjectId) : null;
+  const requestedPreset = urlParams.get('rockPreset');
   const explicitStart = hasExplicitRockStart(urlParams);
+  const legacyStyle = getRockgenStyleOptions().some((option) => option.value === requestedPreset)
+    ? requestedPreset
+    : null;
+  let presetName = normalizeRockgenPresetName(requestedPreset);
+  let styleName = normalizeRockgenStyleName(
+    urlParams.get('rockStyle') ?? legacyStyle ?? (explicitStart ? 'default' : 'call_me_sensei'),
+  );
+  let seed = Math.max(Math.round(Number(urlParams.get('rockSeed'))) || 0, 0);
 
   // Boot document priority: explicit URL starts fresh; otherwise restore an
   // autosaved working copy only while it matches the current preset + seed.
-  let document = null;
+  let document = linkedProject?.document ?? null;
   let bootSource = explicitStart ? 'url' : 'fresh';
-  const autosaved = explicitStart ? null : loadRockProject();
-  if (autosaved && autosaved.meta.preset === presetName && autosaved.meta.seed === seed) {
-    document = autosaved.document;
-    bootSource = 'persisted';
+  if (linkedProject) {
+    presetName = rockPresetStateName(linkedProject.document.preset);
+    styleName = normalizeRockgenStyleName(
+      linkedProject.document.style ?? linkedProject.meta.style,
+    );
+    seed = linkedProject.document.seed;
+  } else {
+    const autosaved = explicitStart ? null : loadRockProject();
+    if (autosaved && (autosaved.document.preset ?? autosaved.meta.preset) === presetName
+      && normalizeRockgenStyleName(autosaved.document.style ?? autosaved.meta.style) === styleName
+      && autosaved.document.seed === seed) {
+      document = autosaved.document;
+      bootSource = 'persisted';
+    }
   }
-  if (!document) document = createRockDocument({ preset: presetName, seed });
+  if (!document) document = createRockDocument({ preset: presetName, seed, style: styleName });
 
   const store = createStore({
     brush: { ...DEFAULT_BRUSH_STATE },
@@ -469,6 +501,7 @@ export function createRockStore({ urlParams }) {
     sky: { ...DEFAULT_SKY_STATE },
     stage: 'shape',
     status: 'Ready.',
+    styleName,
     tool: 'orbit',
     view: { drawer: false, export: false, gallery: bootSource === 'fresh' },
     walkPreview: false,
@@ -488,7 +521,9 @@ export function createRockStore({ urlParams }) {
     clearTimeout(autosaveTimer);
     autosaveTimer = setTimeout(() => {
       const state = store.getState();
-      saveRockProject(state.document, { meta: { preset: state.presetName, seed: state.seed } });
+      saveRockProject(state.document, {
+        meta: { preset: state.presetName, seed: state.seed, style: state.styleName },
+      });
     }, 1000);
   }
 
@@ -502,6 +537,7 @@ export function createRockStore({ urlParams }) {
     mergePreview = false,
     preset = 'boulder',
     seed: nextSeed = doc.seed,
+    style = 'default',
     status = 'Ready.',
     stage = 'shape',
     tool = 'orbit',
@@ -520,7 +556,7 @@ export function createRockStore({ urlParams }) {
       mannequin: false,
       mergePreview,
       moveMode: 'rotate',
-      presetName: normalizeRockgenPresetName(preset),
+      presetName: rockPresetStateName(preset),
       previewResolution: doc.meshing.previewResolution,
       seed: nextSeed,
       selectedPieceId: doc.pieces[0].id,
@@ -528,6 +564,7 @@ export function createRockStore({ urlParams }) {
       sky: { ...DEFAULT_SKY_STATE },
       stage,
       status,
+      styleName: normalizeRockgenStyleName(style),
       tool,
       view: { drawer: false, export: false, gallery: false },
       walkPreview: false,
@@ -535,9 +572,10 @@ export function createRockStore({ urlParams }) {
     setLabParams({
       envDebug: null,
       rockMerge: mergePreview ? null : '0',
-      rockPreset: preset,
+      rockPreset: rockPresetStateName(preset) === CUSTOM_ROCK_PRESET ? null : preset,
       rockRes: String(doc.meshing.previewResolution),
       rockSeed: String(nextSeed),
+      rockStyle: normalizeRockgenStyleName(style),
     }, { navigate: false });
     commit({ immediate: true, reframe: true });
   }
@@ -805,9 +843,12 @@ export function createRockStore({ urlParams }) {
       bumpDocumentRevision(restored);
       store.setState({
         document: restored,
+        presetName: rockPresetStateName(restored.preset),
         previewResolution: restored.meshing.previewResolution,
+        seed: restored.seed,
         selectedPieceId: restored.pieces[0].id,
         selectedPieceIds: [restored.pieces[0].id],
+        styleName: normalizeRockgenStyleName(restored.style),
       });
       commit({ immediate: true, reframe: true });
       this.setStatus(`Loaded ${label}.`);
@@ -820,11 +861,13 @@ export function createRockStore({ urlParams }) {
     startFromPreset(preset) {
       const nextPreset = normalizeRockgenPresetName(preset);
       const nextSeed = 0;
-      const doc = createRockDocument({ preset: nextPreset, seed: nextSeed });
+      const style = store.getState().styleName;
+      const doc = createRockDocument({ preset: nextPreset, seed: nextSeed, style });
       replaceDocumentForStart(doc, {
         mergePreview: shouldStartMerged(doc),
         preset: nextPreset,
         seed: nextSeed,
+        style,
         status: `Started from ${doc.name}.`,
       });
     },
@@ -832,8 +875,9 @@ export function createRockStore({ urlParams }) {
     startFromScratch() {
       const doc = createScratchRockDocument({ seed: 0 });
       replaceDocumentForStart(doc, {
-        preset: 'boulder',
+        preset: CUSTOM_ROCK_PRESET,
         seed: 0,
+        style: 'default',
         status: 'Blank rock ready - draw a silhouette with the Doodle tool or edit the starter slab.',
         tool: 'doodle',
       });
@@ -842,11 +886,13 @@ export function createRockStore({ urlParams }) {
     startProcedural() {
       const nextPreset = randomProceduralPreset();
       const nextSeed = randomSeed();
-      const doc = createRockDocument({ preset: nextPreset, seed: nextSeed });
+      const style = store.getState().styleName;
+      const doc = createRockDocument({ preset: nextPreset, seed: nextSeed, style });
       replaceDocumentForStart(doc, {
         mergePreview: shouldStartMerged(doc),
         preset: nextPreset,
         seed: nextSeed,
+        style,
         status: `Fresh procedural ${doc.name} - tweak the seed, pieces, or surface texture.`,
       });
     },
@@ -879,8 +925,15 @@ export function createRockStore({ urlParams }) {
       const state = store.getState();
       setLabParams({
         envDebug: null, rockMerge: null, rockPreset: null, rockRes: null, rockSeed: null,
+        rockStyle: null,
       }, { navigate: false });
-      const fresh = createRockDocument({ preset: state.presetName, seed: state.seed });
+      const fresh = state.presetName === CUSTOM_ROCK_PRESET
+        ? createScratchRockDocument({ seed: state.seed })
+        : createRockDocument({
+          preset: state.presetName,
+          seed: state.seed,
+          style: state.styleName,
+        });
       snapshot();
       store.setState({
         brush: { ...DEFAULT_BRUSH_STATE },
@@ -890,11 +943,14 @@ export function createRockStore({ urlParams }) {
         gizmoMode: 'translate',
         mannequin: false,
         moveMode: 'rotate',
+        presetName: rockPresetStateName(fresh.preset),
         previewResolution: fresh.meshing.previewResolution,
+        seed: fresh.seed,
         selectedPieceId: fresh.pieces[0].id,
         selectedPieceIds: [fresh.pieces[0].id],
         sky: { ...DEFAULT_SKY_STATE },
         stage: 'shape',
+        styleName: normalizeRockgenStyleName(fresh.style),
         tool: 'orbit',
         view: { drawer: false, export: false, gallery: false },
         walkPreview: false,
@@ -1043,7 +1099,11 @@ export function createRockStore({ urlParams }) {
       snapshot();
       const state = store.getState();
       const nextPreset = normalizeRockgenPresetName(value);
-      const doc = createRockDocument({ preset: nextPreset, seed: state.seed });
+      const doc = createRockDocument({
+        preset: nextPreset,
+        seed: state.seed,
+        style: state.styleName,
+      });
       const mergePreview = shouldStartMerged(doc);
       store.setState({
         document: doc,
@@ -1064,6 +1124,26 @@ export function createRockStore({ urlParams }) {
         { navigate: false },
       );
       commit({ immediate: true, reframe: true });
+    },
+
+    setStyle(value) {
+      snapshot();
+      const state = store.getState();
+      const nextStyle = normalizeRockgenStyleName(value);
+      const doc = rebaseRockDocumentStyle(state.document, nextStyle);
+      const mergePreview = shouldStartMerged(doc);
+      store.setState({
+        document: doc,
+        mergePreview,
+        previewResolution: doc.meshing.previewResolution,
+        styleName: nextStyle,
+      });
+      setLabParams({
+        rockMerge: mergePreview ? null : '0',
+        rockRes: String(doc.meshing.previewResolution),
+        rockStyle: nextStyle,
+      }, { navigate: false });
+      commit({ immediate: true });
     },
 
     setResolution(value) {

@@ -24,11 +24,23 @@ check('every entry validates', entries.every((entry) => validateCatalogEntry(ent
 check('every existing preset family appears',
   ['propgen', 'buildinggen', 'vegetation', 'rockgen', 'debrisgen', 'pathgen', 'water', 'sky', 'lighting', 'post', 'toon']
     .every((cluster) => entries.some((entry) => entry.cluster === cluster)));
+check('Call Me Sensei is not catalogued as a Rock or Debris asset',
+  !entries.some((entry) => ['rockgen', 'debrisgen'].includes(entry.cluster)
+    && /call[-_]me[-_]sensei/.test(entry.id)));
+check('Debris exposes Call Me Sensei as a style',
+  root.getDebrisStyleOptions().some((entry) => entry.id === 'call_me_sensei'));
+check('Call Me Sensei style composes over every debris preset',
+  root.BUILT_IN_DEBRIS_PRESETS.every((preset) => {
+    const styled = root.applyDebrisStyle(preset.settings, 'call_me_sensei');
+    return styled.asset.variant === preset.variant
+      && styled.surface.edgeLight === 0.34
+      && styled.surface.roughness === 0.88;
+  }));
 
 // --- spawn contract across asset clusters -----------------------------------------
 const SPAWN_IDS = {
   buildinggen: 'building/cottage/default',
-  debrisgen: 'debris/call-me-sensei',
+  debrisgen: 'debris/bleached-driftwood',
   propgen: 'prop/lantern/stone-toro',
   rockgen: 'rock/boulder',
   vegetation: 'tree/broadleaf/sensei',

@@ -17,8 +17,8 @@ portable JSON import/export.
 
 ## Composed-world usage
 
-`createStylizedWorld` creates the weather coordinator by default with the
-Call Me Sensei preset:
+`createStylizedWorld` creates the weather coordinator with separate condition
+and IP-style axes:
 
 ```js
 const world = await createStylizedWorld({
@@ -28,7 +28,7 @@ const world = await createStylizedWorld({
   terrain: { root: terrainRoot, heightAt, size: 1000 },
   water: { level: 0 },
   followTarget: character,
-  weather: { preset: 'partlyCloudy', seed: 42 },
+  weather: { preset: 'partlyCloudy', seed: 42, style: 'call_me_sensei' },
 });
 
 // Smoothly change the whole world, not just the particle effect.
@@ -60,17 +60,32 @@ vehicle can instead decide how much outside weather reaches its visible
 surfaces and audio. Weather remains one source of truth across transitions
 between spaces.
 
-## Built-in conditions
+## Styles and built-in conditions
 
-There are 22 presets:
+Weather has two axes. **Conditions** are the world-state axis
+(`getWeatherPresetOptions()`, 21 entries):
 
-- Signature and fair: `call_me_sensei`, `clear`, `partlyCloudy`, `cloudy`,
-  `overcast`, `windy`
+- Fair: `clear`, `partlyCloudy`, `cloudy`, `overcast`, `windy`
 - Visibility: `haze`, `mist`, `fog`
 - Rain and storms: `drizzle`, `rain`, `heavyRain`, `thunderstorm`,
   `tropicalStorm`
 - Winter: `snow`, `heavySnow`, `blizzard`, `sleet`, `freezingRain`, `hail`
 - Arid: `dustStorm`, `sandstorm`
+
+**Styles** are the identity axis (`getWeatherStyleOptions()`): `default` and
+`call_me_sensei`, the studio-managed signature style. A style is rendition
+character (house wind, cloud personality, sky vividness) applied UNDER every
+condition — the condition always keeps the meteorological keys it authors:
+
+```js
+resolveWeatherPreset('thunderstorm', { style: 'call_me_sensei' });
+createWeatherSystem({ preset: 'rain', style: 'call_me_sensei', ... });
+weather.setStyle('call_me_sensei'); // re-renders the current condition
+```
+
+The historical `call_me_sensei` "condition" id keeps resolving byte-stable —
+it now names the style's ambient base — and remains the default when no
+preset is given.
 
 Precipitation is a single instanced draw with static seeded attributes and
 GPU-looped motion. The renderer supports `rain`, `snow`, `sleet`, `hail`,

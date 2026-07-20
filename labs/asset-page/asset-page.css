@@ -16,7 +16,8 @@
 }
 .asset-screen {
   position: relative;
-  height: calc(100vh - 57px);
+  height: calc(100vh - var(--tl-site-header-height));
+  height: calc(100dvh - var(--tl-site-header-height));
   min-height: 600px;
   overflow: hidden;
 }

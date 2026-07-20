@@ -385,7 +385,11 @@ registry update changing a released game unexpectedly.
 ### Look document
 
 A look packages lighting with the adjacent systems needed to reproduce the
-shot:
+shot. A look is a scene/shot shortcut — a baked scenario — never an
+identity: style bundles serialize lighting **styles** (the dayCycle-bearing
+documents above), and the legacy scenario looks (`daylight`, `golden_hour`,
+`moonlit`, `character_studio`, `warm_interior`) resolve only for saved
+bundles:
 
 ```js
 const look = createLightingLook({

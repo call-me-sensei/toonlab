@@ -544,7 +544,7 @@ Overrides numeric environment shader uniforms. Auto values preserve material def
 | `exposure` | number | — | 0 – 2 | Yes | Overrides exposure; leave unset in code to use the material default. |
 | `heightFogColor` | color | — | — | Yes | Overrides height fog color; leave unset in code to use the material default. |
 | `heightFogDensity` | number | — | 0 – 0.5 | Yes | Overrides height fog density; leave unset in code to use the material default. |
-| `heightFogFalloff` | number | — | 0.05 – 30 | Yes | Overrides height fog falloff; leave unset in code to use the material default. |
+| `heightFogFalloff` | number | — | 0.05 – 600 | Yes | Overrides height fog falloff; leave unset in code to use the material default. |
 | `interiorOcclusionColor` | color | — | — | Yes | Overrides interior occlusion color; leave unset in code to use the material default. |
 | `interiorOcclusionStrength` | number | — | 0 – 2 | Yes | Overrides interior occlusion strength; leave unset in code to use the material default. |
 | `leftSideShadow` | number | — | 0 – 1 | Yes | Overrides side shadow; leave unset in code to use the material default. |
@@ -904,7 +904,7 @@ Smooth herbaceous stem treatment, intentionally separate from woody bark.
 
 ## Grass
 
-Module: `toonlab/vegetation` — 9 groups, 22 fields.
+Module: `toonlab/vegetation` — 9 groups, 24 fields.
 
 Flat settings consumed by `new StylizedGrassField(options)` and `grass.applySettings(options)`. Portable grass preset v2 stores asset geometry, palette/material, and `windResponse` / `gustResponse`; current light, wind/gust field, cloud field, and push radius are scene/runtime inputs.
 
@@ -916,6 +916,8 @@ Random blade dimensions baked into the instance attributes when the field is bui
 |---|---|---|---|---|---|
 | `bladeHeightRange` | vector2 | `[0.16, 0.42]` | — | Yes | Min/max blade height in meters for placements without an explicit height. Construction-only: baked into instance attributes. |
 | `bladeWidthRange` | vector2 | `[0.05, 0.085]` | — | Yes | Min/max blade width in meters for placements without an explicit width. Construction-only: baked into instance attributes. |
+| `bladesPerClump` | number | `1` | 1 – 16 | Yes | Blades grown from each placement. 1 keeps the classic lone-blade field; higher values build anime-style clumps whose blades share a base and splay apart. Construction-only. |
+| `clumpRadius` | number | `0.055` | 0 – 0.3 | Yes | Base scatter radius in meters for the extra blades of a clump. Small values read as one tuft; larger values loosen the clump. Construction-only. |
 
 ### Grass: Motion
 
@@ -1029,7 +1031,7 @@ Petal/center palette and scene-shadow darkening.
 
 ## Trees
 
-Module: `toonlab/vegetation` — 5 groups, 68 fields.
+Module: `toonlab/vegetation` — 5 groups, 69 fields.
 
 Grouped settings consumed by `new StylizedTree(options)` and `tree.applySettings(options)`.
 
@@ -1050,6 +1052,7 @@ Overall scale, seed, crown reach, leaf coverage, and canopy palette. Everything 
 | `canopyScale` | number | `1` | 0.2 – 3 | Yes | Canopy-only scale relative to the trunk. Construction-only. |
 | `leafPlacement` | select | `'canopy'` | `canopy` \| `tips` | Yes | canopy: solid leaf mass hiding interior wood. tips: bushes only at branch ends with bare limbs between them (Sumeru silhouette). Construction-only. |
 | `trunkReceiveShadow` | boolean | `true` | — | Yes | Whether the bark receives shadow maps. Massive pale-limbed trees read better with this off. |
+| `trunkColor` | color | `[0.788235294117647, 0.6705882352941176, 0.5411764705882353]` (#c9ab8a) | — | Yes | Warm bark base color used by the generated trunk, branches, and roots. |
 
 ### Trees: Trunk
 

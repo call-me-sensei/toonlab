@@ -2,7 +2,7 @@
 // Left rail = the cluster's categories (weapon / magic / movement / shared),
 // inspector = schema-driven controls for that category's settings groups,
 // bottom bar = gameplay triggers (fire the effect you're tuning), topbar =
-// preset picker + seed + the export (recipe JSON / paste-ready code).
+// style picker + seed + the export (recipe JSON / paste-ready code).
 
 import { useEffect, useState } from 'react';
 
@@ -23,7 +23,7 @@ import { persistLabScene } from '../../shared/labParams.js';
 import { downloadBlob } from '../../shared/download.js';
 import {
   getMoveOptions,
-  getVfxPresetOptions,
+  getVfxStyleOptions,
   getWeaponOptions,
   VFX_SETTING_FIELD_SCHEMA,
   VFX_SETTING_GROUPS,
@@ -155,10 +155,11 @@ function TopBar({ actions, onExport, state }) {
     <header className="vl-topbar tk">
       <span className="vl-brand">✨ VFX Lab</span>
       <span className="vl-preset">
+        <span>Style</span>
         <Select
-          onChange={(id) => actions.applyPreset(id)}
-          options={getVfxPresetOptions().map((entry) => ({ label: entry.label, value: entry.id }))}
-          value={state.presetId}
+          onChange={(id) => actions.applyStyle(id)}
+          options={getVfxStyleOptions().map((entry) => ({ label: entry.label, value: entry.id }))}
+          value={state.styleId}
         />
       </span>
       <span className="vl-seed">

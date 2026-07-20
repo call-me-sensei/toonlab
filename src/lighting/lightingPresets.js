@@ -227,9 +227,12 @@ export const LIGHTING_RIG_PRESETS = deepFreeze(Object.fromEntries(
 ));
 
 const LOOK_DEFINITIONS = {
-  daylight: { description: 'Clear vivid daylight for outdoor toon scenes.', environment: { skyPreset: 'call_me_sensei', timeOfDay: 14, weatherPreset: 'clear' }, label: 'Daylight', post: { exposure: 1.08 }, quality: 'balanced', recipe: 'outdoor_sun' },
-  golden_hour: { description: 'Low warm key light with luminous cool sky fill.', environment: { skyPreset: 'sunset', timeOfDay: 18.2, weatherPreset: 'clear' }, label: 'Golden Hour', post: { exposure: 1.04, saturation: 1.12 }, quality: 'high', recipe: 'outdoor_sun' },
-  moonlit: { description: 'Cool low-intensity night foundation ready for practical lights.', environment: { skyPreset: 'night', timeOfDay: 23, weatherPreset: 'clear' }, label: 'Moonlit', post: { exposure: 0.92 }, quality: 'balanced', recipe: 'night_market' },
+  // skyPreset names a sky STYLE; skyScenario picks that style's rendition of
+  // the moment (see SKY_SCENARIOS in src/sky/stylizedSky.js). Hosts apply
+  // both: sky.setPreset(environment.skyPreset, { scenario: environment.skyScenario }).
+  daylight: { description: 'Clear vivid daylight for outdoor toon scenes.', environment: { skyPreset: 'call_me_sensei', skyScenario: 'clear_day', timeOfDay: 14, weatherPreset: 'clear' }, label: 'Daylight', post: { exposure: 1.08 }, quality: 'balanced', recipe: 'outdoor_sun' },
+  golden_hour: { description: 'Low warm key light with luminous cool sky fill.', environment: { skyPreset: 'call_me_sensei', skyScenario: 'golden_hour', timeOfDay: 18.2, weatherPreset: 'clear' }, label: 'Golden Hour', post: { exposure: 1.04, saturation: 1.12 }, quality: 'high', recipe: 'outdoor_sun' },
+  moonlit: { description: 'Cool low-intensity night foundation ready for practical lights.', environment: { skyPreset: 'call_me_sensei', skyScenario: 'moonlit', timeOfDay: 23, weatherPreset: 'clear' }, label: 'Moonlit', post: { exposure: 0.92 }, quality: 'balanced', recipe: 'night_market' },
   character_studio: { description: 'Neutral character look-development stage.', environment: { background: [0.07, 0.08, 0.11] }, label: 'Character Studio', post: { exposure: 1 }, quality: 'high', recipe: 'three_point_character' },
   warm_interior: { description: 'Warm practicals with cool window contrast.', environment: { timeOfDay: 16 }, label: 'Warm Interior', post: { exposure: 1.02 }, quality: 'balanced', recipe: 'interior_warm' },
 };

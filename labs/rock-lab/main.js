@@ -3,7 +3,9 @@
 // ?hud=0 skips React entirely (deterministic scene captures); the engine
 // and store still boot so every body-dataset capture gate works.
 //
-// URL params: ?rockPreset= ?rockSeed= ?rockRes= ?envDebug= ?rockMerge=0
+// URL params: ?rockProject= ?rockPreset= ?rockStyle= ?rockSeed= ?rockRes=
+// ?envDebug= ?rockMerge=0. `rockProject` is the local/Pro-hydrated portable
+// document id; preset and style remain separate axes.
 //             ?hud=0
 //             ?captureView=hero|front|side|top
 //             ?grass=<blades> is a legacy/capture override; UI defaults off.

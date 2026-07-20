@@ -134,7 +134,7 @@ export function builtinCatalogEntries() {
       label: option.label,
       recipe: { preset: option.value, schema: 'rockgenPresetRef', version: 1 },
       spawn: "propAssetFromObject(new THREE.Mesh(meshDocument(createRockDocument({ preset: entry.recipe.preset, seed })), new THREE.MeshStandardMaterial({ vertexColors: true })))",
-      tags: ['rock', 'nature', option.value === 'call_me_sensei' ? 'call-me-sensei' : 'stone'],
+      tags: ['rock', 'nature', 'stone'],
       thumbnail: thumbFor(id),
     }));
   }

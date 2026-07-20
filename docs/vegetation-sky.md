@@ -97,8 +97,8 @@ parsed object. The focused `vegetation-shaders` subpath and the main
 semantic contract and returns coverage/unsupported-uniform diagnostics.
 `createStylizedWorld({ vegetationShader })` passes the profile into trees,
 grass, and flowers. `world.setVegetationShader(profile)` updates live near
-materials; a texture-baked far forest reports that its impostors require a
-rebuild.
+materials; the far forest derives its volumetric proxy colors at construction
+and reports that those proxies require a rebuild.
 
 The labs intentionally split by responsibility:
 

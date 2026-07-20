@@ -12,19 +12,38 @@ import {
 export const WEATHER_PRESET_DOCUMENT_TYPE = 'toonlab/weather-preset';
 export const WEATHER_PRESET_SCHEMA_VERSION = 1;
 
+// Weather is the IP's world-state axis: every DEFINITIONS entry is a
+// CONDITION (a scenario), stored as a raw partial and normalized at resolve
+// time. The identity axis is the weather STYLE below — how conditions
+// render (house wind character, cloud personality) — applied UNDER every
+// condition, so the condition always keeps its meteorological keys.
 const DEFINITIONS = new Map();
 
 function registerBuiltIn(id, label, description, settings) {
-  DEFINITIONS.set(id, Object.freeze({ description, label, settings: createWeatherSettings(settings) }));
+  DEFINITIONS.set(id, Object.freeze({ description, label, settings }));
 }
+
+// Weather styles: identity, never a condition. 'call_me_sensei' was
+// historically listed as an eleventh condition; it is really the studio's
+// rendition tuning and now resolves in every condition.
+const WEATHER_STYLES = new Map();
+
+function registerBuiltInStyle(id, label, description, settings) {
+  WEATHER_STYLES.set(id, Object.freeze({ description, label, settings }));
+}
+
+registerBuiltInStyle('default', 'Default', 'Conditions rendered exactly as authored.', {});
+
+registerBuiltInStyle('call_me_sensei', 'Call Me Sensei', 'Studio-managed signature weather style: vivid sky, painterly moving clouds, and a cohesive world breeze under any condition.', {
+  // The light field must read from a gameplay camera, not merely register in
+  // a debug view. Broad 100–150 m pools at ~50% strength keep the valley
+  // visibly changing while the blue ambient floor prevents black patches.
+  atmosphere: { cloudCoverage: 0.48, cloudShadowCoverage: 0.55, cloudShadowScale: 0.008, cloudShadowStrength: 0.52, skyDarkening: 0, skyDesaturation: 0 },
+  wind: { direction: [1, 0.3], gustFrequency: 0.42, gustSpeed: 1.2, speed: 0.9, strength: 0.18 },
+});
 
 registerBuiltIn('clear', 'Clear', 'Bright sky, light breeze, and sparse cloud shadows.', {
   atmosphere: { cloudCoverage: 0.08, cloudShadowStrength: 0.08 },
-});
-
-registerBuiltIn('call_me_sensei', 'Call Me Sensei', 'Studio-managed signature weather: vivid sky, painterly moving clouds, and a cohesive world breeze.', {
-  atmosphere: { cloudCoverage: 0.42, cloudShadowCoverage: 0.45, cloudShadowStrength: 0.35, skyDarkening: 0, skyDesaturation: 0 },
-  wind: { direction: [1, 0.3], gustFrequency: 0.42, gustSpeed: 1.2, speed: 1, strength: 0.18 },
 });
 
 registerBuiltIn('partlyCloudy', 'Partly Cloudy', 'Broken cloud cover with moving pools of sunlight.', {
@@ -168,9 +187,10 @@ const ALIASES = Object.freeze({
 export function normalizeWeatherPresetName(name) {
   const requested = String(name ?? '').trim();
   const id = ALIASES[requested] ?? requested;
-  return DEFINITIONS.has(id) ? id : 'call_me_sensei';
+  return DEFINITIONS.has(id) || WEATHER_STYLES.has(id) ? id : 'call_me_sensei';
 }
 
+/** Lists weather CONDITIONS (the world-state axis) for pickers. */
 export function getWeatherPresetOptions() {
   return Array.from(DEFINITIONS.entries()).map(([id, definition]) => ({
     description: definition.description,
@@ -179,14 +199,70 @@ export function getWeatherPresetOptions() {
   }));
 }
 
-export function resolveWeatherPreset(name) {
-  const id = normalizeWeatherPresetName(name);
-  const definition = DEFINITIONS.get(id);
-  return {
+/** Lists weather STYLES — identities that render every condition. */
+export function getWeatherStyleOptions() {
+  return Array.from(WEATHER_STYLES.entries()).map(([id, definition]) => ({
     description: definition.description,
     id,
     label: definition.label,
-    settings: createWeatherSettings(definition.settings),
+  }));
+}
+
+export function resolveWeatherStyleName(name) {
+  const requested = String(name ?? '').trim();
+  return WEATHER_STYLES.has(requested) ? requested : 'default';
+}
+
+/** Registers a weather style (partial settings applied under any condition). */
+export function registerWeatherStylePreset(id, definition = {}, { overwrite = false } = {}) {
+  const key = String(id ?? '').trim();
+  if (!key) throw new Error('Weather style name is required.');
+  if (!overwrite && WEATHER_STYLES.has(key)) throw new Error(`Weather style "${key}" already exists.`);
+  const source = definition && typeof definition === 'object' ? definition : {};
+  WEATHER_STYLES.set(key, Object.freeze({
+    description: String(source.description ?? ''),
+    label: String(source.label ?? key),
+    settings: source.settings ?? source,
+  }));
+  return { description: String(source.description ?? ''), id: key, label: String(source.label ?? key) };
+}
+
+// Style character fills in only where the condition does not specify — the
+// condition keeps every meteorological key it authors.
+function mergeStyleUnderCondition(styleSettings, conditionSettings) {
+  const result = { ...styleSettings };
+  for (const [key, value] of Object.entries(conditionSettings ?? {})) {
+    result[key] = value && typeof value === 'object' && !Array.isArray(value)
+      ? { ...(result[key] ?? {}), ...value }
+      : value;
+  }
+  return result;
+}
+
+/**
+ * Resolves a CONDITION rendered through a STYLE. `name` is a condition id
+ * (clear…blizzard); `style` picks the identity (default when omitted).
+ * Passing a style id as `name` resolves that style's ambient base — this is
+ * how the historical `call_me_sensei` "condition" keeps resolving
+ * byte-identically.
+ */
+export function resolveWeatherPreset(name, { style } = {}) {
+  const requested = String(name ?? '').trim();
+  const requestedId = ALIASES[requested] ?? requested;
+  const condition = DEFINITIONS.get(requestedId);
+  const styleId = resolveWeatherStyleName(
+    style ?? (condition
+      ? 'default'
+      : (WEATHER_STYLES.has(requestedId) ? requestedId : 'call_me_sensei')),
+  );
+  const styleEntry = WEATHER_STYLES.get(styleId);
+  const meta = condition ?? styleEntry;
+  return {
+    description: meta.description,
+    id: condition ? requestedId : styleId,
+    label: meta.label,
+    settings: createWeatherSettings(mergeStyleUnderCondition(styleEntry.settings, condition?.settings)),
+    style: styleId,
   };
 }
 
@@ -251,8 +327,7 @@ export function registerWeatherPresetDocument(input, { overwrite = false } = {})
   return result;
 }
 
-/** Resolves a preset and merges developer overrides over it. */
-export function resolveWeatherSettings(preset = 'call_me_sensei', overrides = {}) {
-  return mergeWeatherSettings(resolveWeatherPreset(preset).settings, overrides);
+/** Resolves a condition (through an optional style) and merges developer overrides over it. */
+export function resolveWeatherSettings(preset = 'call_me_sensei', overrides = {}, { style } = {}) {
+  return mergeWeatherSettings(resolveWeatherPreset(preset, { style }).settings, overrides);
 }
-

@@ -158,11 +158,13 @@ function createInitialWaterSettings() {
   if (handoff?.settings) {
     return createWaterSettings({
       preset: handoff.preset ?? undefined,
+      style: handoff.style ?? undefined,
       ...handoff.settings,
     });
   }
   return createWaterSettings({
     mode: URL_PARAMS.get('waterMode') || URL_PARAMS.get('waterPreset') || 'lake',
+    style: URL_PARAMS.get('waterStyle') || undefined,
     colorTone: URL_PARAMS.get('waterTone') || undefined,
     flowSpeed: optionalNumberParam('waterFlowSpeed'),
     foamAmount: optionalNumberParam('waterFoam'),

@@ -10,6 +10,7 @@ import {
   TextField, ToastStack, useStoreState,
 } from '../../shared/ui/index.js';
 import { ScrubValue } from '../../shared/ui/components/Slider.jsx';
+import '../../shared/siteHeader.js';
 import { WEATHER_PRESETS } from '../engine/skyWeather.js';
 import { BARK_TEXTURE_PRESETS } from '../engine/barkTextures.js';
 import { WALK_PREVIEW_TITLE } from '../../shared/walkPreview.js';
@@ -620,6 +621,7 @@ export function App({ engine, labKind = 'tree', sketchBindings, store }) {
   if (state.view.gallery) {
     return (
       <div className="tk">
+        <toonlab-site-header active="labs" />
         <GalleryScreen actions={actions} labKind={labKind} state={state} />
         <ToastStack />
       </div>

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 
 import { deepMerge } from './core/generation.js';
+import { createHorizonCastle } from './worldLandmarks.js';
 
 // Seeded stylized-terrain generator. Import from '@call-me-sensei/toonlab'.
 //
@@ -54,6 +55,21 @@ import { deepMerge } from './core/generation.js';
 // Morphology + paint bundles. Amplitudes are meters; band values are
 // fractions of the archetype's observed land relief above the waterline.
 const TERRAIN_ARCHETYPES = new Map([
+  ['lushKarst', {
+    continent: { amp: 96, bias: -0.38, freq: 0.00105 },
+    label: 'Lush Karst',
+    mountains: { amp: 145, freq: 0.0008, mask: [0.58, 0.72], ridgeExp: 1.85, ridgeFreq: 0.0065 },
+    // Localized outcrops interrupt the meadow without turning every square
+    // meter into a rock wall.
+    outcrops: { amp: 36, freq: 0.0032, mask: [0.68, 0.84], ridgeExp: 2.1, ridgeFreq: 0.014 },
+    paint: { rockHeightBand: [0.7, 0.84], rockSlopeBand: [0.72, 1.12] },
+    rim: { base: 62, ridged: 132 },
+    rolling: { amp: 24, freq: 0.0034 },
+    terraces: {
+      blendOff: [0.8, 1.0], lowlandBlend: 0.08, mountainBlend: 0.92, sharpness: 4.5, step: 20,
+    },
+    waterCoverage: 0.14,
+  }],
   ['terracedKarst', {
     continent: { amp: 160, bias: -0.535, freq: 0.0011 },
     label: 'Terraced Karst',
@@ -131,9 +147,11 @@ const DEFAULT_PALETTE = {
   golden: 0xd2b24c,
   haze: 0xa9c6e8,
   meadow: 0x64ad48,
-  rock: 0xa7b7c6,
+  // Warm limestone rather than cool uniform gray. The dedicated triplanar
+  // cliff map below supplies ochre strata and dark mineral seams.
+  rock: 0xa58e6d,
   sand: 0xe2d49a,
-  snow: 0xe2eaf2,
+  snow: 0xe4e6e2,
 };
 
 function smoothstep(edge0, edge1, value) {
@@ -212,9 +230,67 @@ function createGroundDetailTexture(kit, repeatX, repeatZ) {
   }
   ctx.putImageData(image, 0, 0);
   const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
   texture.repeat.set(repeatX, repeatZ);
+  texture.name = 'ToonLabTerrainGroundDetail';
+  return texture;
+}
+
+// Seamless painterly limestone used automatically on steep generated-terrain
+// faces. Integer-frequency waves make the tile periodic; the vertical V axis
+// carries unmistakable horizontal sediment bands, with thin dark crevices and
+// warmer iron-stained shelves. This is material identity, not high-frequency
+// vertex paint, so it remains stable on coarse distant terrain meshes.
+function createCliffDetailTexture(kit) {
+  if (typeof document === 'undefined') return null;
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const image = ctx.createImageData(size, size);
+  const tau = Math.PI * 2;
+  const phase = kit.hashCell(73, 191) * tau;
+
+  for (let py = 0; py < size; py += 1) {
+    const v = py / size;
+    for (let px = 0; px < size; px += 1) {
+      const u = px / size;
+      const warp = Math.sin(tau * u * 2 + phase) * 0.035
+        + Math.sin(tau * u * 4 - phase * 0.7) * 0.012;
+      // Broad shelf-scale bands survive mipmapping without turning into a
+      // close-range herringbone pattern on blended triplanar axes.
+      const strata = (v + warp) * 5;
+      const seamT = strata - Math.floor(strata);
+      const crevice = Math.exp(-(((seamT - 0.075) / 0.055) ** 2));
+      const secondarySeam = Math.exp(-(((seamT - 0.58) / 0.11) ** 2)) * 0.24;
+      const shelf = smoothstep(0.12, 0.3, seamT) * (1 - smoothstep(0.4, 0.62, seamT));
+      const mottle = Math.sin(tau * (u * 3 + v * 2) + phase) * 0.5
+        + Math.sin(tau * (u * 6 - v * 3) - phase * 0.4) * 0.24;
+      const stain = 0.5 + 0.5 * Math.sin(tau * (u + v * 2) + phase * 0.6);
+      const shade = 0.92 + mottle * 0.08 + shelf * 0.08
+        - crevice * 0.32 - secondarySeam * 0.16;
+      const i = (py * size + px) * 4;
+      image.data[i] = Math.round(THREE.MathUtils.clamp(190 * shade + stain * 14, 28, 255));
+      image.data[i + 1] = Math.round(THREE.MathUtils.clamp(166 * shade + stain * 7, 24, 245));
+      image.data[i + 2] = Math.round(THREE.MathUtils.clamp(126 * shade - stain * 3, 20, 225));
+      image.data[i + 3] = 255;
+    }
+  }
+
+  ctx.putImageData(image, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 16;
+  texture.generateMipmaps = true;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.name = 'ToonLabTerrainLimestoneStrata';
   return texture;
 }
 
@@ -228,7 +304,7 @@ function createGroundDetailTexture(kit, repeatX, repeatZ) {
 export function createStylizedTerrain({
   seed = 1,
   size = 1000,
-  archetype = 'terracedKarst',
+  archetype = 'lushKarst',
   // Continuous morphology overrides turn archetypes into starting points,
   // not a closed catalog. Any nested continent/mountains/rolling/rim/
   // terraces value may be replaced by a generated biome recipe.
@@ -239,8 +315,9 @@ export function createStylizedTerrain({
   floatingIslands = false,
   sinkholes = false,              // true | { count, minRadius, maxRadius, depth }
   palette = {},
-  segments = 384,
+  segments = 512,
   detailTexture = true,
+  landmark = 'auto',
   maxAttempts = 4,
 } = {}) {
   const base = TERRAIN_ARCHETYPES.get(archetype);
@@ -281,7 +358,7 @@ export function createStylizedTerrain({
   while (attempt < maxAttempts) {
     kit = createNoiseKit(resolvedSeed);
     const { fbm } = kit;
-    const { continent, mountains, rolling, rim, terraces } = spec;
+    const { continent, mountains, outcrops, rolling, rim, terraces } = spec;
 
     // Sinkholes (karst dolines): seeded pits with sheer carved walls — the
     // heightfield's version of underground structure. One that cuts below
@@ -312,13 +389,28 @@ export function createStylizedTerrain({
       const ridged = (1 - Math.abs(2 * fbm(x * mountains.ridgeFreq + 31, z * mountains.ridgeFreq + 17, 4) - 1))
         ** mountains.ridgeExp;
       let y = cont + roll + mask * ridged * mountains.amp;
+      if (outcrops) {
+        const outcropMask = smoothstep(outcrops.mask[0], outcrops.mask[1],
+          fbm(x * outcrops.freq + 67, z * outcrops.freq + 29, 3));
+        const outcropRidge = (1 - Math.abs(
+          2 * fbm(x * outcrops.ridgeFreq + 19, z * outcrops.ridgeFreq + 73, 3) - 1
+        )) ** outcrops.ridgeExp;
+        y += outcropMask * outcropRidge * outcrops.amp;
+      }
       if (y < 0) y *= depthScale; // D: basins scale independently of peaks
       if (terraces && y > 2) {
-        const blend = 1 - smoothstep(
+        let blend = 1 - smoothstep(
           mountains.amp * terraces.blendOff[0],
           mountains.amp * terraces.blendOff[1],
           y,
         );
+        if (Number.isFinite(terraces.lowlandBlend) || Number.isFinite(terraces.mountainBlend)) {
+          blend *= THREE.MathUtils.lerp(
+            Number(terraces.lowlandBlend) || 0,
+            Number.isFinite(terraces.mountainBlend) ? terraces.mountainBlend : 1,
+            mask,
+          );
+        }
         y = y * (1 - blend) + terrace(y, terraces.step, terraces.sharpness) * blend;
       }
       const rimBlend = smoothstep(1.3, 1.9, edgeDistance(x, z));
@@ -376,14 +468,22 @@ export function createStylizedTerrain({
     sand: new THREE.Color(palette.sand ?? DEFAULT_PALETTE.sand),
     snow: new THREE.Color(palette.snow ?? DEFAULT_PALETTE.snow),
   };
-  const rockBand = [waterLevel + landPeak * 0.5, waterLevel + landPeak * 0.66];
+  const rockHeightBand = spec.paint?.rockHeightBand ?? [0.5, 0.66];
+  const rockSlopeBand = spec.paint?.rockSlopeBand ?? [0.5, 0.9];
+  const rockBand = [
+    waterLevel + landPeak * rockHeightBand[0],
+    waterLevel + landPeak * rockHeightBand[1],
+  ];
   const snowBand = [waterLevel + landPeak * 0.95, waterLevel + landPeak * 1.15];
   const goldTop = waterLevel + landPeak * 0.42;
   const { fbm } = kit;
   const goldenField = (x, z) => smoothstep(0.54, 0.68, fbm(x * 0.003 + 91, z * 0.003 + 43, 3));
 
   const paintVertex = (color, x, y, z, grade) => {
-    const rockiness = Math.max(smoothstep(0.5, 0.9, grade), smoothstep(rockBand[0], rockBand[1], y));
+    const rockiness = Math.max(
+      smoothstep(rockSlopeBand[0], rockSlopeBand[1], grade),
+      smoothstep(rockBand[0], rockBand[1], y),
+    );
     color.copy(colors.meadow)
       // Golden fields on flat lowlands only: loose gates leak gold up cliff
       // triangles as sawtooth wedges.
@@ -431,12 +531,35 @@ export function createStylizedTerrain({
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colorAttr, 3));
 
+  // Generation-time terrain AO: a broad four-direction horizon sample adds
+  // soft cavity grounding at zero frame cost. This ships on the geometry,
+  // so createStylizedWorld does not need a slow boot-time ray bake for the
+  // quarter-million-vertex terrain. The high floor is a hard readability
+  // contract—valleys gain contact, never black holes.
+  const vertexAo = new Float32Array(positions.count);
+  for (let i = 0; i < positions.count; i += 1) {
+    const x = positions.getX(i);
+    const y = positions.getY(i);
+    const z = positions.getZ(i);
+    const reach = 10;
+    const surrounding = (
+      heightAt(x + reach, z) + heightAt(x - reach, z)
+      + heightAt(x, z + reach) + heightAt(x, z - reach)
+    ) * 0.25;
+    const enclosure = THREE.MathUtils.clamp((surrounding - y) / 22, 0, 1);
+    vertexAo[i] = 1 - enclosure * 0.22;
+  }
+  geometry.setAttribute('envVertexAo', new THREE.BufferAttribute(vertexAo, 1));
+
+  const groundDetailMap = detailTexture
+    ? createGroundDetailTexture(kit, Math.round(meshExtent.x / 11), Math.round(meshExtent.z / 11))
+    : null;
+  const cliffDetailMap = detailTexture ? createCliffDetailTexture(kit) : null;
   const material = new THREE.MeshStandardMaterial({
-    map: detailTexture
-      ? createGroundDetailTexture(kit, Math.round(meshExtent.x / 11), Math.round(meshExtent.z / 11))
-      : null,
+    map: groundDetailMap,
     vertexColors: true,
   });
+  if (cliffDetailMap) material.userData.envTriplanarMap = cliffDetailMap;
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true; // cliff walls shadow their own valleys
   mesh.receiveShadow = true;
@@ -446,6 +569,25 @@ export function createStylizedTerrain({
   const root = new THREE.Group();
   root.name = 'StylizedTerrain';
   root.add(mesh);
+
+  const landmarks = [];
+  if (landmark !== false && (landmark === 'castle' || (landmark === 'auto' && archetype === 'lushKarst'))) {
+    let direction = new THREE.Vector2(-spawn.x / Math.max(halfX, 1), -spawn.z / Math.max(halfZ, 1));
+    if (direction.lengthSq() < 0.04) {
+      const angle = kit.hashCell(701, 919) * Math.PI * 2;
+      direction.set(Math.cos(angle), Math.sin(angle));
+    }
+    direction.normalize();
+    const x = direction.x * halfX * 0.76;
+    const z = direction.y * halfZ * 0.76;
+    const castle = createHorizonCastle({
+      facing: Math.atan2(-x, -z),
+      position: { x, y: heightAt(x, z), z },
+      scale: THREE.MathUtils.clamp(Math.min(sizeX, sizeZ) / 850, 0.65, 1.6),
+    });
+    root.add(castle);
+    landmarks.push(castle);
+  }
 
   // ---- floating islands (optional): meadow-topped sky rocks with tapered
   //      undersides. Decorative by default — returned so hosts can scatter
@@ -481,6 +623,7 @@ export function createStylizedTerrain({
     archetype,
     heightAt,
     islands,
+    landmarks,
     mesh,
     meshExtent,
     resolvedSeed,
@@ -492,9 +635,11 @@ export function createStylizedTerrain({
     waterLevel,
     dispose() {
       geometry.dispose();
-      material.map?.dispose();
+      groundDetailMap?.dispose();
+      cliffDetailMap?.dispose();
       material.dispose();
       for (const built of islandDisposables) built.dispose();
+      for (const built of landmarks) built.dispose?.();
       root.parent?.remove(root);
     },
   };

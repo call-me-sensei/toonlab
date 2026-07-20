@@ -19,6 +19,7 @@ import {
   upsertLocalToonPresetDocument,
 } from '../toonPresetStore.js';
 import { DEFAULT_MODEL_URL } from '../assetCatalog.js';
+import { resolveCharacterShaderBoot } from './characterShaderBoot.js';
 
 const DOCUMENT_STORAGE_KEY = 'toonlab.characterShader.document.v1';
 const UNDO_LIMIT = 50;
@@ -54,28 +55,11 @@ function clearDocument() {
 }
 
 function bootDocument(urlParams) {
-  const modelParam = urlParams.getAll('model').find((url) => url && url.toLowerCase() !== 'none');
-  const saved = loadDocument();
-  if (saved?.settings) {
-    return {
-      bootSource: 'persisted',
-      modelMtl: modelParam ? null : saved.modelMtl ?? null,
-      modelUrl: modelParam || saved.modelUrl || DEFAULT_MODEL_URL,
-      name: saved.name || 'Untitled look',
-      presetId: saved.presetId ?? null,
-      settings: createToonSettings(saved.settings),
-    };
-  }
-  const preset = urlParams.get('toonPreset') || urlParams.get('preset') || undefined;
-  const settings = createToonSettings(preset ? { preset } : {});
-  return {
-    bootSource: 'fresh',
-    modelMtl: null,
-    modelUrl: modelParam || DEFAULT_MODEL_URL,
-    name: settings.presetLabel || 'Untitled look',
-    presetId: settings.preset ?? null,
-    settings,
-  };
+  return resolveCharacterShaderBoot({
+    defaultModelUrl: DEFAULT_MODEL_URL,
+    savedDocument: loadDocument(),
+    urlParams,
+  });
 }
 
 export function createCharacterShaderStore({ urlParams = new URLSearchParams(window.location.search) } = {}) {

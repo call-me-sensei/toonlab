@@ -67,7 +67,7 @@ function PresetRow({ actions, state }) {
   ];
   const isLocal = localIds.has(state.presetId);
   return (
-    <PresetRowShell title="One complete IP-wide profile. Switching replaces every semantic role setting.">
+    <PresetRowShell label="Style" title="One complete IP-wide profile. Switching replaces every semantic role setting.">
       <Select
         onChange={(id) => { if (id) actions.applyPreset(id); }}
         options={options}

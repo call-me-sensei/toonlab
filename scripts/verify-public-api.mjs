@@ -309,6 +309,105 @@ check('style bundles accept and resolve typed inline grass documents', () => {
   assert.deepEqual(resolved.grass.shadowTint, [0.12, 0.18, 0.34]);
 });
 
+check('style bundles keep IP-wide styles separate from asset presets', () => {
+  for (const slotId of [
+    'toon', 'grass', 'flowers', 'vegetationShader', 'rock', 'debris',
+    'water', 'sky', 'weather', 'environment', 'lighting', 'vfx', 'post',
+  ]) {
+    assert.equal(styles.STYLE_BUNDLE_SLOTS[slotId].selectionKind, 'style');
+  }
+  assert.equal(styles.STYLE_BUNDLE_SLOTS.tree.selectionKind, 'document');
+
+  const bundle = styles.createStyleBundleDocument('identity-bundle', {
+    slots: {
+      debris: { style: 'call_me_sensei' },
+      environment: { style: 'call_me_sensei' },
+      rock: { style: 'call_me_sensei' },
+      sky: { style: 'call_me_sensei' },
+      vfx: { style: 'call_me_sensei' },
+      water: { style: 'call_me_sensei' },
+      weather: { style: 'call_me_sensei' },
+    },
+  });
+  assert.deepEqual(bundle.slots.water, { style: 'call_me_sensei' });
+  const resolved = styles.resolveStyleBundleSettings(bundle);
+  assert.deepEqual(resolved.rock, { style: 'call_me_sensei' });
+  assert.deepEqual(resolved.debris, { style: 'call_me_sensei' });
+  assert.deepEqual(resolved.vfx, { style: 'call_me_sensei' });
+  assert.deepEqual(resolved.water, { style: 'call_me_sensei' });
+  assert.deepEqual(resolved.sky, { style: 'call_me_sensei' });
+  assert.deepEqual(resolved.weather, { style: 'call_me_sensei' });
+  assert.deepEqual(resolved.environment, { style: 'call_me_sensei' });
+
+  // A bundle style must compose over every runtime axis; returning one fully
+  // resolved default look here would silently pin Lake / Clear Day / Clear.
+  for (const preset of water.WATER_PRESET_NAMES) {
+    assert.deepEqual(
+      water.createWaterSettings({ preset, ...resolved.water }),
+      water.createWaterSettings({ preset, style: 'call_me_sensei' }),
+      `Water bundle style must cover ${preset}`,
+    );
+  }
+  for (const { id } of root.getWeatherPresetOptions()) {
+    assert.deepEqual(
+      root.resolveWeatherSettings(id, {}, resolved.weather),
+      root.resolveWeatherSettings(id, {}, { style: 'call_me_sensei' }),
+      `Weather bundle style must cover ${id}`,
+    );
+  }
+  for (const { id } of sky.getSkyScenarioOptions()) {
+    assert.deepEqual(
+      sky.createSkySettings({ ...resolved.sky, scenario: id }),
+      sky.createSkySettings({ preset: 'call_me_sensei', scenario: id }),
+      `Sky bundle style must cover ${id}`,
+    );
+  }
+  for (const { id } of root.ENVIRONMENT_SCENARIOS) {
+    assert.deepEqual(
+      root.resolveEnvironmentPreset(resolved.environment.style, id),
+      root.resolveEnvironmentPreset('call_me_sensei', id),
+      `Environment bundle style must cover ${id}`,
+    );
+  }
+
+  // Old bundles remain compatible: a Water preset still means the asset /
+  // scenario axis and does not get reinterpreted as a new style payload.
+  const legacy = styles.createStyleBundleDocument('legacy-water-bundle', {
+    slots: { water: { preset: 'river' } },
+  });
+  assert.deepEqual(
+    styles.resolveStyleBundleSettings(legacy).water,
+    water.createWaterSettings({ preset: 'river' }),
+  );
+  const legacyScenarios = styles.createStyleBundleDocument('legacy-scenario-bundle', {
+    slots: {
+      environment: { preset: 'interiorNight' },
+      sky: { preset: 'moonlit' },
+      weather: { preset: 'rain' },
+    },
+  });
+  const legacyResolved = styles.resolveStyleBundleSettings(legacyScenarios);
+  assert.deepEqual(
+    legacyResolved.sky,
+    { ...sky.createSkySettings({ preset: 'moonlit' }), style: 'default' },
+  );
+  assert.deepEqual(
+    legacyResolved.weather,
+    { ...root.resolveWeatherSettings('rain'), style: 'default' },
+  );
+  const legacyEnvironment = root.resolveEnvironmentPreset('interiorNight');
+  assert.deepEqual(
+    legacyResolved.environment,
+    {
+      ...root.createEnvironmentSettings({
+        features: legacyEnvironment.features,
+        parameters: legacyEnvironment.parameters,
+      }),
+      style: 'default',
+    },
+  );
+});
+
 check('water exports the complete portable runtime surface', () => {
   for (const name of [
     'WaterSurface',
@@ -359,17 +458,37 @@ check('style bundles resolve typed inline vegetation, Water, and Weather documen
   assert.equal(resolved.weather.atmosphere.cloudCoverage, 0.77);
 });
 
-check('sky ships distinct built-in looks behind stable preset ids', () => {
-  const ids = new Set(sky.getSkyPresetOptions().map((option) => option.id));
-  for (const id of ['default', 'call_me_sensei', 'clear_day', 'golden_hour', 'overcast', 'moonlit']) {
-    assert.ok(ids.has(id), `missing sky preset ${id}`);
+check('sky presets are styles that resolve in every canonical scenario', () => {
+  const options = sky.getSkyPresetOptions();
+  const ids = new Set(options.map((option) => option.id));
+  for (const id of ['default', 'call_me_sensei']) {
+    assert.ok(ids.has(id), `missing sky style ${id}`);
   }
-  const distinctLooks = new Set([...ids].map((id) => JSON.stringify(
-    sky.sanitizeSkyPresetSettings(sky.createSkySettings({ preset: id })),
-  )));
-  assert.ok(distinctLooks.size >= 5, 'built-in sky options must represent distinct looks');
+  const scenarioIds = sky.getSkyScenarioOptions().map((option) => option.id);
+  assert.deepEqual(scenarioIds, ['clear_day', 'golden_hour', 'overcast', 'moonlit']);
+  // The core preset contract: a style is an identity, not a moment — every
+  // style must produce a distinct look for every canonical scenario.
+  for (const option of options) {
+    assert.deepEqual(Object.keys(option.scenarios), scenarioIds);
+    const looks = new Set(scenarioIds.map((scenario) => JSON.stringify(
+      sky.sanitizeSkyPresetSettings(sky.createSkySettings({ preset: option.id, scenario })),
+    )));
+    assert.equal(looks.size, scenarioIds.length,
+      `sky style ${option.id} must render distinctly in every scenario`);
+  }
+  // Legacy flat ids stay stable: each resolves as Default at that scenario.
+  for (const [legacyId, alias] of Object.entries(sky.SKY_PRESET_ALIASES)) {
+    assert.deepEqual(
+      sky.createSkySettings({ preset: legacyId }),
+      sky.createSkySettings({ preset: alias.preset, scenario: alias.scenario }),
+      `legacy sky preset ${legacyId} must alias ${alias.preset}/${alias.scenario}`,
+    );
+  }
   assert.ok(sky.createSkySettings('moonlit').starsStrength > 0);
   assert.ok(sky.createSkySettings('golden_hour').sunDirection[1] < 0.3);
+  const senseiNight = sky.createSkySettings({ preset: 'call_me_sensei', scenario: 'moonlit' });
+  assert.ok(senseiNight.starsStrength > 1 && senseiNight.zenithColor[2] < 0.3,
+    'the signature style must ship a real night, not a tinted day');
 });
 
 check('sky preset documents round-trip without construction-owned radius', () => {
@@ -432,6 +551,25 @@ check('style bundles accept and resolve typed inline sky documents', () => {
   assert.deepEqual(resolved.sky.zenithColor, [0.04, 0.08, 0.2]);
   assert.equal(resolved.sky.starsStrength, 0.72);
   assert.equal(resolved.sky.radius, sky.DEFAULT_SKY_SETTINGS.radius);
+});
+
+// Lab deep-link precedence is part of the Pro/Open-in-Lab contract. Keep a
+// saved Default draft in the input and prove an explicit signature-style
+// link wins instead of silently reopening that draft.
+const { resolveCharacterShaderBoot } = await import(
+  '../labs/shader-lab/ui/characterShaderBoot.js'
+);
+check('Character Shader explicit style links beat the autosaved draft', () => {
+  const boot = resolveCharacterShaderBoot({
+    savedDocument: {
+      name: 'Saved Default draft',
+      presetId: 'default',
+      settings: root.createToonSettings({ preset: 'default' }),
+    },
+    urlParams: new URLSearchParams('toonPreset=call_me_sensei'),
+  });
+  assert.equal(boot.bootSource, 'url');
+  assert.equal(boot.presetId, 'call_me_sensei');
 });
 
 console.log(`public API verifier passed (${checks} contract groups)`);

@@ -19,6 +19,7 @@ import {
   useStoreState,
 } from '../../shared/ui/index.js';
 import { ScrubValue } from '../../shared/ui/components/Slider.jsx';
+import '../../shared/siteHeader.js';
 import { SchemaGroup } from '../../shared/ui/schema/SchemaGroup.jsx';
 import { SCENE_HUB_OPTIONS, navigateSceneHub } from '../../shared/sceneHub.js';
 import { persistLabScene } from '../../shared/labParams.js';
@@ -345,6 +346,7 @@ export function App({ engine, store }) {
   if (state.view.gallery) {
     return (
       <div className="tk">
+        <toonlab-site-header active="labs" />
         <GalleryScreen actions={actions} state={state} />
         <ToastStack />
       </div>

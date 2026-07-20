@@ -518,11 +518,18 @@ export function deriveCanopyPalette(color, overrides = {}) {
   // green leaves". Warm hues crest in place (paler gold, like a ginkgo)
   // and shade toward orange-brown; the crest also never rotates past gold.
   const GOLD_HUE = 0.118;
-  const { h } = lit.getHSL({});
+  const { h, l, s } = lit.getHSL({});
   const warm = h < 0.18 || h > 0.85;
   const shadow = overrides.shadow
     ? setSrgb(new THREE.Color(), overrides.shadow)
-    : lit.clone().offsetHSL(warm ? -0.035 : 0.045, 0.04, -0.16);
+    : new THREE.Color().setHSL(
+      (h + (warm ? -0.025 : 0.035) + 1) % 1,
+      Math.min(s + 0.025, 1),
+      // A relative floor protects dark source colors without ever making the
+      // shadow brighter than its lit tone. The old fixed -0.16 shift became
+      // a near-black canopy after sprite luminance and scene tint multiplied.
+      Math.min(Math.max(l - 0.1, l * 0.74, 0.16), l * 0.96),
+    );
   const crownShift = warm ? 0 : Math.max(h - 0.07, GOLD_HUE) - h;
   const crown = overrides.crown
     ? setSrgb(new THREE.Color(), overrides.crown)

@@ -17,6 +17,7 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import settingsReferenceRaw from './settings-reference.md?raw';
+import '../labs/shared/siteHeader.js';
 import './docs.css';
 
 const GITHUB = 'https://github.com/call-me-sensei/toonlab';
@@ -181,7 +182,7 @@ const world = await createStylizedWorld({
   renderer, scene, camera,
   terrain: { heightAt: terrain.heightAt, root: terrainRoot, size: terrain.meshExtent },
   water: { level: terrain.waterLevel },
-  weather: { preset: 'call_me_sensei' },
+  weather: { preset: 'partlyCloudy', style: 'call_me_sensei' },
   followTarget: character, // optional: splashes, wakes, grass push
 });
 character.position.copy(terrain.spawn);
@@ -237,8 +238,9 @@ const BUNDLE_SNIPPET = `import { fetchStyleBundle } from '@call-me-sensei/toonla
 const { settings } = await fetchStyleBundle('sakura-dusk'); // slug or full URL
 
 applyToonShader(characterRoot, { settings: settings.toon });
-sky.applySettings(settings.sky);
-water.applySettings(settings.water);
+sky.setStyle(settings.sky.style, { scenario: 'golden_hour' });
+water.setStyle(settings.water.style); // keeps its current lake/river/ocean preset
+weather.setStyle(settings.weather.style); // keeps its current condition
 // Other slots: environment, weather, grass, flowers, vegetationShader,
 // tree, lighting, post — apply each through its system's runtime.`;
 
@@ -295,7 +297,7 @@ function Library() {
             <tr><td>/environment</td><td>Scene shader for texture packs and glTF: material-role classification, wrapped lighting, time-of-day, fog, cloud shadows.</td></tr>
             <tr><td>/water</td><td>Gerstner-wave water with a calm→storm dial, breakers, foam, caustics, ripples, and a CPU spectrum mirror for buoyancy.</td></tr>
             <tr><td>/sky</td><td>Gradient/sun/painterly-cloud/star system — 46 portable art fields per preset.</td></tr>
-            <tr><td>/weather</td><td>Cross-system coordinator: 22 presets, GPU precipitation, lightning; drives sky, water, wind, vegetation, and fog.</td></tr>
+            <tr><td>/weather</td><td>Cross-system coordinator: 21 conditions rendered through an independent IP-wide style, plus GPU precipitation and lightning; drives sky, water, wind, vegetation, and fog.</td></tr>
             <tr><td>/vegetation</td><td>Instanced grass and flower fields, procedural trees, palettes, masks, and scatter helpers.</td></tr>
             <tr><td>/lighting</td><td>Versioned light recipes, budgets, runtime realization, and a data-only UE5 handoff.</td></tr>
             <tr><td>/post, /camera, /game-feel</td><td>Compositor pipeline, camera operator stack + director, and hit-stop/punch/flash game feel.</td></tr>
@@ -493,7 +495,7 @@ function Prompts() {
         prompt={`Using the ToonLab game-dev skill, set up a new Three.js + Vite project with
 @call-me-sensei/toonlab. Build a 1 km seeded open world (archetype "lakeland")
 with the bundled toon-shaded mannequin as the playable character, water, sky,
-the "call_me_sensei" weather preset, post-processing, and a follow camera with
+the "call_me_sensei" weather style, post-processing, and a follow camera with
 game feel. Follow the skill's assembly order and frame-loop contract, then run
 the dev server and fix issues until I can walk from spawn to the shoreline
 and swim.`}
@@ -699,20 +701,7 @@ function App() {
 
   return (
     <>
-      <header className="docs-header">
-        <a className="docs-brand" href="/">
-          <span className="docs-brand-mark">ト</span>
-          <span className="docs-brand-word">TOONLAB</span>
-          <span className="docs-brand-tag">Open Source</span>
-        </a>
-        <nav className="docs-topnav">
-          <a href="/">Labs</a>
-          <a href="/gallery/">Gallery</a>
-          <a href="/docs/" aria-current="page">Docs</a>
-          <a href="/settings/">Settings</a>
-          <a href={GITHUB} target="_blank" rel="noreferrer">GitHub</a>
-        </nav>
-      </header>
+      <toonlab-site-header active="docs" />
       <div className="docs-frame">
         <aside className="docs-side">
           <div className="docs-side-label">Documentation</div>

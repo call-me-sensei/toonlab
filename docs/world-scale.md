@@ -15,9 +15,11 @@ The pieces that must agree at a given scale:
 |---|---|---|
 | Camera | any | `near 0.3`, `far 600`, `fov 45` |
 | Trees (`size`, 1 ≈ 3 m) | 1.7–2.0 (≈ 5–6 m) | 2.5–4 (≈ 8–12 m) |
-| Grass blades | 0.16–0.42 m | 0.35–0.7 m, wider blades |
+| Grass blades | 0.16–0.42 m | 0.22–0.48 m, dense but below character knees/hips |
 | Rock meshing | `hero`-ish, shape-preset normals | `gameplayHigh` (gradient normals — flat facets read near-black at range) |
-| Height fog | interior-scale density (0.006+) | 0.002, falloff 9 |
+| Height fog | interior-scale density (0.006+) | 0.00055, blue, falloff 400 (0.00035 aerial) |
+| Shadow floor | often zero without a host light rig | ambient 0.38 + blue tint, cast-shadow strength 0.72 |
+| Cliff material | source UVs / flat paint | triplanar warm limestone strata + dark seams |
 
 ## World presets
 
@@ -41,14 +43,23 @@ const rock = resolveRockgenPreset(world.rocks.preset);
 rock.meshing = { ...rock.meshing, ...resolveRockgenQuality(world.rocks.quality) };
 
 await applyEnvironmentShader(root, {
-  ...resolveEnvironmentPreset(world.environment.preset),
+  ...resolveEnvironmentPreset(world.environment.style, world.environment.scenario),
   ...world.environment.overrides,
 });
 ```
 
-Every cluster reference in a world preset points at a named cluster preset
-(`call_me_sensei` by default), so re-tuning the studio look in one cluster
-flows through automatically.
+World recipes keep asset/system presets separate from the IP style. The
+`call_me_sensei` style composes over each selected preset, so re-tuning the
+studio rendition flows through without turning the style into an asset entry.
+
+`outdoorGameplay` is a production-safe visual contract, not just a scale
+bundle. It enables geological triplanar detail, a nonzero blue indirect-light
+floor, high-quality sky, dense clean-LOD forest palettes, bounded instanced
+understory, luminous contact grounding, and moving cloud shadows. Generated
+terrain defaults to `lushKarst`: rolling meadow with localized mossed
+outcrops, a dramatic rim, baked `envVertexAo`, and a deterministic horizon
+castle. Custom terrain can override the painterly limestone map per material
+with `userData.envTriplanarMap`.
 
 ## Rock quality tiers
 
@@ -62,7 +73,7 @@ viewing context (`ROCKGEN_QUALITY_PRESETS` / `ROCKGEN_QUALITY_LEVELS`):
 | `mobile` | 56 / 128, LODs off | `gradient` | Low-end targets |
 
 ```js
-const preset = resolveRockgenPreset('call_me_sensei');
+const preset = resolveRockgenPreset('boulder', { style: 'call_me_sensei' });
 preset.meshing = { ...preset.meshing, ...resolveRockgenQuality('gameplayHigh') };
 ```
 

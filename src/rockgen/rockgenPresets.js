@@ -1,8 +1,8 @@
-// Named rockgen presets: one string selects a coherent rock look (piece
-// settings partials, plus optional document-level surface/meshing
-// overrides). Registry mirrors environmentPresets.js. Phase B adds the
-// cliff/mountain presets; Phase C adds multi-piece `kind: 'document'`
-// presets (mountain ranges, scree clusters).
+// Rockgen has two independent axes:
+//   preset — asset identity / geometry (boulder, sea stack, cliff wall, ...)
+//   style  — IP-wide rendition applied across every preset
+// Presets may carry their own material defaults, while styles refine those
+// defaults without becoming an asset card themselves.
 
 /** Document type tag for shareable rockgen preset JSON documents. */
 export const ROCKGEN_PRESET_DOCUMENT_TYPE = 'toonlab/rockgen-preset';
@@ -11,6 +11,23 @@ export const ROCKGEN_PRESET_DOCUMENT_TYPE = 'toonlab/rockgen-preset';
 export const ROCKGEN_PRESET_SCHEMA_VERSION = 1;
 
 const ROCKGEN_PRESETS = new Map();
+const ROCKGEN_STYLES = new Map();
+
+function cleanObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+}
+
+function mergePartial(base, ...partials) {
+  let result = structuredClone(cleanObject(base));
+  for (const partial of partials) {
+    for (const [key, value] of Object.entries(cleanObject(partial))) {
+      result[key] = value && typeof value === 'object' && !Array.isArray(value)
+        ? mergePartial(result[key], value)
+        : structuredClone(value);
+    }
+  }
+  return result;
+}
 
 export function registerRockgenPreset(name, preset, { overwrite = false } = {}) {
   const key = String(name ?? '').trim();
@@ -32,7 +49,32 @@ export function registerRockgenPreset(name, preset, { overwrite = false } = {}) 
 
 export function normalizeRockgenPresetName(name) {
   const key = String(name ?? 'boulder').trim();
+  // Legacy links/calls used the IP style as though it were an asset preset.
+  if (ROCKGEN_STYLES.has(key)) return 'boulder';
   return ROCKGEN_PRESETS.has(key) ? key : 'boulder';
+}
+
+export function registerRockgenStyle(name, style = {}, { overwrite = false } = {}) {
+  const key = String(name ?? '').trim();
+  if (!key) throw new Error('Rockgen style name is required.');
+  if (!overwrite && ROCKGEN_STYLES.has(key)) {
+    throw new Error(`Rockgen style "${key}" is already registered.`);
+  }
+  const source = cleanObject(style);
+  ROCKGEN_STYLES.set(key, {
+    description: String(source.description ?? ''),
+    label: String(source.label ?? key),
+    meshing: cleanObject(source.meshing),
+    piece: cleanObject(source.piece),
+    presets: cleanObject(source.presets),
+    surface: cleanObject(source.surface),
+  });
+  return key;
+}
+
+export function normalizeRockgenStyleName(name) {
+  const key = String(name ?? 'default').trim();
+  return ROCKGEN_STYLES.has(key) ? key : 'default';
 }
 
 export function getRockgenPresetOptions(kind = null) {
@@ -41,13 +83,39 @@ export function getRockgenPresetOptions(kind = null) {
     .map(([value, preset]) => ({ label: preset.label, value }));
 }
 
+/** Lists IP-wide rock styles, never asset presets. */
+export function getRockgenStyleOptions() {
+  return Array.from(ROCKGEN_STYLES.entries()).map(([value, style]) => ({
+    description: style.description,
+    label: style.label,
+    value,
+  }));
+}
+
 /**
  * Returns a deep copy of the preset (`{ kind, label, piece, surface,
  * meshing }`) safe to mutate; unknown names fall back to 'boulder'.
  */
-export function resolveRockgenPreset(name) {
-  return structuredClone(ROCKGEN_PRESETS.get(normalizeRockgenPresetName(name)));
+export function resolveRockgenPreset(name, { style } = {}) {
+  const requested = String(name ?? 'boulder').trim();
+  const legacyStyle = ROCKGEN_STYLES.has(requested) ? requested : null;
+  const presetName = normalizeRockgenPresetName(requested);
+  const styleName = normalizeRockgenStyleName(style ?? legacyStyle);
+  const preset = structuredClone(ROCKGEN_PRESETS.get(presetName));
+  const styleEntry = ROCKGEN_STYLES.get(styleName);
+  const variant = cleanObject(styleEntry?.presets?.[presetName]);
+  return {
+    ...preset,
+    meshing: mergePartial(preset.meshing, styleEntry?.meshing, variant.meshing),
+    piece: mergePartial(preset.piece, styleEntry?.piece, variant.piece),
+    surface: mergePartial(preset.surface, styleEntry?.surface, variant.surface),
+  };
 }
+
+registerRockgenStyle('default', {
+  description: 'Preset-authored rock materials and geometry without an IP-wide rendition layer.',
+  label: 'Default',
+});
 
 // Preset doctrine (learned the hard way): rocks are flat or round with
 // some jagged sides. Jaggedness comes from planar cuts; facet grooves and
@@ -109,6 +177,8 @@ registerRockgenPreset('karst-spire', {
   surface: {
     baseColor: [0.6, 0.58, 0.52],
     cavityColor: [0.35, 0.32, 0.27],
+    mossColor: [0.28, 0.43, 0.19],
+    mossCoverage: 0.24,
     topColor: [0.78, 0.82, 0.8],
     topSlopeStart: 0.75,
   },
@@ -558,10 +628,42 @@ registerRockgenPreset('shard-monolith', {
   },
 });
 
-// Studio-managed signature rock, curated by Call Me Sensei and updated over
-// releases. Currently the boulder look under the managed label. Community
-// presets register alongside it via registerRockgenPreset().
-registerRockgenPreset('call_me_sensei', {
-  ...resolveRockgenPreset('boulder'),
+// Studio-managed signature STYLE, curated by Call Me Sensei and updated over
+// releases. It covers every rock preset with one geological surface language
+// instead of masquerading as a sixteenth rock asset. The boulder variant keeps
+// the historical shallow signature strata for legacy
+// `preset: 'call_me_sensei'` calls; other presets retain their own geometry.
+registerRockgenStyle('call_me_sensei', {
+  description: 'Studio-managed signature rock style: warm limestone bands, dark seams, lifted tops, and restrained moss across every rock preset.',
   label: 'Call Me Sensei',
+  presets: {
+    boulder: {
+      piece: {
+        strata: {
+          enabled: true,
+          frequency: 5.2,
+          sharpness: 0.82,
+          strength: 0.045,
+          tiltDegrees: 2,
+          warpAmount: 0.12,
+        },
+      },
+    },
+  },
+  surface: {
+    baseColor: [0.6, 0.51, 0.39],
+    cavityColor: [0.25, 0.21, 0.17],
+    colorNoise: 0.04,
+    lichenCoverage: 0.08,
+    mossColor: [0.29, 0.46, 0.19],
+    mossCoverage: 0.34,
+    stainColor: [0.62, 0.39, 0.2],
+    stainStrength: 0.16,
+    textureScale: 1.35,
+    textureStrength: 0.58,
+    textureStyle: 'limestone',
+    topColor: [0.78, 0.72, 0.6],
+    topHeightStart: 0.48,
+    topSlopeStart: 0.68,
+  },
 });

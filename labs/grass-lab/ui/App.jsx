@@ -65,7 +65,7 @@ function PresetRow({ actions, state }) {
   ];
   const isLocal = state.localPresets.some((entry) => entry.id === state.presetId);
   return (
-    <PresetRowShell title="The grass preset you are editing — switching replaces every value in this panel.">
+    <PresetRowShell label="Style" title="The grass rendition for the active IP style — switching replaces every value in this panel.">
       <Select
         onChange={(id) => { if (id) actions.applyPreset(id); }}
         options={options}

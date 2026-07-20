@@ -6,19 +6,25 @@ import './weatherLab.css';
 import { createLabRenderer, whenRendererReady } from '../shared/rendererFactory.js';
 import { createStylizedTerrain } from '../../src/stylizedTerrain.js';
 import { createStylizedWorld } from '../../src/stylizedWorld.js';
+import { createRainStudyStage } from './rainStudyStage.js';
 import {
   WEATHER_SETTING_FIELD_SCHEMA,
   WEATHER_SETTING_GROUPS,
   getWeatherPresetOptions,
+  getWeatherStyleOptions,
   mergeWeatherSettings,
   parseWeatherPresetDocument,
   registerWeatherPresetDocument,
   resolveWeatherPreset,
+  resolveWeatherStyleName,
   serializeWeatherPresetDocument,
 } from '../../src/weather/index.js';
 
+// Conditions only — the weather STYLE axis (default / call_me_sensei) is an
+// identity applied under every condition via WeatherSystem#setStyle, not a
+// condition entry.
 const CATEGORY_ORDER = [
-  ['Signature & fair', ['call_me_sensei', 'clear', 'partlyCloudy', 'cloudy', 'overcast', 'windy']],
+  ['Fair', ['clear', 'partlyCloudy', 'cloudy', 'overcast', 'windy']],
   ['Visibility', ['haze', 'mist', 'fog']],
   ['Rain & storms', ['drizzle', 'rain', 'heavyRain', 'thunderstorm', 'tropicalStorm']],
   ['Winter', ['snow', 'heavySnow', 'blizzard', 'sleet', 'freezingRain', 'hail']],
@@ -36,12 +42,63 @@ const elements = Object.fromEntries([
   'conditionCount', 'exportWeather', 'importWeather', 'lightningTrigger', 'particleStatus',
   'rendererStatus', 'saveWeather', 'surfaceStatus', 'transitionDuration', 'transitionValue',
   'weatherConditions', 'weatherFields', 'weatherFile', 'weatherGroups', 'weatherName', 'weatherStatus',
+  'weatherStyle',
 ].map((id) => [id, document.getElementById(id)]));
 
-let activePreset = 'call_me_sensei';
+const WEATHER_STORAGE_KEY = 'toonlab.weatherPresets.v1';
+
+function loadLocalWeatherDocuments() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(WEATHER_STORAGE_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+// Register local and Pro-hydrated documents before interpreting a deep link,
+// otherwise a valid `?weatherPreset=<creation id>` falls back to Clear.
+for (const document of loadLocalWeatherDocuments()) {
+  registerWeatherPresetDocument(document, { overwrite: true });
+}
+
+function bootSelection(urlParams = new URLSearchParams(window.location.search)) {
+  const requestedCondition = urlParams.get('weatherCondition') || urlParams.get('weatherPreset');
+  const styleIds = new Set(getWeatherStyleOptions().map((entry) => entry.id));
+  // Compatibility: the old picker put Call Me Sensei in the condition list.
+  // Treat that value as a style and use Clear as the condition.
+  const legacyStyle = styleIds.has(requestedCondition) ? requestedCondition : null;
+  const conditionId = legacyStyle
+    ? (urlParams.get('weatherScenario') || 'clear')
+    : (requestedCondition || 'clear');
+  const knownCondition = getWeatherPresetOptions().find((entry) => entry.id === conditionId);
+  return {
+    condition: knownCondition?.id ?? 'clear',
+    style: resolveWeatherStyleName(
+      urlParams.get('weatherStyle') ?? legacyStyle ?? 'call_me_sensei',
+    ),
+  };
+}
+
+const boot = bootSelection();
+let activePreset = boot.condition;
+let activeStyle = boot.style;
 let activeGroup = 'atmosphere';
-let draft = resolveWeatherPreset(activePreset).settings;
+let draft = resolveWeatherPreset(activePreset, { style: activeStyle }).settings;
 let world = null;
+let rainStudy = null;
+
+function updateSelectionUrl() {
+  const params = new URLSearchParams(window.location.search);
+  if (activePreset) params.set('weatherCondition', activePreset);
+  else params.delete('weatherCondition');
+  // Remove the historical ambiguous key once the user interacts.
+  params.delete('weatherPreset');
+  params.delete('weatherScenario');
+  params.set('weatherStyle', activeStyle);
+  const query = params.toString();
+  window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+}
 
 function colorToHex(rgb) {
   return `#${new THREE.Color().setRGB(...rgb).getHexString()}`;
@@ -76,9 +133,10 @@ function updateStatus() {
   const precipitation = state.settings.precipitation;
   const surface = state.settings.surface;
   const drawn = world.weather.precipitation.geometry.instanceCount;
+  const impacts = rainStudy?.activeImpacts ?? 0;
   elements.weatherStatus.textContent = `${state.preset ?? 'Custom'} · ${precipitation.type === 'none' ? 'no precipitation' : `${Math.round(precipitation.intensity * 100)}% ${precipitation.type}`}${state.transitioning ? ` · transitioning ${Math.round(state.transitionProgress * 100)}%` : ''}`;
   elements.surfaceStatus.textContent = `Wet ${Math.round(surface.wetness * 100)}% · Snow ${Math.round(surface.snowCover * 100)}% · Ice ${Math.round(surface.ice * 100)}%`;
-  elements.particleStatus.textContent = `${drawn.toLocaleString()} particles`;
+  elements.particleStatus.textContent = `${drawn.toLocaleString()} particles · ${impacts} impacts`;
 }
 
 function applyDraft({ transition = false } = {}) {
@@ -89,15 +147,17 @@ function applyDraft({ transition = false } = {}) {
     world.weather.applySettings(draft);
   }
   activePreset = null;
+  updateSelectionUrl();
   renderConditions();
   updateStatus();
 }
 
 function renderConditions() {
   const options = new Map(getWeatherPresetOptions().map((entry) => [entry.id, entry]));
-  elements.conditionCount.textContent = `${options.size} presets`;
+  elements.conditionCount.textContent = `${options.size} conditions`;
   elements.weatherConditions.innerHTML = '';
-  for (const [category, ids] of CATEGORY_ORDER) {
+
+  const renderCategory = (category, ids) => {
     const title = document.createElement('div');
     title.className = 'wl-category';
     title.textContent = category;
@@ -108,18 +168,47 @@ function renderConditions() {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = `wl-condition${activePreset === id ? ' active' : ''}`;
-      button.innerHTML = `<span class="wl-condition-icon">${ICONS[id] ?? '☁️'}</span><span class="wl-condition-copy"><strong>${option.label}</strong><small>${option.description}</small></span>${id === 'call_me_sensei' ? '<span class="wl-condition-tag">Studio</span>' : ''}`;
+      button.innerHTML = `<span class="wl-condition-icon">${ICONS[id] ?? '☁️'}</span><span class="wl-condition-copy"><strong>${option.label}</strong><small>${option.description}</small></span>`;
       button.addEventListener('click', () => {
         activePreset = id;
-        draft = resolveWeatherPreset(id).settings;
+        draft = resolveWeatherPreset(id, { style: activeStyle }).settings;
         elements.weatherName.value = option.label;
         world?.weather?.transitionTo(id, { duration: Number(elements.transitionDuration.value) || 0 });
+        updateSelectionUrl();
         renderConditions();
         renderFields();
       });
       elements.weatherConditions.appendChild(button);
+      options.delete(id);
     }
+  };
+
+  for (const [category, ids] of CATEGORY_ORDER) renderCategory(category, ids);
+  if (options.size) renderCategory('Custom', Array.from(options.keys()));
+}
+
+function syncConditionName() {
+  const selected = getWeatherPresetOptions().find((entry) => entry.id === activePreset);
+  if (selected) elements.weatherName.value = selected.label;
+}
+
+function saveLocalWeatherDocuments(documents) {
+  try {
+    localStorage.setItem(WEATHER_STORAGE_KEY, JSON.stringify(documents));
+  } catch {
+    elements.weatherStatus.textContent = 'This browser could not save the weather condition locally.';
   }
+}
+
+function renderStyles() {
+  elements.weatherStyle.innerHTML = '';
+  for (const style of getWeatherStyleOptions()) {
+    const option = document.createElement('option');
+    option.value = style.id;
+    option.textContent = style.label;
+    elements.weatherStyle.appendChild(option);
+  }
+  elements.weatherStyle.value = activeStyle;
 }
 
 function commitField(groupId, key, value) {
@@ -272,17 +361,23 @@ async function buildStage() {
   const terrainRoot = new THREE.Group();
   terrainRoot.add(terrain.root);
   scene.add(terrainRoot);
+  const stageCenter = new THREE.Vector3().copy(terrain.spawn);
+  stageCenter.y += 0.72;
+  rainStudy = createRainStudyStage({ mount, scene, center: stageCenter, seed: 73 });
   const focus = new THREE.Object3D();
-  focus.position.copy(terrain.spawn);
+  focus.position.copy(rainStudy.focus);
   scene.add(focus);
-  controls.target.copy(terrain.spawn).add(new THREE.Vector3(0, 4, 0));
+  camera.position.copy(rainStudy.focus).add(new THREE.Vector3(34, 27, 38));
+  controls.target.copy(rainStudy.focus).add(new THREE.Vector3(0, 2.2, 0));
+  controls.minDistance = 16;
+  controls.maxDistance = 110;
 
   world = await createStylizedWorld({
     ambientfx: { effects: { fireflies: true, mist: true, pollen: true } },
     camera,
-    flowers: { scatter: { density: 0.24, radius: 32, seed: 9 } },
+    flowers: { mask: rainStudy.vegetationMask, scatter: { density: 0.24, radius: 32, seed: 9 } },
     followTarget: focus,
-    grass: { scatter: { density: 3.5, radius: 42, seed: 5 } },
+    grass: { mask: rainStudy.vegetationMask, scatter: { density: 3.5, radius: 42, seed: 5 } },
     renderer,
     scene,
     // Weather Lab prioritizes rapid condition transitions. Cloud shadows are
@@ -290,14 +385,14 @@ async function buildStage() {
     // preset edits never revalidate a whole scene of shadow render objects.
     shadows: false,
     terrain: { heightAt: terrain.heightAt, root: terrainRoot, size: terrain.meshExtent },
-    trees: { scatter: { keepChance: 0.72, radius: 72, seed: 12, spacing: 12 }, settings: { size: 2.2 } },
+    trees: { mask: rainStudy.vegetationMask, scatter: { keepChance: 0.72, radius: 72, seed: 12, spacing: 12 }, settings: { size: 2.2 } },
     water: {
       level: terrain.waterLevel,
       passes: false,
       simulation: false,
       splashes: false,
     },
-    weather: { preset: activePreset, seed: 73 },
+    weather: { preset: activePreset, seed: 73, style: activeStyle },
   });
 
   world.weather.addEventListener('lightning', () => {
@@ -313,6 +408,8 @@ async function buildStage() {
     previousFrameTime = frameTime;
     controls.update();
     world.update(delta);
+    const weatherState = world.weather.state;
+    rainStudy.update(delta, weatherState.settings, world.weather.lightningLight?.intensity ?? 0);
     renderer.render(scene, camera);
     updateStatus();
     document.body.dataset.modelReady = 'true';
@@ -330,6 +427,15 @@ async function buildStage() {
 
 elements.transitionDuration.addEventListener('input', () => {
   elements.transitionValue.textContent = `${Number(elements.transitionDuration.value).toFixed(1)}s`;
+});
+elements.weatherStyle.addEventListener('change', () => {
+  activeStyle = elements.weatherStyle.value;
+  if (activePreset) draft = resolveWeatherPreset(activePreset, { style: activeStyle }).settings;
+  world?.weather?.setStyle(activeStyle);
+  updateSelectionUrl();
+  renderConditions();
+  renderFields();
+  elements.weatherStatus.textContent = `Applied ${getWeatherStyleOptions().find((entry) => entry.id === activeStyle)?.label ?? activeStyle} across every weather condition`;
 });
 elements.lightningTrigger.addEventListener('click', () => world?.weather?.triggerLightning());
 elements.exportWeather.addEventListener('click', () => {
@@ -350,6 +456,7 @@ elements.weatherFile.addEventListener('change', async () => {
   draft = result.value.settings;
   elements.weatherName.value = result.value.label;
   world?.weather?.transitionTo(draft, { duration: Number(elements.transitionDuration.value) || 0 });
+  updateSelectionUrl();
   renderConditions();
   renderFields();
   elements.weatherStatus.textContent = `Imported ${result.value.label}`;
@@ -357,19 +464,20 @@ elements.weatherFile.addEventListener('change', async () => {
 elements.saveWeather.addEventListener('click', () => {
   const id = slug(elements.weatherName.value);
   const document = JSON.parse(serializeWeatherPresetDocument(id, { label: elements.weatherName.value, settings: draft }));
-  const saved = JSON.parse(localStorage.getItem('toonlab.weatherPresets.v1') || '[]').filter((entry) => entry.id !== id);
+  const saved = loadLocalWeatherDocuments().filter((entry) => entry.id !== id);
   saved.push(document);
-  localStorage.setItem('toonlab.weatherPresets.v1', JSON.stringify(saved));
+  saveLocalWeatherDocuments(saved);
   registerWeatherPresetDocument(document, { overwrite: true });
   activePreset = id;
+  updateSelectionUrl();
   renderConditions();
   elements.weatherStatus.textContent = `Saved ${document.label} locally`;
 });
 
-for (const document of JSON.parse(localStorage.getItem('toonlab.weatherPresets.v1') || '[]')) {
-  registerWeatherPresetDocument(document, { overwrite: true });
-}
+syncConditionName();
+updateSelectionUrl();
 renderConditions();
+renderStyles();
 renderGroups();
 renderFields();
 buildStage().catch((error) => {

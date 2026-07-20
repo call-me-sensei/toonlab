@@ -16,6 +16,7 @@ if (!window.__textureLabBooted) {
   const hudHidden = urlParams.get('hud') === '0';
   const store = createTextureStore({ urlParams });
   const engine = createTextureEngine({ mount: document.getElementById('stage'), store });
+  window.__textureLab = { engine, store };
 
   // Cross-lab import (e.g. Asset Browser → "Toonify in Texture Lab"): the
   // handoff carries the same {dataUrl, name} shape as a manual upload and

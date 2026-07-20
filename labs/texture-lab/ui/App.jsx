@@ -29,6 +29,7 @@ import {
   TEXTURE_SETTING_GROUPS,
 } from '../../../src/texgen/index.js';
 import { TEXTURE_PREVIEW_MESHES, TEXTURE_VIEW_MAPS } from '../engine/textureEngine.js';
+import { getTexturePreviewStyleOptions } from '../previewStyles.js';
 import { AiPanel } from './AiPanel.jsx';
 import { ExportDialog } from './ExportDialog.jsx';
 import { GalleryScreen } from './GalleryScreen.jsx';
@@ -287,6 +288,19 @@ function OptionsBar({ actions, state }) {
         ]}
         value={view.mode}
       />
+      <span
+        className="tx-preview-style"
+        title="3D preview only — changes the renderer, never the generated maps, recipe, saved preset, or export."
+      >
+        <span>Style</span>
+        <Select
+          disabled={view.mode !== '3d'}
+          onChange={(style) => actions.setPreviewStyle(style)}
+          options={getTexturePreviewStyleOptions()}
+          testId="texture-preview-style"
+          value={view.previewStyle}
+        />
+      </span>
       {view.mode === '3d' ? (
         <Select
           onChange={(mesh) => actions.setView({ mesh })}

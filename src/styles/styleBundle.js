@@ -126,7 +126,10 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
   }),
   flowers: Object.freeze({
     documentType: null,
-    label: 'Flowers',
+    // Field-level meadow flowers (StylizedFlowerField), not the standalone
+    // treeRecipe/type=flower assets authored in Flower Lab. Those render
+    // through the vegetationShader slot like every other plant asset.
+    label: 'Flower fields',
     parseDocument: null,
     selectionKind: 'style',
     resolve: (payload) => {

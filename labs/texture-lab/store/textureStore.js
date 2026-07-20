@@ -2,7 +2,7 @@
 // persistence, and the store->engine rebuild contract (docRevision +
 // lastChange, same as rock/debris labs).
 
-import { createStore } from '../../shared/ui/index.js';
+import { createStore } from '../../shared/ui/createStore.js';
 import {
   createTextureRecipeDocument,
   createTextureSettings,
@@ -18,6 +18,11 @@ import {
   saveTextureDocument,
   upsertLocalTexturePreset,
 } from '../textureProjectStore.js';
+import {
+  NEUTRAL_TEXTURE_PREVIEW_STYLE,
+  normalizeTexturePreviewStyle,
+  texturePreviewStyleLabel,
+} from '../previewStyles.js';
 
 const UNDO_LIMIT = 50;
 const HISTORY_COALESCE_MS = 500;
@@ -61,6 +66,9 @@ function bootDocument(urlParams) {
 
 export function createTextureStore({ urlParams = new URLSearchParams(window.location.search) } = {}) {
   const boot = bootDocument(urlParams);
+  const previewStyle = normalizeTexturePreviewStyle(
+    urlParams.get('texturePreviewStyle') ?? urlParams.get('style'),
+  );
   const undoStack = [];
   const redoStack = [];
   let lastHistoryKey = null;
@@ -89,6 +97,7 @@ export function createTextureStore({ urlParams = new URLSearchParams(window.loca
       map: 'final',
       mesh: 'sphere',
       mode: '3d',
+      previewStyle,
       spin: true,
       tiling: 1,
     },
@@ -282,6 +291,20 @@ export function createTextureStore({ urlParams = new URLSearchParams(window.loca
       if (!next) return;
       store.setState({ name: next, presetDirty: true });
       persist();
+    },
+
+    setPreviewStyle(value) {
+      const previewStyle = normalizeTexturePreviewStyle(value);
+      if (previewStyle === state().view.previewStyle) return;
+      store.setState({
+        status: previewStyle === NEUTRAL_TEXTURE_PREVIEW_STYLE
+          ? 'Previewing the exact maps with neutral PBR lighting.'
+          : `Previewing the same maps through ${texturePreviewStyleLabel(previewStyle)}.`,
+        view: { ...state().view, previewStyle },
+      });
+      const url = new URL(window.location.href);
+      url.searchParams.set('texturePreviewStyle', previewStyle);
+      window.history.replaceState(null, '', url);
     },
 
     setSeed(seed) {

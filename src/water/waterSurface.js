@@ -26,6 +26,7 @@ import {
 } from './sceneOverrideLayers.js';
 import {
   createWaterSettings,
+  rebaseWaterSettingsStyle,
   sampleGerstnerHeight,
   sampleSwashEdgeOffset,
   sampleSwashFrameState,
@@ -506,10 +507,23 @@ export class WaterSurface extends THREE.Mesh {
   // Loads a preset from scratch (unlike applySettings, prior overrides drop).
   setPreset(name, overrides = {}) {
     const source = cleanObject(overrides);
-    this.settings = createWaterSettings({ preset: name, ...source });
+    this.settings = createWaterSettings({
+      preset: name,
+      style: source.style ?? this.settings.style,
+      ...source,
+    });
     this._authoredQualityRequest = source.quality && typeof source.quality === 'object'
       ? { ...source.quality }
       : this.settings.quality;
+    this._applyComposedSceneSettings();
+    this.splashSystem?.applySettings(this.settings);
+    this.syncSimulationParameters();
+    return this.settings;
+  }
+
+  /** Applies an IP-wide style across the current asset preset and overrides. */
+  setStyle(name) {
+    this.settings = rebaseWaterSettingsStyle(this.settings, name);
     this._applyComposedSceneSettings();
     this.splashSystem?.applySettings(this.settings);
     this.syncSimulationParameters();

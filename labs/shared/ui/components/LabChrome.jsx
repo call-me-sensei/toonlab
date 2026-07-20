@@ -126,11 +126,15 @@ export function PreviewToggle({ checked, disabled = false, label, onChange, test
   );
 }
 
-/** The labeled preset picker heading every product inspector. */
-export function PresetRowShell({ children, title = 'The preset you are editing — switching replaces every value in this panel.' }) {
+/** The labeled style/preset picker heading every product inspector. */
+export function PresetRowShell({
+  children,
+  label = 'Preset',
+  title = 'The preset you are editing — switching replaces every value in this panel.',
+}) {
   return (
     <div className="tk-preset-row">
-      <span className="tk-preset-label" title={title}>Preset</span>
+      <span className="tk-preset-label" title={title}>{label}</span>
       {children}
     </div>
   );

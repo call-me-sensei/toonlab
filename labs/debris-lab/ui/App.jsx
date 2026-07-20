@@ -17,6 +17,7 @@ import {
   useStoreState,
 } from '../../shared/ui/index.js';
 import { ScrubValue } from '../../shared/ui/components/Slider.jsx';
+import '../../shared/siteHeader.js';
 import { SchemaGroup } from '../../shared/ui/schema/SchemaGroup.jsx';
 import {
   BUILT_IN_DEBRIS_PRESETS,
@@ -25,6 +26,7 @@ import {
   DEBRIS_TYPES,
   debrisTextureAuto,
   findDebrisPreset,
+  getDebrisStyleOptions,
 } from '../../../src/debrisgen/index.js';
 import { DEBRIS_PALETTES, matchDebrisPalette } from '../../../src/debrisgen/debrisPalettes.js';
 import { debrisLookSchema, debrisScatterSchema, debrisShapeSchema } from './debrisSchema.js';
@@ -84,7 +86,10 @@ function TopBar({ actions, state }) {
   const [menuAnchor, setMenuAnchor] = useState(null);
   async function share() {
     const url = new URL(window.location.href);
-    url.search = `?debrisRecipe=${encodeURIComponent(JSON.stringify(actions.getRecipeDocument()))}`;
+    url.search = new URLSearchParams({
+      debrisRecipe: JSON.stringify(actions.getRecipeDocument()),
+      debrisStyle: state.styleId,
+    }).toString();
     window.history.replaceState(null, '', url);
     try {
       await navigator.clipboard.writeText(url.toString());
@@ -106,6 +111,15 @@ function TopBar({ actions, state }) {
       </button>
       <IconButton disabled={!state.canUndo} icon="undo" label="Undo (⌘Z)" onClick={() => actions.undo()} />
       <IconButton disabled={!state.canRedo} icon="redo" label="Redo (⇧⌘Z)" onClick={() => actions.redo()} />
+      <span className="db-style-select">
+        <span>Style</span>
+        <Select
+          onChange={(id) => actions.setStyle(id)}
+          options={getDebrisStyleOptions().map((entry) => ({ label: entry.label, value: entry.id }))}
+          testId="debris-style"
+          value={state.styleId}
+        />
+      </span>
       <span className="db-topbar-spacer" />
       <RendererToggle />
       <Button icon="dice" kind="secondary" onClick={() => actions.randomizeCurrent()} testId="randomize">Randomize</Button>
@@ -451,7 +465,13 @@ export function App({ engine, store }) {
   const state = useStoreState(store);
   const { actions } = store;
   if (state.view.gallery) {
-    return <div className="tk"><GalleryScreen actions={actions} state={state} /><ToastStack /></div>;
+    return (
+      <div className="tk">
+        <toonlab-site-header active="labs" />
+        <GalleryScreen actions={actions} state={state} />
+        <ToastStack />
+      </div>
+    );
   }
   return (
     <div className="tk">

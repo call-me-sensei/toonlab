@@ -9,6 +9,7 @@
 // __assetLabHandoffToTextureLab, __assetLabRetexture). HDRIs aren't supported
 // by that engine, so they show the source's tonemapped render instead.
 
+import '../shared/siteHeader.js';
 import { downloadPolyhavenAsset } from '../shared/polyhavenDownload.js';
 import {
   fetchSmithsonianAsset,

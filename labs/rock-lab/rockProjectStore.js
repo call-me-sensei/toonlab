@@ -42,7 +42,23 @@ export function loadRockProject(id = AUTOSAVE_ID) {
   const entry = readStore()[id];
   if (!entry?.json) return null;
   try {
-    return { document: deserializeRockDocument(entry.json), meta: entry.meta ?? {} };
+    const meta = entry.meta ?? {};
+    const parsed = typeof entry.json === 'string' ? JSON.parse(entry.json) : entry.json;
+    // v1 kept preset/style only beside the JSON. Fold that legacy metadata
+    // into the document before migration so local and Pro-hydrated projects
+    // retain their identity when opened or exported again.
+    const source = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? {
+        ...parsed,
+        ...(parsed.preset === undefined && meta.preset !== undefined
+          ? { preset: meta.preset }
+          : {}),
+        ...(parsed.style === undefined && meta.style !== undefined
+          ? { style: meta.style }
+          : {}),
+      }
+      : parsed;
+    return { document: deserializeRockDocument(source), meta };
   } catch {
     return null;
   }

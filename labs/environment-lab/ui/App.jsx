@@ -30,7 +30,10 @@ import {
   ENVIRONMENT_SETTING_FIELD_SCHEMA,
   ENVIRONMENT_SETTING_GROUPS,
 } from '../../../src/environment/environmentMaterialAdapter.js';
-import { getEnvironmentPresetOptions } from '../../../src/environment/environmentPresets.js';
+import {
+  getEnvironmentPresetOptions,
+  getEnvironmentScenarioOptions,
+} from '../../../src/environment/environmentPresets.js';
 import { ENVIRONMENT_STAGE_OPTIONS } from './engine.js';
 
 const DEBUG_OPTIONS = Object.keys(ENVIRONMENT_DEBUG_MODES).map((id) => ({
@@ -102,28 +105,51 @@ const WORKSPACE_SECTIONS = Object.freeze([
 ]);
 
 function PresetRow({ actions, state }) {
+  const styleOptions = getEnvironmentPresetOptions();
   const options = [
     ...(state.presetId === null ? [{ label: 'Custom…', value: '' }] : []),
-    ...getEnvironmentPresetOptions().map((entry) => ({ label: entry.label, value: entry.value })),
+    ...styleOptions.map((entry) => ({ label: entry.label, value: entry.value })),
     ...state.localPresets.map((entry) => ({ label: `${entry.label} · saved`, value: entry.id })),
+  ];
+  // Every style resolves in every canonical scenario (venue × time of day);
+  // flag the ones the selected style has not authored itself.
+  const coverage = styleOptions.find((entry) => entry.value === state.presetId)?.scenarios;
+  const scenarioOptions = [
+    { label: 'Style base', value: '' },
+    ...getEnvironmentScenarioOptions().map((scenario) => ({
+      label: coverage?.[scenario.id] === 'inherited'
+        ? `${scenario.label} · inherited`
+        : scenario.label,
+      value: scenario.id,
+    })),
   ];
   const isLocal = state.localPresets.some((entry) => entry.id === state.presetId);
   return (
-    <PresetRowShell title="The environment-shader preset you are editing — switching replaces every Features/Response/Interior/Surface value.">
-      <Select
-        onChange={(id) => { if (id) actions.applyPreset(id); }}
-        options={options}
-        testId="preset-select"
-        value={state.presetId ?? ''}
-      />
-      {isLocal && (
-        <IconButton
-          icon="trash"
-          label="Delete this saved preset"
-          onClick={() => actions.deletePreset(state.presetId)}
+    <>
+      <PresetRowShell label="Style" title="The IP-wide environment-shader identity. It resolves across every venue and time scenario.">
+        <Select
+          onChange={(id) => { if (id) actions.applyPreset(id); }}
+          options={options}
+          testId="preset-select"
+          value={state.presetId ?? ''}
         />
-      )}
-    </PresetRowShell>
+        {isLocal && (
+          <IconButton
+            icon="trash"
+            label="Delete this saved environment style"
+            onClick={() => actions.deletePreset(state.presetId)}
+          />
+        )}
+      </PresetRowShell>
+      <PresetRowShell label="Scenario" title="The current venue and time rendered through the selected IP style.">
+        <Select
+          onChange={(scenario) => actions.setScenario(scenario || null)}
+          options={scenarioOptions}
+          testId="scenario-select"
+          value={state.scenarioId ?? ''}
+        />
+      </PresetRowShell>
+    </>
   );
 }
 

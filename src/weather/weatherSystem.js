@@ -4,7 +4,12 @@ import { NodeMaterial } from 'three/webgpu';
 
 import { setEnvironmentCloudShadow } from '../environment/environmentShaderMaterials.js';
 import { environmentSharedUniformNodes } from '../shaders-tsl/environment.js';
-import { createWeatherPresetDocument, resolveWeatherSettings } from './weatherPresets.js';
+import {
+  createWeatherPresetDocument,
+  resolveWeatherPreset,
+  resolveWeatherSettings,
+  resolveWeatherStyleName,
+} from './weatherPresets.js';
 import {
   DEFAULT_WEATHER_SETTINGS,
   createWeatherSettings,
@@ -249,7 +254,7 @@ export class WeatherSystem extends THREE.EventDispatcher {
     onSurfaceChange = null,
     onThunder = null,
     precipitationFloorY = 0,
-    preset = 'call_me_sensei',
+    preset = 'clear',
     renderer = null,
     scene = null,
     seed = 1,
@@ -257,6 +262,7 @@ export class WeatherSystem extends THREE.EventDispatcher {
     setSun = null,
     settings = {},
     sky = null,
+    style = 'call_me_sensei',
     surfaceBaseline = null,
     sunRig = null,
     water = null,
@@ -281,7 +287,12 @@ export class WeatherSystem extends THREE.EventDispatcher {
     this.root.userData.waterExclude = true;
 
     this.currentPreset = preset;
-    this.settings = resolveWeatherSettings(preset, settings);
+    // The weather STYLE (identity — how conditions render) persists across
+    // condition changes; conditions are the world-state axis. Resolve the
+    // effective identity once so historical `preset: 'call_me_sensei'`
+    // construction also keeps that style when setPreset/transitionTo is used.
+    this.currentStyle = resolveWeatherPreset(preset, { style }).style;
+    this.settings = resolveWeatherSettings(preset, settings, { style: this.currentStyle });
     this.targetSettings = copySettings(this.settings);
     this.transition = null;
     this._dirty = true;
@@ -501,11 +512,26 @@ export class WeatherSystem extends THREE.EventDispatcher {
   setPreset(name, overrides = {}) {
     if (this._disposed) return this;
     this.currentPreset = name;
-    this.settings = resolveWeatherSettings(name, overrides);
+    this.settings = resolveWeatherSettings(name, overrides, { style: this.currentStyle });
     this.targetSettings = copySettings(this.settings);
     this.transition = null;
     this._dirty = true;
     this._applyFrame(this.settings);
+    return this;
+  }
+
+  /**
+   * Switches the weather STYLE (identity) and re-resolves the current
+   * condition through it. Conditions keep their meteorological keys; the
+   * style fills rendition character where a condition does not specify.
+   */
+  setStyle(style, { duration = 0 } = {}) {
+    if (this._disposed) return this;
+    this.currentStyle = resolveWeatherStyleName(style);
+    if (typeof this.currentPreset === 'string') {
+      if (duration > 0) return this.transitionTo(this.currentPreset, { duration });
+      return this.setPreset(this.currentPreset);
+    }
     return this;
   }
 
@@ -525,7 +551,7 @@ export class WeatherSystem extends THREE.EventDispatcher {
   transitionTo(presetOrSettings, { duration = 4, overrides = {} } = {}) {
     if (this._disposed) return this;
     const target = typeof presetOrSettings === 'string'
-      ? resolveWeatherSettings(presetOrSettings, overrides)
+      ? resolveWeatherSettings(presetOrSettings, overrides, { style: this.currentStyle })
       : mergeWeatherSettings(createWeatherSettings(presetOrSettings), overrides);
     this.currentPreset = typeof presetOrSettings === 'string' ? presetOrSettings : null;
     this.targetSettings = target;

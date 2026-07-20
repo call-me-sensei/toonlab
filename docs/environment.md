@@ -75,14 +75,25 @@ diagnosable at a glance.
 
 ## Presets and preset documents
 
-`resolveEnvironmentPreset(name)` returns `{ features, parameters, rig }` for
-`default`, `interiorDay`, `interiorEvening`, `interiorNight`,
-`interiorStudio` (tuned for untextured scenes), `exteriorDay`, `showcase`,
-and `call_me_sensei` — the studio-managed signature look, curated and
-updated over releases. The `rig` hints (`sun`, `spotShadows`, `probe`,
-`planarReflection`, `dustMotes`, `bakeVertexAo`, `lampIntensity`,
-`timeOfDayHour`) tell the host app which rigs to construct — the labs
-consume them automatically via `?envPreset=`.
+An environment preset is a **style** — an identity, never a baked moment —
+and every style resolves in every canonical **scenario** (venue × time of
+day: `interiorDay`, `interiorEvening`, `interiorNight`, `exteriorDay`; see
+`ENVIRONMENT_SCENARIOS` / `getEnvironmentScenarioOptions()`).
+
+`resolveEnvironmentPreset(name, scenario?)` returns
+`{ features, parameters, rig }`. Styles: `default`, `interiorStudio` (tuned
+for untextured scenes), `showcase`, and `call_me_sensei` — the
+studio-managed signature look, curated and updated over releases, with every
+scenario authored. Without a `scenario` the style's base look is returned;
+styles that do not author a scenario inherit the canonical rendition (the
+Default style's variant). The historical single-moment ids (`interiorDay`,
+`interiorEvening`, `interiorNight`, `exteriorDay`) resolve through
+`ENVIRONMENT_PRESET_ALIASES` as the Default style at that scenario,
+byte-identical to the presets they replaced. The `rig` hints (`sun`,
+`spotShadows`, `probe`, `planarReflection`, `dustMotes`, `bakeVertexAo`,
+`lampIntensity`, `timeOfDayHour`) tell the host app which rigs to
+construct — the labs consume them automatically via `?envPreset=` (and
+`?envScenario=`).
 
 Register your own, either in code or as a shareable JSON document
 (`toonlab/environment-preset`, versioned and validated like toon presets):

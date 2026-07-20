@@ -2,6 +2,7 @@
 // scroll-reveal. The legacy-URL redirect runs inline in index.html <head>
 // (before paint) so this module only ever executes for real home visits.
 
+import '../shared/siteHeader.js';
 import {
   ASSET_LABS_SHOWCASE,
   DEMOS_SHOWCASE,

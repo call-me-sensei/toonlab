@@ -1807,6 +1807,7 @@ function EcctrlApp() {
   useEffect(() => {
     if (!WATER_SCENE_ENABLED) return;
     document.body.dataset.waterMode = waterSettings.mode;
+    document.body.dataset.waterStyle = waterSettings.style;
     document.body.dataset.waterTone = waterSettings.colorTone;
     document.body.dataset.waterLevel = waterSettings.waterLevel.toFixed(3);
   }, [waterSettings]);

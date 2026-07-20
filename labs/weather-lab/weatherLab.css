@@ -10,8 +10,12 @@
   --wl-hot: #ffc46b;
 }
 
-#weatherLab { position: fixed; inset: 0; color: var(--wl-text); pointer-events: none; }
+#weatherLab { position: fixed; inset: 0; z-index: 10; color: var(--wl-text); pointer-events: none; }
 #weatherLab button, #weatherLab input, #weatherLab select, #weatherLab a { pointer-events: auto; }
+.wl-rain-lens {
+  position: absolute; inset: 0; z-index: 2; width: 100%; height: 100%; opacity: 0;
+  pointer-events: none; mix-blend-mode: screen;
+}
 .wl-grow { flex: 1; }
 .wl-topbar {
   position: absolute; inset: 0 0 auto 0; height: 56px; display: flex; align-items: center; gap: 8px;
@@ -20,6 +24,8 @@
 .wl-brand { color: var(--wl-text); text-decoration: none; font-size: 12px; font-weight: 800; letter-spacing: .13em; }
 .wl-brand span { color: var(--wl-accent); margin-left: 7px; font-weight: 650; letter-spacing: .02em; }
 .wl-name { width: 220px; margin-left: 14px; border: 0; border-left: 1px solid var(--wl-line); padding: 7px 12px; background: transparent; color: var(--wl-text); font-size: 13px; }
+.wl-style { display: flex; align-items: center; gap: 7px; color: var(--wl-muted); font-size: 11px; }
+.wl-style select { border: 1px solid var(--wl-line); border-radius: 6px; padding: 6px 8px; background: var(--wl-panel-2); color: var(--wl-text); font-size: 11px; }
 .wl-transition { display: flex; align-items: center; gap: 7px; color: var(--wl-muted); font-size: 11px; }
 .wl-transition input { width: 90px; accent-color: var(--wl-accent); }
 .wl-transition output { width: 34px; color: var(--wl-text); font-variant-numeric: tabular-nums; }
@@ -70,5 +76,5 @@
 @media (max-width: 980px) {
   .wl-library { width: 220px; }
   .wl-inspector { width: 290px; }
-  .wl-transition, #importWeather, #saveWeather { display: none; }
+  .wl-style, .wl-transition, #importWeather, #saveWeather { display: none; }
 }

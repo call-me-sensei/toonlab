@@ -10,14 +10,18 @@ import {
   createRockSurfaceSettings,
   createRockgenMeshingSettings,
 } from './rockgenSettings.js';
-import { resolveRockgenPreset } from './rockgenPresets.js';
+import {
+  normalizeRockgenPresetName,
+  normalizeRockgenStyleName,
+  resolveRockgenPreset,
+} from './rockgenPresets.js';
 import { compileDocument } from './sdf/fieldCompiler.js';
 
 /** Document type tag stamped on saved rockgen project JSON. */
 export const ROCKGEN_PROJECT_DOCUMENT_TYPE = 'toonlab/rockgen-project';
 
 /** Current schema version for rockgen project documents. */
-export const ROCKGEN_PROJECT_SCHEMA_VERSION = 1;
+export const ROCKGEN_PROJECT_SCHEMA_VERSION = 2;
 
 const COMBINE_OPS = Object.freeze(['union', 'smoothUnion', 'subtract', 'intersect']);
 
@@ -106,7 +110,7 @@ export function createRockPiece(optionsOrPresetName = null) {
 
 /**
  * Creates a rock document. `options` may be a preset name string or
- * `{ seed, preset, name, pieces, sculptEdits, surface, meshing }`.
+ * `{ seed, preset, style, name, pieces, sculptEdits, surface, meshing }`.
  * With no explicit pieces, one piece is built from the preset (default
  * 'boulder').
  */
@@ -114,16 +118,23 @@ export function createRockDocument(options = null) {
   const source = typeof options === 'string'
     ? { preset: options }
     : options && typeof options === 'object' ? options : {};
-  const preset = resolveRockgenPreset(source.preset);
+  // Preset and style are portable identity, not merely Lab UI metadata. A
+  // custom/scratch document may explicitly use `preset: null`; otherwise the
+  // historical no-argument default remains Boulder.
+  const presetId = source.preset === null ? null : normalizeRockgenPresetName(source.preset);
+  const styleId = normalizeRockgenStyleName(source.style);
+  const preset = resolveRockgenPreset(presetId ?? 'boulder', { style: styleId });
 
   const document = {
     meshing: createRockgenMeshingSettings(source.meshing ?? preset.meshing),
     name: String(source.name ?? preset.label ?? 'Untitled Rock'),
     pieces: [],
+    preset: presetId,
     revision: 0,
     schemaVersion: ROCKGEN_PROJECT_SCHEMA_VERSION,
     sculptEdits: [],
     seed: Math.round(Number(source.seed) || 0) >>> 0,
+    style: styleId,
     surface: createRockSurfaceSettings(source.surface ?? preset.surface),
     type: ROCKGEN_PROJECT_DOCUMENT_TYPE,
   };
@@ -141,6 +152,80 @@ export function createRockDocument(options = null) {
   }
   document.revision = 0;
   return document;
+}
+
+function rockValuesEqual(left, right) {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right)
+      && left.length === right.length
+      && left.every((value, index) => rockValuesEqual(value, right[index]));
+  }
+  if (left && right && typeof left === 'object' && typeof right === 'object') {
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    return leftKeys.length === rightKeys.length
+      && leftKeys.every((key) => Object.hasOwn(right, key)
+        && rockValuesEqual(left[key], right[key]));
+  }
+  return false;
+}
+
+function rebaseRockValue(current, oldBase, newBase) {
+  if (rockValuesEqual(current, oldBase)) return structuredClone(newBase);
+  if (Array.isArray(current)) {
+    if (!Array.isArray(oldBase) || !Array.isArray(newBase)) return structuredClone(current);
+    const keyedObjects = current.every((entry) => entry && typeof entry === 'object' && entry.id)
+      && oldBase.every((entry) => entry && typeof entry === 'object' && entry.id)
+      && newBase.every((entry) => entry && typeof entry === 'object' && entry.id);
+    if (!keyedObjects) return structuredClone(current);
+    const oldById = new Map(oldBase.map((entry) => [entry.id, entry]));
+    const newById = new Map(newBase.map((entry) => [entry.id, entry]));
+    return current.map((entry) => (
+      oldById.has(entry.id) && newById.has(entry.id)
+        ? rebaseRockValue(entry, oldById.get(entry.id), newById.get(entry.id))
+        : structuredClone(entry)
+    ));
+  }
+  if (current && typeof current === 'object'
+    && oldBase && typeof oldBase === 'object'
+    && newBase && typeof newBase === 'object') {
+    return Object.fromEntries(Object.keys(current).map((key) => [
+      key,
+      Object.hasOwn(oldBase, key) && Object.hasOwn(newBase, key)
+        ? rebaseRockValue(current[key], oldBase[key], newBase[key])
+        : structuredClone(current[key]),
+    ]));
+  }
+  return structuredClone(current);
+}
+
+/**
+ * Apply another IP-wide rock style without replacing the selected asset or
+ * destroying edits. Values still equal to the old style baseline adopt the
+ * new baseline; authored differences remain intact.
+ */
+export function rebaseRockDocumentStyle(document, style = 'default') {
+  const current = createRockDocument(document);
+  const oldBase = createRockDocument({
+    preset: current.preset,
+    seed: current.seed,
+    style: current.style,
+  });
+  const nextStyle = normalizeRockgenStyleName(style);
+  const newBase = createRockDocument({
+    preset: current.preset,
+    seed: current.seed,
+    style: nextStyle,
+  });
+  const rebased = rebaseRockValue(current, oldBase, newBase);
+  const normalized = createRockDocument({
+    ...rebased,
+    preset: current.preset,
+    style: nextStyle,
+  });
+  normalized.revision = Math.max(Number(document?.revision) || 0, 0) + 1;
+  return normalized;
 }
 
 /** Marks the document dirty after direct settings mutation. */
@@ -205,9 +290,17 @@ export function serializeRockDocument(document, { pretty = false } = {}) {
 }
 
 // Ordered migrations: index N upgrades a version-N document to N+1.
-// Schema v1 is additive-by-construction (creators default missing fields),
-// so this table stays empty until a breaking change is unavoidable.
-const MIGRATIONS = Object.freeze([]);
+// v2 moves the selected asset preset and IP-wide style into the portable
+// project itself. Old projects had those values only in browser-local entry
+// metadata, so standalone v1 JSON safely falls back to custom/default.
+const MIGRATIONS = Object.freeze([
+  (document) => ({
+    ...document,
+    preset: typeof document.preset === 'string' ? document.preset : null,
+    schemaVersion: 2,
+    style: typeof document.style === 'string' ? document.style : 'default',
+  }),
+]);
 
 /**
  * Parses, validates, and coerces a rock document from JSON (string or
@@ -248,8 +341,10 @@ export function deserializeRockDocument(jsonOrObject) {
     meshing: migrated.meshing,
     name: migrated.name,
     pieces: migrated.pieces,
+    preset: migrated.preset,
     sculptEdits: migrated.sculptEdits,
     seed: migrated.seed,
+    style: migrated.style,
     surface: migrated.surface,
   });
 }

@@ -1,50 +1,125 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { applyVegetationShader } from './vegetationShaders.js';
 import { MeshBasicNodeMaterial } from 'three/webgpu';
 import {
-  clamp, exp, length, max, mix, positionView, positionWorld, texture, uniform, vec4, vertexColor,
+  clamp, dot, exp, length, max, mix, positionView, positionWorld, smoothstep, texture, uniform,
+  vec3, vec4, vertexColor,
 } from 'three/tsl';
 
 import { StylizedTree } from './stylizedTree.js';
 import { disposeExportGroup, prepareTreeForExport } from './treeExport.js';
 
-// Two quads crossed at 90°, anchored so the tree base sits at the instance
-// origin. 8 vertices — the whole point of the billboard path.
-function buildCrossQuadGeometry(width, height, minY) {
-  const hw = width / 2;
-  const top = minY + height;
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-    -hw, minY, 0, hw, minY, 0, hw, top, 0, -hw, top, 0,
-    0, minY, -hw, 0, minY, hw, 0, top, hw, 0, top, -hw,
-  ]), 3));
-  // v is flipped: the node renderer writes render targets top-down (see the
-  // water reflection's FLIP_Y_UV_MATRIX), so the bake's tree-top lives at
-  // v = 0. Unflipped, every billboard renders trunk-up.
-  geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([
-    0, 1, 1, 1, 1, 0, 0, 0,
-    0, 1, 1, 1, 1, 0, 0, 0,
-  ]), 2));
-  geometry.setIndex([0, 1, 2, 0, 2, 3, 4, 5, 6, 4, 6, 7]);
-  geometry.computeVertexNormals();
+export const STYLIZED_FOREST_IMPOSTOR_QUALITY = Object.freeze({
+  colorFloor: Object.freeze([0.16, 0.3, 0.14]),
+  maxTrianglesPerTree: 140,
+  microdetail: 'volumetric-crown',
+  representation: 'instanced-low-poly',
+});
+
+function averageGeometryColor(geometry, materialColor = new THREE.Color(0xffffff)) {
+  const colors = geometry?.attributes?.color;
+  const average = new THREE.Color(1, 1, 1);
+  if (colors?.count) {
+    average.setRGB(0, 0, 0);
+    // Sampling is sufficient here: the value is a broad LOD tone, not data
+    // used for geometry or simulation.
+    const stride = Math.max(1, Math.floor(colors.count / 4096));
+    let samples = 0;
+    for (let index = 0; index < colors.count; index += stride) {
+      average.r += colors.getX(index);
+      average.g += colors.getY(index);
+      average.b += colors.getZ(index);
+      samples += 1;
+    }
+    average.multiplyScalar(1 / Math.max(samples, 1));
+  }
+  return average.multiply(materialColor);
+}
+
+function stableVariant(seed, index, count) {
+  let value = ((Number(seed) >>> 0) ^ Math.imul(index + 1, 0x9e3779b1)) >>> 0;
+  value = Math.imul(value ^ (value >>> 16), 0x7feb352d) >>> 0;
+  value = Math.imul(value ^ (value >>> 15), 0x846ca68b) >>> 0;
+  return ((value ^ (value >>> 16)) >>> 0) % count;
+}
+
+function setFlatGeometryColor(geometry, color, tone = 1) {
+  const positions = geometry.attributes.position;
+  const normals = geometry.attributes.normal;
+  const colors = new Float32Array(positions.count * 3);
+  for (let index = 0; index < positions.count; index += 1) {
+    // One broad top/side value shift gives the proxy volume without bringing
+    // back the near foliage's high-frequency per-card lighting.
+    const ny = normals ? normals.getY(index) : 0;
+    const nx = normals ? normals.getX(index) : 0;
+    const light = THREE.MathUtils.clamp(tone * (0.9 + ny * 0.1 + nx * 0.025), 0.78, 1.08);
+    colors[index * 3] = THREE.MathUtils.clamp(color.r * light, 0, 1);
+    colors[index * 3 + 1] = THREE.MathUtils.clamp(color.g * light, 0, 1);
+    colors[index * 3 + 2] = THREE.MathUtils.clamp(color.b * light, 0, 1);
+  }
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   return geometry;
 }
 
-// Horizontal canopy slice for aerial cameras: crossed vertical quads all but
-// vanish seen from above (an X of edge-on planes), so flyover/top-down views
-// need this cap textured with a top-down bake.
-function buildCanopyCapGeometry(width, capY) {
-  const hw = width / 2;
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array([
-    -hw, capY, -hw, hw, capY, -hw, hw, capY, hw, -hw, capY, hw,
-  ]), 3));
-  geometry.setAttribute('uv', new THREE.BufferAttribute(new Float32Array([
-    0, 1, 1, 1, 1, 0, 0, 0,
-  ]), 2));
-  geometry.setIndex([0, 1, 2, 0, 2, 3]);
-  geometry.computeVertexNormals();
-  return geometry;
+function asNonIndexed(geometry) {
+  if (!geometry.index) return geometry;
+  const expanded = geometry.toNonIndexed();
+  geometry.dispose();
+  return expanded;
+}
+
+// A far tree is real low-poly volume, not a screen-facing painting. Five
+// overlapping icosahedral crown masses preserve a tree silhouette from ground,
+// flyover, and top-down cameras. The far proxy deliberately omits its trunk:
+// once a tree is small enough for this LOD, a trunk collapses into the dirty
+// one-pixel black/pale ticks that ruin aerial forests. Near live trees retain
+// their warm trunks and the contact pool anchors the distant crown mass.
+// The whole proxy merges to one instanced draw per variant.
+function createVolumetricTreeProxy(baked, variant) {
+  const foliage = baked.children.find((child) => child.name === 'Foliage');
+  const foliageBounds = foliage
+    ? new THREE.Box3().setFromObject(foliage)
+    : new THREE.Box3().setFromObject(baked);
+  const extent = foliageBounds.getSize(new THREE.Vector3());
+  const center = foliageBounds.getCenter(new THREE.Vector3());
+  const crown = averageGeometryColor(foliage?.geometry, foliage?.material?.color);
+  const parts = [];
+  const lobes = [
+    [0, 0.58, 0, 0.43, 0.35, 0.41, 0.98],
+    [-0.27, 0.55, 0.05, 0.3, 0.27, 0.3, 0.94],
+    [0.27, 0.57, -0.06, 0.3, 0.28, 0.3, 1.04],
+    [-0.04, 0.8, -0.08, 0.27, 0.24, 0.27, 1.07],
+    [0.02, 0.38, 0.02, 0.36, 0.3, 0.36, 0.9],
+  ];
+  for (let index = 0; index < lobes.length; index += 1) {
+    const [x, y, z, sx, sy, sz, tone] = lobes[index];
+    let geometry = new THREE.IcosahedronGeometry(1, 0);
+    geometry.rotateY((variant * 1.37 + index * 0.91) % Math.PI);
+    geometry.rotateZ(((variant + index * 3) % 7 - 3) * 0.035);
+    geometry.scale(
+      Math.max(extent.x * sx, 0.2),
+      Math.max(extent.y * sy, 0.2),
+      Math.max(extent.z * sz, 0.2),
+    );
+    geometry.translate(
+      center.x + extent.x * x,
+      foliageBounds.min.y + extent.y * y,
+      center.z + extent.z * z,
+    );
+    geometry.computeVertexNormals();
+    geometry = asNonIndexed(geometry);
+    setFlatGeometryColor(geometry, crown, tone);
+    parts.push(geometry);
+  }
+
+  const merged = mergeGeometries(parts, false);
+  for (const part of parts) part.dispose();
+  if (!merged) throw new Error('StylizedForest could not build the far-tree proxy.');
+  merged.computeBoundingSphere();
+  merged.userData.lodRepresentation = STYLIZED_FOREST_IMPOSTOR_QUALITY.representation;
+  merged.userData.trianglesPerTree = merged.attributes.position.count / 3;
+  return merged;
 }
 
 // LOD forest. Import from '@call-me-sensei/toonlab/vegetation'.
@@ -53,14 +128,10 @@ function buildCanopyCapGeometry(width, capY) {
 // (live foliage shader, wind, per-puff cards) is a near-field asset. The
 // forest splits the work the way anime open worlds do:
 //
-//  - FAR (default, pass `renderer`): every placement renders as a crossed
-//    pair of textured quads — each variant is baked ONCE to a small texture
-//    (lighting pre-baked via prepareTreeForExport vertex colors) and
-//    instanced. 16 vertices per tree instead of the ~12k of the merged
-//    export mesh: the water grab/reflection passes and the main pass all
-//    redraw the whole forest, so full-geometry "impostors" put tens of
-//    millions of vertices in flight per frame (~20 fps); billboards make
-//    the same forest cost thousands.
+//  - FAR (default, pass `renderer`): every placement renders as one instanced
+//    low-poly volumetric crown proxy. It stays tree-shaped from
+//    ground, flyover, and top-down cameras without texture noise or cap blobs.
+//    The proxy is <= 140 triangles/tree instead of the ~12k-vertex export.
 //  - FAR (no renderer): legacy merged-geometry instancing — correct but
 //    expensive; only for hosts that cannot hand the forest a renderer.
 //  - NEAR: a budgeted pool of live detailed trees (mesh clones of the
@@ -89,8 +160,7 @@ export class StylizedForest extends THREE.Group {
     detailCount = 110,
     updateInterval = 0.3,
     castShadow = true,          // near live clones cast; anchors the forest to the ground
-    renderer = null,            // enables texture-baked billboard impostors (strongly recommended)
-    impostorTextureSize = 256,  // billboard bake resolution per variant
+    renderer = null,            // enables the bounded volumetric far proxy (strongly recommended)
     vegetationShader = null,
   } = {}) {
     super();
@@ -121,13 +191,16 @@ export class StylizedForest extends THREE.Group {
       this._bakedVariants.push(prepareTreeForExport(tree));
     }
 
-    // Per-placement bookkeeping + far instancing (two draws per variant).
+    // Per-placement bookkeeping + far instancing (one draw per variant).
     this._placements = placements.map((p, index) => ({
       detailed: null,
       index,
       matrix: null,
       seed: p.seed ?? index,
-      variant: (p.seed ?? index) % variantCount,
+      // Scatter seeds can have spatially correlated low bits. Hash before
+      // choosing a palette/silhouette variant so accent colors do not form
+      // giant contiguous bands in the distance.
+      variant: stableVariant(p.seed ?? index, index, variantCount),
       x: p.x, y: p.y, z: p.z,
     }));
     const perVariant = Array.from({ length: variantCount }, () => []);
@@ -138,15 +211,15 @@ export class StylizedForest extends THREE.Group {
     const compose = new THREE.Matrix4();
     const quaternion = new THREE.Quaternion();
     const up = new THREE.Vector3(0, 1, 0);
-    // Impostor materials are unlit (MeshBasic): lighting is already baked
-    // into the export's vertex colors, and unlit flat color is exactly how
+    // Far-proxy materials are unlit (MeshBasic): broad lighting is encoded
+    // into the proxy's vertex colors, and unlit flat color is exactly how
     // distant anime trees should read — no scene-light dependency, no
     // near-black shadow sides.
     //
     // They also carry the environment shader's height fog (same formula,
     // shared uniforms — see setDistanceFog). scene.fog alone is the linear
     // layer; at 700 m+ the terrain is mostly height-fog haze while a
-    // scene.fog-only impostor is still ~20% fogged, so far canopies float
+    // scene.fog-only proxy is still ~20% fogged, so far canopies float
     // on the mountains as saturated dots. Density 0 disables the layer.
     this._fogUniforms = {
       color: uniform(new THREE.Color(0.66, 0.8, 0.94)),
@@ -165,6 +238,14 @@ export class StylizedForest extends THREE.Group {
       let rgba = vec4(uniform(source.color?.clone() ?? new THREE.Color(0xffffff)), 1.0);
       if (source.map) rgba = rgba.mul(texture(source.map));
       if (source.vertexColors) rgba = rgba.mul(vec4(vertexColor().rgb, 1.0));
+      // Never let tiny shaded leaf clusters turn cyan-black after the bake.
+      // A dark green floor preserves the canopy identity through minification.
+      const luminance = dot(rgba.rgb, vec3(0.299, 0.587, 0.114));
+      const liftedRgb = mix(
+        vec3(...STYLIZED_FOREST_IMPOSTOR_QUALITY.colorFloor),
+        rgba.rgb,
+        smoothstep(0.035, 0.26, luminance),
+      );
       // Mirror of environment.js world-height fog: dense near the world
       // floor, thinning with altitude, exponential in view distance.
       const heightFalloff = exp(
@@ -172,40 +253,31 @@ export class StylizedForest extends THREE.Group {
       );
       const depthTerm = exp(length(positionView).mul(fogU.density).negate()).oneMinus();
       material.colorNode = vec4(
-        mix(rgba.rgb, fogU.color, clamp(depthTerm.mul(heightFalloff), 0.0, 1.0)),
+        mix(liftedRgb, fogU.color, clamp(depthTerm.mul(heightFalloff), 0.0, 1.0)),
         rgba.a,
       );
       return material;
     };
     this._impostorMaterials = new Map();
-    this._impostorTargets = [];
     for (let v = 0; v < variantCount; v += 1) {
       const entries = perVariant[v];
       const meshes = [];
       if (renderer) {
-        // Billboard path: bake the variant once (side + top views), instance
-        // two crossed quads plus a horizontal canopy cap for aerial cameras.
-        const bake = this._bakeVariantTexture(renderer, this._bakedVariants[v], impostorTextureSize);
-        const topBake = this._bakeVariantTexture(renderer, this._bakedVariants[v], impostorTextureSize, 'top');
-        this._impostorTargets.push(bake.target, topBake.target);
-        const parts = [
-          [buildCrossQuadGeometry(bake.width, bake.height, bake.minY), bake.target.texture, 'TreeBillboard'],
-          [buildCanopyCapGeometry(bake.width, bake.minY + bake.height * 0.68), topBake.target.texture, 'TreeBillboardCap'],
-        ];
-        for (const [geometry, map, name] of parts) {
-          const instanced = new THREE.InstancedMesh(
-            geometry,
-            impostorMaterial({ alphaTest: 0.35, map, name, side: THREE.DoubleSide }),
-            Math.max(entries.length, 1),
-          );
-          // Alpha-cutout quads in the shadow map ink solid rectangles, and
-          // the follow-target shadow window only covers live-clone range.
-          instanced.castShadow = false;
-          instanced.receiveShadow = false;
-          instanced.frustumCulled = false; // instances span the whole map
-          this.add(instanced);
-          meshes.push(instanced);
-        }
+        const geometry = createVolumetricTreeProxy(this._bakedVariants[v], v);
+        const instanced = new THREE.InstancedMesh(
+          geometry,
+          impostorMaterial({
+            name: 'TreeVolumeProxy',
+            side: THREE.FrontSide,
+            vertexColors: true,
+          }),
+          Math.max(entries.length, 1),
+        );
+        instanced.castShadow = false;
+        instanced.receiveShadow = false;
+        instanced.frustumCulled = false; // instances span the whole map
+        this.add(instanced);
+        meshes.push(instanced);
       } else {
         for (const source of this._bakedVariants[v].children) {
           let material = this._impostorMaterials.get(source.material);
@@ -239,7 +311,7 @@ export class StylizedForest extends THREE.Group {
     }
     this._zeroMatrix = zero;
     if (renderer) {
-      // The merged export geometry only existed to feed the billboard bakes.
+      // The merged export geometry only existed to derive proxy bounds/colors.
       for (const baked of this._bakedVariants) disposeExportGroup(baked);
       this._bakedVariants = [];
     }
@@ -247,77 +319,6 @@ export class StylizedForest extends THREE.Group {
     // Near pool: lazily-built clone groups, recycled between placements.
     this._pool = [];
     this._detailed = new Set();
-  }
-
-  /**
-   * Renders one baked variant into a small transparent texture from a
-   * horizontal orthographic view. The baked group already carries its
-   * lighting in vertex colors, so an unlit render IS the finished look.
-   */
-  _bakeVariantTexture(renderer, baked, size, view = 'side') {
-    const bounds = new THREE.Box3().setFromObject(baked);
-    const extent = bounds.getSize(new THREE.Vector3());
-    const center = bounds.getCenter(new THREE.Vector3());
-    const width = Math.max(extent.x, extent.z) * 1.02;
-    const height = extent.y * 1.02;
-
-    const bakeScene = new THREE.Scene();
-    const unlitMaterials = [];
-    for (const child of baked.children) {
-      const source = child.material;
-      const unlit = new THREE.MeshBasicMaterial({
-        alphaTest: source.alphaTest ?? 0,
-        color: source.color?.clone() ?? new THREE.Color(0xffffff),
-        map: source.map ?? null,
-        side: THREE.DoubleSide,
-        vertexColors: Boolean(source.vertexColors),
-      });
-      unlitMaterials.push(unlit);
-      const mesh = new THREE.Mesh(child.geometry, unlit);
-      mesh.position.copy(child.position);
-      mesh.rotation.copy(child.rotation);
-      mesh.scale.copy(child.scale);
-      bakeScene.add(mesh);
-    }
-
-    let camera;
-    let targetHeight;
-    if (view === 'top') {
-      camera = new THREE.OrthographicCamera(
-        -width / 2, width / 2, width / 2, -width / 2,
-        0.1, extent.y + 10,
-      );
-      camera.position.set(center.x, bounds.max.y + 2, center.z);
-      camera.up.set(0, 0, -1);
-      camera.lookAt(center.x, bounds.min.y, center.z);
-      targetHeight = size;
-    } else {
-      camera = new THREE.OrthographicCamera(
-        -width / 2, width / 2, height / 2, -height / 2,
-        0.1, Math.max(extent.z, extent.x) + 10,
-      );
-      camera.position.set(center.x, center.y, center.z + Math.max(extent.z, extent.x) / 2 + 2);
-      camera.lookAt(center);
-      targetHeight = Math.max(64, Math.round((size * height) / Math.max(width, 0.001)));
-    }
-
-    const target = new THREE.WebGLRenderTarget(
-      size,
-      targetHeight,
-      { depthBuffer: true, stencilBuffer: false },
-    );
-    const previousTarget = renderer.getRenderTarget();
-    const previousClearColor = renderer.getClearColor(new THREE.Color());
-    const previousClearAlpha = renderer.getClearAlpha();
-    renderer.setRenderTarget(target);
-    renderer.setClearColor(0x000000, 0);
-    renderer.clear();
-    renderer.render(bakeScene, camera);
-    renderer.setRenderTarget(previousTarget);
-    renderer.setClearColor(previousClearColor, previousClearAlpha);
-    for (const material of unlitMaterials) material.dispose();
-
-    return { height, minY: bounds.min.y, target, width };
   }
 
   _acquireClone(variant) {
@@ -346,7 +347,7 @@ export class StylizedForest extends THREE.Group {
       const dx = entry.x - focus.x;
       // True 3D distance: a top-down or flyover camera hundreds of meters up
       // is NOT near the trees under it — horizontal-only distance promotes
-      // them to saturated live clones that pop against the fogged impostors.
+      // them to saturated live clones that pop against the fogged far proxies.
       const dy = entry.y - focus.y;
       const dz = entry.z - focus.z;
       const distanceSq = dx * dx + dy * dy + dz * dz;
@@ -427,15 +428,15 @@ export class StylizedForest extends THREE.Group {
 
   setVegetationShader(profile) {
     const report = applyVegetationShader(this.variantTrees, profile);
-    // Far LODs are rasterized from variant trees at construction time. Live
-    // materials update immediately; hosts that expose runtime style editing
-    // should rebuild the forest to bake matching impostors.
+    // Far proxy colors are derived from variant trees at construction time.
+    // Live materials update immediately; hosts exposing runtime style editing
+    // should rebuild the forest to derive matching proxy colors.
     report.requiresImpostorRebake = this.hasBakedImpostors;
     return report;
   }
 
   /**
-   * Matches the impostors' fog to the environment shader's height fog so far
+   * Matches the far proxies' fog to the environment shader's height fog so far
    * canopies haze with the terrain they stand on. Pass the same
    * `heightFogColor` / `heightFogDensity` / `heightFogFalloff` the
    * environment uses, plus the world floor height (environment box bottom).
@@ -470,7 +471,6 @@ export class StylizedForest extends THREE.Group {
       }
     }
     for (const baked of this._bakedVariants) disposeExportGroup(baked);
-    for (const target of this._impostorTargets) target.dispose();
     this.parent?.remove(this);
   }
 }

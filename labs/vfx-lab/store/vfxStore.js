@@ -1,6 +1,6 @@
-// VFX Lab state: a preset + nested overrides over DEFAULT_VFX_SETTINGS, the
+// VFX Lab state: an IP-wide style + nested overrides over DEFAULT_VFX_SETTINGS, the
 // seed, and the demo-loop toggle. The DESIGN OUTPUT of this lab is a recipe
-// document — `{ schema, version, preset, seed, settings }` — that drops
+// document — `{ schema, version, style, seed, settings }` — that drops
 // straight into `createVfxSystem(...)` in game code (no GLB; effects are
 // runtime events, so the artifact is the tuned configuration itself).
 
@@ -8,7 +8,8 @@ import { createStore } from '../../shared/ui/createStore.js';
 import {
   createVfxSettings,
   DEFAULT_VFX_SETTINGS,
-  resolveVfxPreset,
+  resolveVfxStyle,
+  resolveVfxStyleName,
 } from '../../../src/vfxgen/index.js';
 
 function cleanObject(value) {
@@ -36,7 +37,7 @@ function sameValue(a, b) {
 const INITIAL = Object.freeze({
   loop: true,
   overrides: {},
-  presetId: 'call_me_sensei',
+  styleId: 'call_me_sensei',
   seed: 20267,
   status: '',
 });
@@ -49,14 +50,15 @@ export function createVfxLabStore({ urlParams } = {}) {
   if (rawSeed !== null && rawSeed !== undefined && Number.isFinite(Number(rawSeed))) {
     initial.seed = Math.max(1, Math.round(Number(rawSeed)));
   }
-  const presetParam = urlParams?.get('preset');
-  if (presetParam) initial.presetId = presetParam;
+  const styleParam = urlParams?.get('vfxStyle') ?? urlParams?.get('style') ?? urlParams?.get('preset');
+  if (styleParam) initial.styleId = styleParam;
   const recipeParam = urlParams?.get('vfxRecipe');
   if (recipeParam) {
     try {
       const doc = JSON.parse(recipeParam);
       if (doc && typeof doc === 'object') {
-        if (typeof doc.preset === 'string') initial.presetId = doc.preset;
+        if (typeof doc.style === 'string') initial.styleId = doc.style;
+        else if (typeof doc.preset === 'string') initial.styleId = doc.preset;
         if (Number.isFinite(Number(doc.seed))) initial.seed = Number(doc.seed);
         initial.overrides = cleanObject(doc.settings);
       }
@@ -65,23 +67,45 @@ export function createVfxLabStore({ urlParams } = {}) {
     }
   }
   if (urlParams?.get('loop') === '0') initial.loop = false;
+  initial.styleId = resolveVfxStyleName(initial.styleId);
 
   const store = createStore(initial);
 
-  /** Preset + overrides resolved to full settings (what the panel shows). */
+  /** Style + overrides resolved to full settings (what the panel shows). */
   function effectiveSettings(state = store.getState()) {
     return createVfxSettings(
-      mergeGroupOverrides(resolveVfxPreset(state.presetId), state.overrides));
+      mergeGroupOverrides(resolveVfxStyle(state.styleId), state.overrides));
+  }
+
+  function applyStyle(styleId) {
+    const nextStyle = resolveVfxStyleName(styleId);
+    store.setState((state) => {
+      const nextBase = resolveVfxStyle(nextStyle);
+      const overrides = {};
+      for (const [groupId, values] of Object.entries(state.overrides)) {
+        const group = Object.fromEntries(Object.entries(cleanObject(values))
+          .filter(([key, value]) => !sameValue(
+            value,
+            nextBase?.[groupId]?.[key] ?? DEFAULT_VFX_SETTINGS[groupId]?.[key],
+          )));
+        if (Object.keys(group).length > 0) overrides[groupId] = group;
+      }
+      return {
+        overrides,
+        status: `Style "${nextStyle}" applied across every effect.`,
+        styleId: nextStyle,
+      };
+    });
   }
 
   const actions = {
-    /** Panel edits: store the override; prune it when it lands back on the resolved preset value. */
+    /** Panel edits: store the override; prune it when it lands back on the resolved style value. */
     setField(groupId, key, value) {
       store.setState((state) => {
-        const presetValue = resolveVfxPreset(state.presetId)?.[groupId]?.[key]
+        const styleValue = resolveVfxStyle(state.styleId)?.[groupId]?.[key]
           ?? DEFAULT_VFX_SETTINGS[groupId]?.[key];
         const group = { ...cleanObject(state.overrides[groupId]) };
-        if (sameValue(value, presetValue)) delete group[key];
+        if (sameValue(value, styleValue)) delete group[key];
         else group[key] = value;
         const overrides = { ...state.overrides };
         if (Object.keys(group).length === 0) delete overrides[groupId];
@@ -89,9 +113,9 @@ export function createVfxLabStore({ urlParams } = {}) {
         return { overrides, status: '' };
       });
     },
-    applyPreset(presetId) {
-      store.setState({ overrides: {}, presetId, status: `Preset "${presetId}" applied.` });
-    },
+    applyStyle,
+    // Compatibility for integrations wired to the original Lab action name.
+    applyPreset: applyStyle,
     setSeed(seed) {
       store.setState({ seed: Math.max(1, Math.round(Number(seed) || 1)) });
     },
@@ -113,9 +137,9 @@ export function createVfxLabStore({ urlParams } = {}) {
       return {
         schema: 'toonlab.vfxgen',
         version: 1,
-        preset: state.presetId,
         seed: state.seed,
         settings: state.overrides,
+        style: state.styleId,
       };
     },
     getCodeSnippet() {
@@ -127,7 +151,7 @@ export function createVfxLabStore({ urlParams } = {}) {
 
 const vfx = createVfxSystem({
   seed: ${state.seed},
-  preset: '${state.presetId}',${settings}
+  style: '${state.styleId}',${settings}
   heightAt: world?.collision?.groundHeight, // optional: fireball ground hits
 });
 scene.add(vfx.root);

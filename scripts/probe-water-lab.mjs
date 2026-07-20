@@ -222,10 +222,11 @@ async function bootPage(url) {
   await context.close();
 }
 
-// --- 3. Preview-in-scene handoff (call_me_sensei: anime tone flows through) -----
+// --- 3. Preview-in-scene handoff (Call Me Sensei style × Lake preset) -----------
 {
   const { context, dataset, page } = await bootPage(`${BASE}/water-lab/?waterPreset=call_me_sensei`);
-  check('handoff: lab boots the call_me_sensei preset', dataset.waterTone === 'anime', dataset.waterTone);
+  check('handoff: lab boots the Call Me Sensei style',
+    dataset.waterStyle === 'call_me_sensei' && dataset.waterMode === 'lake', JSON.stringify(dataset));
   await page.click('[data-testid="preview-scene"]');
   await page.waitForURL('**/playground/**', { timeout: 30000 });
   await page.waitForFunction(
@@ -236,7 +237,8 @@ async function bootPage(url) {
   const play = await page.evaluate(() => ({ ...document.body.dataset }));
   check('handoff: playground water ready', play.waterReady === 'true', JSON.stringify(play).slice(0, 300));
   check('handoff: color tone flowed into the preview', play.waterTone === 'anime', play.waterTone);
-  check('handoff: preset flowed into the preview', play.waterMode === 'call_me_sensei', play.waterMode);
+  check('handoff: preset flowed into the preview', play.waterMode === 'lake', play.waterMode);
+  check('handoff: style flowed into the preview', play.waterStyle === 'call_me_sensei', play.waterStyle);
   await page.screenshot({ path: `${SHOT_DIR}/water-preview-scene.png`, timeout: 10000 }).catch(() => {});
   await context.close();
 }

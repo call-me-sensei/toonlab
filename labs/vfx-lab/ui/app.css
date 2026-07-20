@@ -28,7 +28,8 @@ body[data-hide-hud='true'] #app { display: none; }
   pointer-events: auto;
 }
 .vl-brand { font: var(--type-title); color: var(--text-secondary); padding-right: var(--space-3); border-right: 1px solid var(--border-subtle); }
-.vl-preset { width: 170px; }
+.vl-preset { width: 220px; display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); }
+.vl-preset > .tk-select { flex: 1; }
 .vl-seed { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--text-secondary); }
 .vl-topbar-spacer { flex: 1; }
 .vl-scene-select { width: 170px; }

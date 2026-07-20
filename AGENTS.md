@@ -7,6 +7,10 @@ emerges from the assembly: sky feeds water reflections, an aligned sun rig +
 three-layer fog set the palette, cloud shadows tie ground/canopy/water
 together. Skipping the assembly produces gray, flat, "programmer-art" scenes.
 
+For outdoor-world construction, tuning, or visual review, follow the shipped
+`agents/skills/codex/outdoor-world/SKILL.md` (or the matching Claude skill).
+It turns these guidelines into a repeatable build-and-QA workflow.
+
 ## Golden path — a full world in minutes
 
 ```js
@@ -18,14 +22,15 @@ import { createStylizedTerrain, createStylizedWorld } from '@call-me-sensei/toon
 const terrain = createStylizedTerrain({
   seed: 42,
   size: 1000,
-  archetype: 'terracedKarst', // 'lakeland' | 'alpine' | 'rollingPlains' | 'archipelago'
+  archetype: 'lushKarst', // default: rolling meadow + localized outcrops + dramatic rim
 });
 const terrainRoot = new THREE.Group();
 terrainRoot.add(terrain.root);
 scene.add(terrainRoot);
 
 // 2. Everything else: environment shading, aligned sun + shadows, sky,
-//    water, LOD forests, follow-window grass, cloud shadows, collision.
+//    water, clean LOD forests, instanced understory, follow-window grass,
+//    soft contact grounding, cloud shadows, collision.
 const world = await createStylizedWorld({
   renderer, scene, camera,
   terrain: { heightAt: terrain.heightAt, root: terrainRoot, size: terrain.meshExtent },
@@ -50,7 +55,11 @@ Character: `applyToonShader(root, { settings: createToonSettings({ preset:
 preset `call_me_sensei`; `post.render(delta)` replaces `renderer.render`.
 Minimap: `createWorldMinimap({ heightAt, size, waterLevel, onPick })` —
 call `minimap.setPlayer(x, z, heading)` per frame.
-Every cluster has a `default` and a studio-managed `call_me_sensei` preset.
+Every visual cluster has a `default` and studio-managed `call_me_sensei`
+**style**. Style is the IP-wide rendition axis and composes over asset/system
+presets (for example Rock `boulder` or Water `river`); it must never appear as
+one more asset/condition in a preset picker. Historical
+`preset: 'call_me_sensei'` calls remain compatibility aliases.
 
 ## Quality rules (validated against reference-class modern anime worlds)
 
@@ -58,31 +67,63 @@ Every cluster has a `default` and a studio-managed `call_me_sensei` preset.
   is HIGH (`sunDirection` y ≈ 0.8, warm-white); golden hour is LOW (y ≈ 0.4).
 - Three-layer atmosphere: scene.fog (set by createStylizedWorld) +
   environment heightFog (`heightFogColor` luminous blue [0.63,0.8,0.98],
-  density ≈ 0.0012–0.0016, falloff ≈ 400) + post depthCue (~0.3, blue).
+  density ≈ 0.00035–0.00065, falloff ≈ 400) + restrained post depthCue
+  (~0.1–0.2, blue). Aerial cameras use the bottom of that range.
   White or absent fog is the #1 giveaway of a bad scene. EVERY custom
   surface must join the height-fog layer or it reads as pasted on —
-  `createStylizedWorld` wires water and forest impostors automatically
+  `createStylizedWorld` wires water and forest far proxies automatically
   (`setDistanceFog`); lower the density per aerial view or flyovers gray out.
 - Cast shadows: terrain `castShadow = true`, near rocks both flags, forests
   `lod: { castShadow: true }` (only live near trees cast — correct).
 - Vividness is palette + saturation, not brightness: environment
-  `saturation ≈ 1.24`, `exposure ≈ 1.1`, `shadowTintColor [0.6,0.66,0.82]`,
+  `saturation ≈ 1.2`, `exposure ≈ 1.06`, `ambientStrength ≥ 0.3`,
+  `sunShadowStrength ≈ 0.72`, `shadowTintColor [0.68,0.74,0.94]`,
   saturated cerulean zenith, two-tone cumulus with blue-shaded bottoms,
   green-dominant canopy list with ONE gold accent variant (muddy autumn
   mixes read as confetti), turquoise water ramp.
-- Cluster forests with `createNoisePatchMask`; tree `size` 2.5–4.
+- Compose vegetation in three height layers: dense LOD canopy (preset spacing
+  <= 7 m), bounded instanced shrubs/rosettes, and dense moving-window grass.
+  Cluster with `createNoisePatchMask`, but reject a threshold/seed that leaves
+  the hero region as a map-sized empty lawn.
+- Far trees use the default instanced low-poly volumetric crown proxy; trunks
+  are near-LOD only so aerial forests never become rows of one-pixel ticks.
+  Never bake near-leaf sprites into billboards or add a horizontal aerial cap;
+  those paths create dirty speckles and giant color blobs between views.
 - Cliffs: steep faces need material, not flat paint — set
   `material.userData.envTriplanarMap` (painted stone tile) +
-  `triplanarDetail: 1`, `triplanarDetailScale ≈ 14`,
+  `triplanarDetail: 1`, `triplanarDetailScale ≈ 28`,
   `triplanarEdgeHighlight` for painted lip highlights; keep per-vertex
   paint LOW-frequency (bands finer than the mesh grid alias into zigzag
   triangles) and gate meadow/gold paint hard by slope.
+- `createStylizedTerrain()` already supplies warm, horizontally banded
+  limestone with dark mineral seams as its triplanar cliff map. Do not replace
+  it with a low-contrast gray noise tile. Custom terrain must supply geology
+  of comparable contrast through `envTriplanarMap`.
+- `createStylizedTerrain()` defaults to `lushKarst`: green rolling land with
+  localized mossed outcrops, mountain-gated terraces, a dramatic karst rim,
+  shipped high-floor `envVertexAo`, and one deterministic castle silhouette.
+  Wall-to-wall bare karst is not the default.
+- Grounding stays luminous: generated terrain/rock AO is baked, while the
+  composed world adds one cool instanced contact field at opacity <= 0.18.
+  Never fake AO with opaque black decals.
+- Motion streaks for gliders, vehicles, dashes, or fauna use
+  `createMotionTrails({ target, anchors })`: its default is speed-gated,
+  0.2-second, narrow, translucent, and tapered at both ends. Never model
+  always-on trails as long constant-width white boxes or cylinders.
+- Objective/checkpoint rings use `createGlowRing()`: an open torus core,
+  restrained torus halo, and local shadow-free point glow. Never put a filled
+  plane/circle behind a large hoop; transparency over that screen area is a
+  veil, not atmosphere. Call `ring.update(delta, camera)` so near rings fade
+  before they dominate the screen.
+- Preserve Ambient FX's cutout near fade: petals/leaves within 0.45–1.35 m of
+  the camera collapse instead of becoming screen-sized pink/orange blobs.
 - Never let ground hover within ±1.6 m of water level over large areas
   (broken water slivers); end the map in a hazy mountain rim;
   `frustumCulled = false` on world-scale meshes.
-- Budgets: trees ≤ 3,000 via `StylizedForest` (16-vert billboard far LOD —
-  pass `renderer` or you get the expensive legacy path), grass ≤ 320k
-  blades in a follow window, startup < 10 s. Give every repeated mesh set
+- Budgets: trees ≤ 3,000 via `StylizedForest` (volumetric far proxy —
+  pass `renderer` or you get the expensive legacy path), grass ≤ 155k
+  blades in a follow window, understory ≤ 2,400 shrubs + 6,200 rosettes,
+  startup < 10 s. Give every repeated mesh set
   (rocks, cliff decor) a hi/lo distance LOD using TRUE 3D distance so
   aerial cameras demote everything. Exclude above-water dressing from
   water passes: `userData.waterExclude` (all passes) or
@@ -179,7 +220,7 @@ the world's fog/wind/cloud-shadow automatically.
 
 Weather (`/weather`) is a cross-system coordinator, not an environment
 catch-all: `createStylizedWorld({ weather: { preset: 'snow' } })`, then
-`world.setWeather('thunderstorm', { duration: 4 })`. Its 22 shared presets
+`world.setWeather('thunderstorm', { duration: 4 })`. Its 21 shared conditions
 drive sky/sun/fog/cloud shadows, wind across vegetation/fauna/ambient FX,
 one-draw GPU rain/snow/sleet/hail/dust, water waves/ripples, lightning and
 thunder events. Surface `{ wetness, snowCover, ice }` values are host-facing
@@ -187,7 +228,7 @@ outputs for custom terrain/prop/character materials. Labs should read
 `getWeatherPresetOptions()` rather than maintaining a private condition list.
 
 Gameplay VFX (`/vfxgen`): event-driven combat/movement effects, spawned at
-gameplay moments (not a world option) — `createVfxSystem({ seed, preset,
+gameplay moments (not a world option) — `createVfxSystem({ seed, style,
 heightAt })` then `vfx.spawn('slash' | 'impact' | 'fireball' | 'footstep' |
 'landing', { at | follow, power, look })` and `vfx.update(delta, camera)`
 per frame. All bursts share TWO draw calls; slash trails / fireball cores
@@ -200,8 +241,8 @@ phase-based motions whose event tracks fire the VFX at the right beats
 (plunge = the full crouch→leap→dive→landfall decomposition); weapon weight
 scales timing and hit power. Design interactively in the VFX Lab
 (`/vfx-lab/`): weapon picker + move triggers + schema panels, exports a
-recipe (preset + seed + overrides) that drops straight into `createVfxSystem`.
-The `call_me_sensei` preset targets the reference action-RPG hit language
+recipe (style + seed + overrides) that drops straight into `createVfxSystem`.
+The `call_me_sensei` VFX style targets the reference action-RPG hit language
 (smooth gradient arcs, four-point star + shockwave circle per hit,
 hard-saturated pyro fireball). Demo loop: `examples/vfx-arena/`.
 
@@ -228,22 +269,32 @@ look; pass a dry-land `mask` so dressing never marches into water.
 | Looks like | Cause → fix |
 |---|---|
 | Terrain gray/flat | environment shader never applied → put meshes under `terrain.root` |
-| Distant trees sharp saturated dots on hazed mountains | surface missing the height-fog layer → update ToonLab (impostors/water auto-wired via `setDistanceFog`); custom surfaces must join it |
+| Distant trees sharp saturated dots on hazed mountains | surface missing the height-fog layer → update ToonLab (far proxies/water auto-wired via `setDistanceFog`); custom surfaces must join it |
 | Distant water bright band "cutting into" mountains | same fog-layer mismatch → `waterSurface.setDistanceFog({ color, density })` |
 | Giant white "iceberg" wedges at far shorelines | outdated ToonLab (swash film climbed steep banks) → update |
 | Full-detail trees popping in aerial views | LOD by horizontal distance → update ToonLab (3D distance) |
 | Gold/orange tree with green-shadow or pink-crown leaves | outdated ToonLab (palette derivation broke on warm hues) → update |
-| Billboards upside down / trunk-up | render-target bakes are written top-down → update ToonLab |
+| Giant green/orange tree blobs | obsolete billboard ellipse/top-cap LOD → update ToonLab; current far trees are volumetric proxies |
 | Trees like confetti from the air | uniform scatter → `createNoisePatchMask`; palette too mixed → green-dominant + one gold |
 | White valley blotches | white height fog → sky-blue `heightFogColor` |
 | Fog has no effect | `heightFogFalloff` too small → ≈ 400 |
 | Everything pale/gray from the air | one fog density for all views → lower `heightFogDensity` for aerial cameras (terrain uniforms + `water/forest.setDistanceFog`) |
 | Cliff walls flat, untextured up close | planar UVs stretch on walls → `envTriplanarMap` + `triplanarDetail` |
 | Zigzag triangles on cliff walls | per-vertex paint finer than the grid, or hue bleeding through stone → low-frequency bands; luminance-only tint is built in |
+| Herringbone/moire on close cliffs | ground and cliff textures projected together, or band scale too small → use one dedicated cliff triplanar map at world scale (~28 m), with mipmaps and restrained contrast |
 | Flat light, no shadows | vertical/misaligned sun, nothing casts → align sun, enable castShadow |
+| Shadows are pitch-black holes | no indirect floor before shadow tint → use the composed `outdoorGameplay` / `call_me_sensei` defaults (`ambientStrength ≥ 0.3`, `sunShadowStrength ≈ 0.72`); tint cannot lift a zero light value |
+| Cliffs look like pale putty | low-contrast/no-geology triplanar map → use generated terrain's built-in limestone strata or provide a warm banded `envTriplanarMap`; keep `triplanarDetail: 1` |
+| Trees have black broccoli undersides/bases | shadow palette or far proxy colors too dark → use the `call_me_sensei` tree + vegetation shader and `outdoorGameplay` LOD; warm bark and lifted canopy/bark floors are coupled |
+| Grass looks sparse or pops away | low density or tiny static patch → use the `outdoorGameplay` moving window (18 blades/m², 52 m radius, soft fade, bounded 150k budget) |
+| Flight streaks look like rigid white poles | bespoke always-on boxes → use `createMotionTrails`; keep the default speed gate, short lifetime, opacity, and two-ended taper |
+| Valley lighting looks frozen/uniform | cloud field disabled or too weak → keep Call Me Sensei Weather active and call `world.update(delta)`; signature defaults use broad moving cloud pools at ~0.52 strength |
+| Water looks milky/powder blue | pale deep band plus broad soft reflections → use Call Me Sensei water; it keeps deeper blue body color, reflection ≤ 0.5, detail normals, and low lake wave life |
+| Ring reads as a giant teal veil | filled halo quad/disc or no screen guard → use `createGlowRing()` and call `ring.update(delta, camera)` |
+| Pink/orange particle fills the screen | petal/leaf near fade disabled → restore the default cutout near fade |
 | Mountains vanish when centered | frustum culling on displaced meshes → `frustumCulled = false` |
 | Minute-long startup | unique tree per placement → `StylizedForest` |
-| ~20 fps in a big world | full-res meshes in every water pass → billboard forests (pass `renderer`), hi/lo rock LOD, `waterExclude`/`waterGrabExclude`, pass scales, `?dpr=1` on retina |
+| ~20 fps in a big world | full-res meshes in every water pass → volumetric forest proxies (pass `renderer`), hi/lo rock LOD, `waterExclude`/`waterGrabExclude`, pass scales, `?dpr=1` on retina |
 | Character walks through rocks/trees | blockers unregistered → `world.collision.addCircles([{x,z,radius}])` + `world.collision.resolve(character.position, 0.35)` per frame (trunks are pre-registered) |
 | Character floats over/sinks into water | float on `water.getHeightAt(x, z)` with chest at the waterline; calm swim default, fast stroke on Shift, `action.timeScale = clamp(speed/1.7, 0.75, 1.35)` |
 

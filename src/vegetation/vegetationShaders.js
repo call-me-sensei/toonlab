@@ -510,11 +510,29 @@ registerVegetationShaderPreset('call_me_sensei', {
   description: 'Studio-managed signature vegetation treatment.',
   label: 'Call Me Sensei',
   settings: {
-    bark: { bandCount: 3, shadowFloor: 0.42 },
+    bark: { bandCount: 3, shadowFloor: 0.58, skyFillStrength: 0.12 },
     flower: { unlitPetalLift: 0.4 },
-    foliage: { backlitStrength: 0.45, cloudShadowResponse: 0.4, sceneShadowResponse: 0.6 },
-    grass: { backlitStrength: 0.5, cloudShadowResponse: 0.45 },
-    lighting: { shadowTint: [0.34, 0.36, 0.6] },
+    foliage: {
+      backlitStrength: 0.5,
+      cloudShadowResponse: 0.68,
+      crownOcclusionStrength: 0.1,
+      sceneShadowResponse: 0.48,
+    },
+    grass: {
+      backlitStrength: 0.52,
+      cloudShadowResponse: 0.62,
+      rootOcclusionStrength: 0.27,
+      sceneShadowResponse: 0.56,
+      shadowFloor: 0.52,
+    },
+    lighting: {
+      rimStrength: 0.16,
+      shadowTint: [0.72, 0.8, 1.0],
+      shadowTintStrength: 0.42,
+      skyFillStrength: 0.16,
+    },
+    stem: { shadowFloor: 0.56, skyFillStrength: 0.1 },
+    thinSurface: { transmissionShadowFloor: 0.55 },
   },
 });
 
@@ -982,11 +1000,11 @@ export const VEGETATION_SHADERS = Object.freeze([
 for (const master of VEGETATION_SHADERS) master.registerPreset('default', { label: 'Default' });
 FOLIAGE_SHADER.registerPreset('call_me_sensei', {
   label: 'Call Me Sensei',
-  settings: { backlitStrength: 0.45, cloudShadowStrength: 0.4, sceneShadowStrength: 0.6 },
+  settings: { backlitStrength: 0.5, cloudShadowStrength: 0.68, sceneShadowStrength: 0.48 },
 });
 GRASS_SHADER.registerPreset('call_me_sensei', {
   label: 'Call Me Sensei',
-  settings: { backlitStrength: 0.5, cloudShadowStrength: 0.45, shadowTint: [0.34, 0.36, 0.6] },
+  settings: { backlitStrength: 0.52, cloudShadowStrength: 0.62, shadowTint: [0.72, 0.8, 1] },
 });
 FLOWER_SHADER.registerPreset('call_me_sensei', {
   label: 'Call Me Sensei',
@@ -994,7 +1012,7 @@ FLOWER_SHADER.registerPreset('call_me_sensei', {
 });
 BARK_SHADER.registerPreset('call_me_sensei', {
   label: 'Call Me Sensei',
-  settings: { bandCount: 3, shadowFloor: 0.42 },
+  settings: { bandCount: 3, shadowFloor: 0.58 },
 });
 
 export const createFoliageShaderSettings = FOLIAGE_SHADER.createSettings;

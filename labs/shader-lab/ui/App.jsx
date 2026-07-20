@@ -98,7 +98,7 @@ function PresetRow({ actions, state }) {
   ];
   const isLocal = state.localPresets.some((entry) => entry.id === state.presetId);
   return (
-    <PresetRowShell title="The toon preset you are editing — switching replaces every shader value.">
+    <PresetRowShell label="Style" title="The IP-wide character rendering style — switching replaces every shader value.">
       <Select
         onChange={(id) => { if (id) actions.applyPreset(id); }}
         options={options}

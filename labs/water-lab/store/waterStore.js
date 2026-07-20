@@ -9,7 +9,10 @@ import {
   createWaterPresetDocument,
   createWaterSettings,
   getWaterPresetOptions,
+  getWaterStyleOptions,
   parseWaterPresetDocument,
+  rebaseWaterSettingsStyle,
+  resolveWaterStyleName,
   sanitizeWaterPresetSettings,
   serializeWaterPreset,
 } from '../../../src/water/index.js';
@@ -26,6 +29,7 @@ import { waterStageOverrides } from './waterStageSettings.js';
 
 const UNDO_LIMIT = 50;
 const HISTORY_COALESCE_MS = 500;
+const DEFAULT_WATER_LAB_STYLE = 'call_me_sensei';
 
 function slug(value) {
   return String(value || 'water').toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
@@ -44,6 +48,10 @@ function localPreset(id) {
   return loadLocalWaterPresets().find((entry) => entry.id === id) ?? null;
 }
 
+function builtinStyle(id) {
+  return getWaterStyleOptions().find((entry) => entry.id === id) ?? null;
+}
+
 function bootDocument(urlParams) {
   // Shared/bookmarked document: ?waterDoc=<preset document JSON>.
   const encoded = urlParams.get('waterDoc');
@@ -54,30 +62,52 @@ function bootDocument(urlParams) {
         bootSource: 'url',
         name: result.value.label || 'Shared water',
         presetId: null,
+        styleId: 'default',
         settings: createWaterSettings(result.value.settings),
       };
     }
   }
-  // "Edit in Water Lab" from the playground preview scene.
-  const handoff = takeLabHandoff('water-lab-import');
-  if (handoff?.settings) {
-    return {
-      bootSource: 'handoff',
-      name: 'Playground water',
-      presetId: handoff.preset ?? null,
-      settings: createWaterSettings({ preset: handoff.preset ?? undefined, ...handoff.settings }),
-    };
+  const hasExplicitStart = ['waterPreset', 'waterMode', 'waterScenario', 'waterStyle']
+    .some((key) => urlParams.has(key));
+  if (!hasExplicitStart) {
+    // "Edit in Water Lab" from the playground preview scene.
+    const handoff = takeLabHandoff('water-lab-import');
+    if (handoff?.settings) {
+      return {
+        bootSource: 'handoff',
+        name: 'Playground water',
+        presetId: handoff.preset ?? null,
+        styleId: resolveWaterStyleName(handoff.style ?? handoff.settings?.style),
+        settings: createWaterSettings({
+          preset: handoff.preset ?? undefined,
+          style: handoff.style ?? handoff.settings?.style,
+          ...handoff.settings,
+        }),
+      };
+    }
+    const saved = loadWaterDocument();
+    if (saved) return { ...saved, bootSource: 'persisted' };
   }
-  const saved = loadWaterDocument();
-  if (saved) return { ...saved, bootSource: 'persisted' };
-  const preset = urlParams.get('waterPreset') || urlParams.get('waterMode') || 'lake';
-  const known = builtinPreset(preset);
+  const requestedPreset = urlParams.get('waterPreset') || urlParams.get('waterMode') || 'lake';
+  const legacyStyle = builtinStyle(requestedPreset)?.id ?? null;
+  const preset = legacyStyle
+    ? (urlParams.get('waterScenario') || 'lake')
+    : requestedPreset;
+  const knownBuiltin = builtinPreset(preset);
+  const knownLocal = knownBuiltin ? null : localPreset(preset);
+  const known = knownBuiltin ?? knownLocal;
   const presetId = known ? known.id : 'lake';
+  const styleId = resolveWaterStyleName(
+    urlParams.get('waterStyle') ?? legacyStyle ?? DEFAULT_WATER_LAB_STYLE,
+  );
   return {
-    bootSource: 'fresh',
+    bootSource: hasExplicitStart ? 'url' : 'fresh',
     name: known ? known.label : 'Untitled water',
     presetId: known ? known.id : null,
-    settings: createWaterSettings({ preset: presetId, ...stageOrientation(presetId) }),
+    styleId,
+    settings: knownLocal
+      ? createWaterSettings({ ...knownLocal.settings, style: styleId })
+      : createWaterSettings({ preset: presetId, style: styleId, ...stageOrientation(presetId) }),
   };
 }
 
@@ -85,7 +115,7 @@ export function createWaterStore({ urlParams = new URLSearchParams(window.locati
   const boot = bootDocument(urlParams);
   const bootStage = STAGE_BY_PRESET[boot.presetId] ?? 'shore';
   const bootBase = builtinPreset(boot.presetId)
-    ? createWaterSettings({ preset: boot.presetId })
+    ? createWaterSettings({ preset: boot.presetId, style: boot.styleId })
     : boot.settings;
   // Persisted documents predate the Ground contract and can contain an
   // offshore wave direction while reopening directly on Beach. Normalize
@@ -111,7 +141,10 @@ export function createWaterStore({ urlParams = new URLSearchParams(window.locati
     presetDirty: false,
     presetId: boot.presetId,
     settings: boot.settings,
-    status: boot.bootSource === 'fresh' ? '' : boot.bootSource === 'handoff' ? 'Imported the playground water.' : 'Restored your last water.',
+    styleId: resolveWaterStyleName(boot.styleId),
+    status: boot.bootSource === 'handoff'
+      ? 'Imported the playground water.'
+      : boot.bootSource === 'persisted' ? 'Restored your last water.' : '',
     view: {
       debug: 'off',
       fish: 30,
@@ -130,10 +163,16 @@ export function createWaterStore({ urlParams = new URLSearchParams(window.locati
     presetDirty: state().presetDirty,
     presetId: state().presetId,
     settings: state().settings,
+    styleId: state().styleId,
   });
 
   function persist() {
-    saveWaterDocument({ name: state().name, presetId: state().presetId, settings: state().settings });
+    saveWaterDocument({
+      name: state().name,
+      presetId: state().presetId,
+      settings: state().settings,
+      styleId: state().styleId,
+    });
   }
 
   function pushHistory(key = null) {
@@ -173,9 +212,20 @@ export function createWaterStore({ urlParams = new URLSearchParams(window.locati
     }, { immediate: true, status: 'History restored.' });
   }
 
-  function replaceForStart(settings, { name, presetId = null, status }) {
+  function replaceForStart(settings, {
+    name,
+    presetId = null,
+    status,
+    styleId = state().styleId,
+  }) {
     pushHistory();
-    store.setState({ bootSource: 'started', name, presetDirty: false, presetId });
+    store.setState({
+      bootSource: 'started',
+      name,
+      presetDirty: false,
+      presetId,
+      styleId: resolveWaterStyleName(styleId),
+    });
     commit({ settings }, { immediate: true, status });
   }
 
@@ -184,9 +234,11 @@ export function createWaterStore({ urlParams = new URLSearchParams(window.locati
     applyPreset(id) {
       const builtin = builtinPreset(id);
       if (builtin) {
-        replaceForStart(createWaterSettings({ preset: id, ...stageOrientation(id) }), {
+        const styleId = state().styleId;
+        replaceForStart(createWaterSettings({ preset: id, style: styleId, ...stageOrientation(id) }), {
           name: builtin.label,
           presetId: id,
+          styleId,
           status: `Opened ${builtin.label}.`,
         });
         const stage = STAGE_BY_PRESET[id];
@@ -195,9 +247,10 @@ export function createWaterStore({ urlParams = new URLSearchParams(window.locati
       }
       const local = localPreset(id);
       if (local) {
-        replaceForStart(createWaterSettings(local.settings), {
+        replaceForStart(createWaterSettings({ ...local.settings, style: state().styleId }), {
           name: local.label,
           presetId: id,
+          styleId: state().styleId,
           status: `Opened ${local.label}.`,
         });
         return true;
@@ -227,6 +280,7 @@ export function createWaterStore({ urlParams = new URLSearchParams(window.locati
       return {
         preset: state().presetId,
         settings: sanitizeWaterPresetSettings(state().settings),
+        style: state().styleId,
       };
     },
 
@@ -235,6 +289,7 @@ export function createWaterStore({ urlParams = new URLSearchParams(window.locati
       if (!result.ok) return result;
       replaceForStart(createWaterSettings(result.value.settings), {
         name: result.value.label || 'Imported water',
+        styleId: 'default',
         status: `Imported ${result.value.label || 'water preset'}.`,
       });
       return result;
@@ -248,8 +303,10 @@ export function createWaterStore({ urlParams = new URLSearchParams(window.locati
 
     resetLab() {
       clearWaterDocument();
-      replaceForStart(createWaterSettings({ preset: 'lake' }), {
+      replaceForStart(createWaterSettings({ preset: 'lake', style: DEFAULT_WATER_LAB_STYLE }), {
         name: 'Untitled water',
+        presetId: 'lake',
+        styleId: DEFAULT_WATER_LAB_STYLE,
         status: 'Water Lab reset.',
       });
     },
@@ -301,13 +358,28 @@ export function createWaterStore({ urlParams = new URLSearchParams(window.locati
       store.setState({ status: String(status || '') });
     },
 
+    setStyle(id) {
+      const style = builtinStyle(id);
+      if (!style) return false;
+      const current = state();
+      const preset = builtinPreset(current.presetId);
+      const settings = rebaseWaterSettingsStyle(current.settings, style.id);
+      replaceForStart(settings, {
+        name: current.name,
+        presetId: current.presetId,
+        styleId: style.id,
+        status: `Applied ${style.label} across ${preset?.label ?? current.name}.`,
+      });
+      return true;
+    },
+
     setView(patch) {
       const current = state();
       const nextStage = patch.stage;
       if (nextStage && nextStage !== current.view.stage) {
         const builtin = builtinPreset(current.presetId);
         const baseSettings = builtin
-          ? createWaterSettings({ preset: builtin.id })
+          ? createWaterSettings({ preset: builtin.id, style: current.styleId })
           : current.settings;
         const stageSettings = waterStageOverrides(nextStage, baseSettings);
         pushHistory('view:stage');

@@ -83,6 +83,14 @@ export function registerVfxPreset(name, preset = {}, { overwrite = false } = {})
   return { description: entry.description, id, label: entry.label };
 }
 
+/**
+ * Preferred style-axis name. `registerVfxPreset` remains the compatibility
+ * API because VFX looks were historically called presets.
+ */
+export function registerVfxStyle(name, style = {}, options = {}) {
+  return registerVfxPreset(name, style, options);
+}
+
 /** Lists registered presets as `{ id, label, description }` (for HUDs). */
 export function getVfxPresetOptions() {
   return Array.from(vfxPresetRegistry.entries()).map(([id, preset]) => ({
@@ -92,7 +100,23 @@ export function getVfxPresetOptions() {
   }));
 }
 
+/** Lists IP-wide VFX styles. Effect ids (slash, impact, fireball, …) stay separate. */
+export function getVfxStyleOptions() {
+  return getVfxPresetOptions();
+}
+
+/** Resolves a style id without letting an unknown id masquerade as a preset. */
+export function resolveVfxStyleName(name) {
+  const id = String(name ?? 'default').trim();
+  return vfxPresetRegistry.has(id) ? id : 'default';
+}
+
 /** Nested settings partial for a preset name; `{}` for unknown names. */
 export function resolveVfxPreset(name) {
   return vfxPresetRegistry.get(name)?.settings ?? {};
+}
+
+/** Preferred style-axis resolver; unknown ids fall back to the Default style. */
+export function resolveVfxStyle(name) {
+  return resolveVfxPreset(resolveVfxStyleName(name));
 }

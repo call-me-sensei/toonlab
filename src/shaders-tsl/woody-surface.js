@@ -33,6 +33,19 @@ import {
   tagVegetationRole,
 } from './chunks/vegetation-style.js';
 
+function resolveSrgbColor(value, fallback) {
+  if (value?.isColor) return value.clone();
+  if (Array.isArray(value) && value.length >= 3) {
+    return new THREE.Color().setRGB(
+      Number(value[0]) || 0,
+      Number(value[1]) || 0,
+      Number(value[2]) || 0,
+      THREE.SRGBColorSpace,
+    );
+  }
+  return new THREE.Color(value ?? fallback);
+}
+
 export function createWoodySurfaceNodeMaterial({
   color = 0xc9ab8a,
   height = 1,
@@ -40,7 +53,7 @@ export function createWoodySurfaceNodeMaterial({
   vegetationShader = null,
 } = {}) {
   const u = {
-    uBaseColor: uniform(new THREE.Color(color)),
+    uBaseColor: uniform(resolveSrgbColor(color, 0xc9ab8a)),
     uHeight: uniform(Math.max(Number(height) || 1, 1e-3)),
     uSkyColor: uniform(new THREE.Color().setRGB(0.72, 0.87, 1, THREE.SRGBColorSpace)),
     uSunColor: uniform(new THREE.Color().setRGB(1, 0.96, 0.86, THREE.SRGBColorSpace)),

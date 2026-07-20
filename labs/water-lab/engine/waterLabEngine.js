@@ -633,6 +633,7 @@ export function createWaterLabEngine({ mount, store }) {
 
   function mirrorDataset(settings) {
     document.body.dataset.waterMode = settings.mode;
+    document.body.dataset.waterStyle = settings.style;
     document.body.dataset.waterTone = settings.colorTone;
     document.body.dataset.waterLevel = settings.waterLevel.toFixed(3);
     document.body.dataset.waterStage = stageId;

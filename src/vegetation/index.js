@@ -10,6 +10,8 @@ export * from './treeRecipe.js';
 export * from './treeExport.js';
 export * from './scatter.js';
 export * from './stylizedForest.js';
+export * from './stylizedUnderstory.js';
+export * from './contactShadowField.js';
 export * from './vegetationShaders.js';
 export * from './grassPalettes.js';
 export * from '../shaders-tsl/grass.js';

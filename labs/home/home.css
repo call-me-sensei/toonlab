@@ -51,99 +51,6 @@ a {
   text-decoration: none;
 }
 
-/* ---------- header ---------- */
-
-.home-header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding: 14px 28px;
-  background: rgb(11 12 15 / 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border-bottom: 1px solid var(--tl-line);
-}
-
-.home-brand {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.home-brand-mark {
-  display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  background: var(--tl-accent);
-  color: #fff;
-  font-family: var(--tl-font-jp);
-  font-size: 17px;
-  font-weight: 900;
-  clip-path: polygon(0 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%);
-}
-
-.home-brand-word {
-  font-family: var(--tl-font-display);
-  font-weight: 900;
-  font-size: 16px;
-  letter-spacing: 0.16em;
-}
-
-.home-brand-tag {
-  font-family: var(--tl-font-mono);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  color: var(--tl-ink-3);
-  border: 1px solid var(--tl-line-bright);
-  padding: 2px 7px;
-  text-transform: uppercase;
-}
-
-.home-nav {
-  display: flex;
-  align-items: center;
-  gap: 26px;
-}
-
-.home-nav a {
-  position: relative;
-  font-family: var(--tl-font-display);
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--tl-ink-2);
-  transition: color var(--tl-dur-1) var(--tl-ease);
-}
-
-.home-nav a::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -5px;
-  height: 2px;
-  background: var(--tl-accent);
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform var(--tl-dur-2) var(--tl-ease-sharp);
-}
-
-.home-nav a:hover,
-.home-nav a[aria-current="page"] {
-  color: var(--tl-ink-1);
-}
-
-.home-nav a:hover::after,
-.home-nav a[aria-current="page"]::after {
-  transform: scaleX(1);
-}
-
 /* ---------- page frame ---------- */
 
 .home-main {
@@ -429,14 +336,6 @@ a {
 }
 
 @media (max-width: 640px) {
-  .home-header {
-    padding: 12px 16px;
-  }
-
-  .home-nav {
-    gap: 16px;
-  }
-
   .home-main {
     padding: 36px 16px 60px;
   }

@@ -229,19 +229,20 @@ export const ROCK_SURFACE_TEXTURE_PRESETS = Object.freeze({
     }),
   }),
   limestone: Object.freeze({
-    description: 'Pale chalky patches with soft mineral clouding.',
+    description: 'Warm sediment bands, chalky shelves, and dark limestone seams.',
     label: 'Limestone',
     surface: Object.freeze({
-      baseColor: Object.freeze([0.63, 0.6, 0.52]),
-      cavityColor: Object.freeze([0.38, 0.34, 0.28]),
+      baseColor: Object.freeze([0.6, 0.51, 0.39]),
+      cavityColor: Object.freeze([0.25, 0.21, 0.17]),
       colorNoise: 0.045,
       lichenCoverage: 0.14,
       mossCoverage: 0,
-      stainStrength: 0.08,
-      textureScale: 1.25,
-      textureStrength: 0.28,
+      stainColor: Object.freeze([0.62, 0.39, 0.2]),
+      stainStrength: 0.16,
+      textureScale: 1.35,
+      textureStrength: 0.58,
       textureStyle: 'limestone',
-      topColor: Object.freeze([0.78, 0.77, 0.68]),
+      topColor: Object.freeze([0.78, 0.72, 0.6]),
       veinStrength: 0.04,
     }),
   }),
@@ -375,7 +376,7 @@ export const ROCKGEN_QUALITY_PRESETS = Object.freeze({
  * {@link DEFAULT_ROCKGEN_MESHING_SETTINGS}; unknown names return the plain
  * defaults. Spread the result into a preset's `meshing`:
  *
- *   const preset = resolveRockgenPreset('call_me_sensei');
+ *   const preset = resolveRockgenPreset('boulder', { style: 'call_me_sensei' });
  *   preset.meshing = { ...preset.meshing, ...resolveRockgenQuality('gameplayHigh') };
  */
 export function resolveRockgenQuality(name) {

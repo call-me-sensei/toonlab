@@ -174,7 +174,7 @@ export function createGrassLabEngine({ mount, store }) {
     scene.add(grass);
     applySceneLightToGrass();
     applySceneStateToGrass();
-    store.actions.adoptEngineState({ bladeCount: placements.length });
+    store.actions.adoptEngineState({ bladeCount: grass.geometry.instanceCount });
     document.body.dataset.modelReady = 'true';
   }
 

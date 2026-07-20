@@ -24,7 +24,9 @@ import {
   createWaterSettings,
   extractBreakLineChains,
   getWaterPresetOptions,
+  getWaterStyleOptions,
   parseWaterPresetDocument,
+  rebaseWaterSettingsStyle,
   registerSerializedWaterPreset,
   sampleGerstnerSwellHeight,
   samplePrimarySwellCycle,
@@ -95,6 +97,8 @@ for (const name of WATER_PRESET_NAMES) {
 }
 check('preset picker lists the built-ins',
   WATER_PRESET_NAMES.every((name) => getWaterPresetOptions().some((option) => option.id === name)));
+check('Call Me Sensei is not listed as a water preset',
+  !getWaterPresetOptions().some((option) => option.id === 'call_me_sensei'));
 
 // --- tone override contract (the lab disables these fields in the UI) ---------------
 const tealTone = WATER_COLOR_TONES.teal;
@@ -119,7 +123,7 @@ const sanitized = sanitizeWaterPresetSettings(DEFAULT_WATER_SETTINGS);
 check('sanitize covers every schema key from the defaults',
   schemaKeys.every((key) => sanitized[key] !== undefined));
 check('sanitize drops preset/mode identity keys',
-  sanitized.preset === undefined && sanitized.mode === undefined);
+  sanitized.preset === undefined && sanitized.mode === undefined && sanitized.style === undefined);
 check('sanitize round-trips', deepEqual(sanitizeWaterPresetSettings(sanitized), sanitized));
 
 const custom = sanitizeWaterPresetSettings(createWaterSettings({
@@ -134,7 +138,44 @@ const document = createWaterPresetDocument('verify_suite_water', {
   settings: custom,
 });
 check('document creation normalizes type/version/id',
-  document.type === 'toonlab/water-preset' && document.version === 1 && document.id === 'verify_suite_water');
+  document.type === 'toonlab/water-preset' && document.version === 2 && document.id === 'verify_suite_water');
+
+// --- style × preset contract ---------------------------------------------------------
+{
+  const styles = getWaterStyleOptions();
+  check('water styles expose default and call_me_sensei',
+    styles.some((s) => s.id === 'default') && styles.some((s) => s.id === 'call_me_sensei'));
+  check('every water style reports coverage for every water preset',
+    styles.every((s) => deepEqual(Object.keys(s.presets), [...WATER_PRESET_NAMES])));
+  const cmsRiver = createWaterSettings({ preset: 'river', style: 'call_me_sensei' });
+  check('preset physics survive under every style',
+    Math.abs(cmsRiver.flowSpeed - 1.15) < 1e-9);
+  check('style identity composes over the preset',
+    cmsRiver.style === 'call_me_sensei' && cmsRiver.preset === 'river' && cmsRiver.colorTone === 'anime');
+  const defaultOcean = createWaterSettings({ preset: 'ocean', style: 'default' });
+  const legacyOcean = createWaterSettings({ preset: 'ocean' });
+  check('default style preserves preset recipes byte-for-byte',
+    deepEqual(
+      { ...defaultOcean, mode: null, preset: null, style: null },
+      { ...legacyOcean, mode: null, preset: null, style: null },
+    ));
+  const legacyCmsRiver = createWaterSettings({ preset: 'call_me_sensei', scenario: 'river' });
+  check('legacy style-as-preset calls remain compatible',
+    deepEqual(legacyCmsRiver, cmsRiver));
+  const customDefaultRiver = createWaterSettings({
+    preset: 'river',
+    style: 'default',
+    waveSpeed: 3.33,
+  });
+  const rebasedRiver = rebaseWaterSettingsStyle(customDefaultRiver, 'call_me_sensei');
+  check('style rebasing retains the asset preset and authored overrides',
+    rebasedRiver.preset === 'river'
+      && rebasedRiver.style === 'call_me_sensei'
+      && rebasedRiver.waveSpeed === 3.33);
+  check('style rebasing applies the new style instead of preserving a full old baseline',
+    rebasedRiver.colorTone === cmsRiver.colorTone
+      && deepEqual(rebasedRiver.deepColor, cmsRiver.deepColor));
+}
 const serialized = serializeWaterPreset(document);
 const parsed = parseWaterPresetDocument(serialized);
 check('serialize → parse round-trips ok', parsed.ok, parsed.errors.join(' '));
@@ -171,6 +212,11 @@ const runtimeWater = new WaterSurface({
   waveIntensity: 0.2,
   width: 1,
 });
+runtimeWater.setStyle('call_me_sensei');
+check('WaterSurface.setStyle applies the orthogonal style to its current preset',
+  runtimeWater.settings.preset === 'lake'
+    && runtimeWater.settings.style === 'call_me_sensei'
+    && runtimeWater.settings.waveIntensity === 0.2);
 const authoredWaterSnapshot = JSON.stringify(runtimeWater.settings);
 const baselineWaveEnergy = runtimeWater.waveEnergy;
 const weatherLayer = Symbol('verify-weather');

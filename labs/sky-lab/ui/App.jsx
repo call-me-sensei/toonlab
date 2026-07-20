@@ -23,6 +23,7 @@ import { SchemaGroup } from '../../shared/ui/schema/SchemaGroup.jsx';
 import { downloadBlob, pickFile } from '../../shared/download.js';
 import {
   getSkyPresetOptions,
+  getSkyScenarioOptions,
   SKY_QUALITY_OPTIONS,
   SKY_SETTING_FIELD_SCHEMA,
   SKY_SETTING_GROUPS,
@@ -54,30 +55,48 @@ function weatherLabel(id) {
 
 function PresetRow({ actions, state }) {
   const localIds = new Set(state.localPresets.map((entry) => entry.id));
+  const styleOptions = getSkyPresetOptions()
+    // Runtime registry entries remain valid after their browser-local
+    // document is deleted; hide that lab-local id from this picker.
+    .filter((entry) => !entry.id.startsWith('local_') || localIds.has(entry.id));
   const options = [
     ...(state.presetId === null ? [{ label: 'Custom…', value: '' }] : []),
-    ...getSkyPresetOptions()
-      // Runtime registry entries remain valid after their browser-local
-      // document is deleted; hide that lab-local id from this picker.
-      .filter((entry) => !entry.id.startsWith('local_') || localIds.has(entry.id))
-      .map((entry) => ({
-        label: localIds.has(entry.id) ? `${entry.label} · saved` : entry.label,
-        value: entry.value ?? entry.id,
-      })),
+    ...styleOptions.map((entry) => ({
+      label: localIds.has(entry.id) ? `${entry.label} · saved` : entry.label,
+      value: entry.value ?? entry.id,
+    })),
   ];
+  // A style covers every scenario; flag the ones it has not authored itself.
+  const coverage = styleOptions.find((entry) => entry.id === state.presetId)?.scenarios;
+  const scenarioOptions = getSkyScenarioOptions().map((scenario) => ({
+    label: coverage?.[scenario.id] === 'inherited'
+      ? `${scenario.label} · inherited`
+      : scenario.label,
+    value: scenario.id,
+  }));
   const isLocal = localIds.has(state.presetId);
   return (
-    <PresetRowShell title="The complete reusable sky-system preset. Switching replaces every authored sky value.">
-      <Select
-        onChange={(id) => { if (id) actions.applyPreset(id); }}
-        options={options}
-        testId="preset-select"
-        value={state.presetId ?? ''}
-      />
-      {isLocal && (
-        <IconButton icon="trash" label="Delete this saved sky" onClick={() => actions.deletePreset(state.presetId)} />
-      )}
-    </PresetRowShell>
+    <>
+      <PresetRowShell label="Style" title="The complete reusable sky-system preset is an IP-wide style resolved across every sky scenario.">
+        <Select
+          onChange={(id) => { if (id) actions.applyPreset(id); }}
+          options={options}
+          testId="preset-select"
+          value={state.presetId ?? ''}
+        />
+        {isLocal && (
+          <IconButton icon="trash" label="Delete this saved sky style" onClick={() => actions.deletePreset(state.presetId)} />
+        )}
+      </PresetRowShell>
+      <PresetRowShell label="Scenario" title="The current sky moment rendered through the selected IP style.">
+        <Select
+          onChange={(scenario) => actions.setScenario(scenario)}
+          options={scenarioOptions}
+          testId="scenario-select"
+          value={state.scenarioId}
+        />
+      </PresetRowShell>
+    </>
   );
 }
 

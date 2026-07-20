@@ -406,17 +406,23 @@ export function createEnvironmentNodeMaterial({
     // sides) keep the same texture density as the ground. A heightfield's
     // planar UVs compress an entire wall into a sliver of the map — up
     // close the wall reads as untextured flat paint. Opt-in: 0 disables.
-    If(u.triplanarDetail.greaterThan(0.0), () => {
-      const scale = max(u.triplanarDetailScale, 0.001);
-      const weights = pow(abs(normalWorld), vec3(4.0)).toVar();
-      const weightSum = max(weights.x.add(weights.y).add(weights.z), 0.0001);
-      const tri = tex.baseMap.sample(vWorldPosition.zy.div(scale)).rgb
-        .mul(weights.x)
-        .add(tex.baseMap.sample(vWorldPosition.xz.div(scale)).rgb.mul(weights.y))
-        .add(tex.baseMap.sample(vWorldPosition.xy.div(scale)).rgb.mul(weights.z))
-        .div(weightSum);
-      texel.rgb.assign(mix(texel.rgb, tri, clamp(u.triplanarDetail, 0.0, 1.0)));
-    });
+    // A dedicated cliff map owns steep-face texel density. Re-projecting the
+    // already highly tiled ground map underneath it creates competing axes at
+    // grazing angles — the close-range herringbone/moire failure. Only use the
+    // base-map fallback when the asset has no authored triplanar cliff map.
+    if (!textureSet.triplanarMap) {
+      If(u.triplanarDetail.greaterThan(0.0), () => {
+        const scale = max(u.triplanarDetailScale, 0.001);
+        const weights = pow(abs(normalWorld), vec3(4.0)).toVar();
+        const weightSum = max(weights.x.add(weights.y).add(weights.z), 0.0001);
+        const tri = tex.baseMap.sample(vWorldPosition.zy.div(scale)).rgb
+          .mul(weights.x)
+          .add(tex.baseMap.sample(vWorldPosition.xz.div(scale)).rgb.mul(weights.y))
+          .add(tex.baseMap.sample(vWorldPosition.xy.div(scale)).rgb.mul(weights.z))
+          .div(weightSum);
+        texel.rgb.assign(mix(texel.rgb, tri, clamp(u.triplanarDetail, 0.0, 1.0)));
+      });
+    }
     if (flags.useVertexColors) {
       // USE_COLOR / USE_COLOR_ALPHA: vertexColor() yields w = 1 for vec3
       // color attributes, so the alpha multiply is a no-op exactly when the
@@ -656,6 +662,10 @@ export function createEnvironmentNodeMaterial({
       });
     }
 
+    // Tint alone cannot rescue a zero-valued shaded surface: zero multiplied
+    // by a blue tint is still a black hole. Enforce an albedo-relative sky-lit
+    // floor first, then tint the remaining shade.
+    color.assign(max(color, albedo.mul(u.shadowLift).mul(0.58)));
     const liftedShadow = max(strongestLight, u.shadowLift);
     color.mulAssign(mix(u.shadowTintColor, vec3(1.0), liftedShadow));
 

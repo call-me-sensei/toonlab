@@ -4,9 +4,13 @@ import {
   DEBRIS_TYPES,
   DEBRIS_TYPE_DEFAULTS,
   DEBRIS_TYPE_FIELDS,
+  applyDebrisStyle,
   createDebrisRecipeDocument,
   createDebrisSettings,
   findDebrisPreset,
+  getDebrisStyleOptions,
+  rebaseDebrisSettingsStyle,
+  resolveDebrisStyleName,
   validateDebrisRecipeDocument,
 } from '../../../src/debrisgen/index.js';
 import {
@@ -19,6 +23,7 @@ import {
 
 const UNDO_LIMIT = 50;
 const HISTORY_COALESCE_MS = 500;
+const DEFAULT_DEBRIS_STYLE = 'call_me_sensei';
 const VARIANT_LAYOUT_DEFAULTS = Object.freeze({
   antler: Object.freeze({ count: 2, spread: 1.1 }),
   ashPile: Object.freeze({ count: 14, spread: 0.65 }),
@@ -68,22 +73,44 @@ function bootDocument(urlParams) {
     try {
       const document = JSON.parse(encoded);
       if (validateDebrisRecipeDocument(document).ok) {
+        const styleId = resolveDebrisStyleName(urlParams.get('debrisStyle'));
         return {
+          baseSettings: createDebrisSettings(document.settings),
           bootSource: 'url',
           name: document.name || 'Shared debris',
           presetId: null,
-          settings: createDebrisSettings(document.settings),
+          settings: applyDebrisStyle(document.settings, styleId),
+          styleId,
         };
       }
     } catch { /* fall through to persisted/fresh */ }
   }
+  const requestedPreset = urlParams.get('debrisPreset');
+  const legacyStyle = getDebrisStyleOptions().some((entry) => entry.id === requestedPreset)
+    ? requestedPreset
+    : null;
+  if (requestedPreset || urlParams.has('debrisStyle')) {
+    const presetId = legacyStyle ? 'bleached-driftwood' : requestedPreset;
+    const preset = findAnyPreset(presetId);
+    const styleId = resolveDebrisStyleName(urlParams.get('debrisStyle') ?? legacyStyle);
+    return {
+      baseSettings: createDebrisSettings(preset?.settings ?? createDebrisSettings()),
+      bootSource: 'url',
+      name: preset?.label ?? 'Untitled debris',
+      presetId: preset?.id ?? null,
+      settings: applyDebrisStyle(preset?.settings ?? createDebrisSettings(), styleId),
+      styleId,
+    };
+  }
   const saved = loadDebrisDocument();
   if (saved) return { ...saved, bootSource: 'persisted' };
   return {
+    baseSettings: createDebrisSettings(),
     bootSource: 'fresh',
     name: 'Untitled debris',
     presetId: null,
-    settings: createDebrisSettings(),
+    settings: applyDebrisStyle(createDebrisSettings(), DEFAULT_DEBRIS_STYLE),
+    styleId: DEFAULT_DEBRIS_STYLE,
   };
 }
 
@@ -95,6 +122,7 @@ export function createDebrisStore({ urlParams = new URLSearchParams(window.locat
   let lastHistoryTime = 0;
 
   const store = createStore({
+    baseSettings: createDebrisSettings(boot.baseSettings ?? boot.settings),
     bootSource: boot.bootSource,
     canRedo: false,
     canUndo: false,
@@ -106,20 +134,29 @@ export function createDebrisStore({ urlParams = new URLSearchParams(window.locat
     presetId: boot.presetId,
     settings: boot.settings,
     stage: 'type',
-    status: boot.bootSource === 'fresh' ? '' : 'Restored your last debris recipe.',
+    status: boot.bootSource === 'persisted' ? 'Restored your last debris recipe.' : '',
+    styleId: resolveDebrisStyleName(boot.styleId ?? 'default'),
     view: { drawer: false, export: false, gallery: boot.bootSource === 'fresh' },
   });
 
   const state = () => store.getState();
   const snapshot = () => JSON.stringify({
+    baseSettings: state().baseSettings,
     name: state().name,
     presetDirty: state().presetDirty,
     presetId: state().presetId,
     settings: state().settings,
+    styleId: state().styleId,
   });
 
   function persist() {
-    saveDebrisDocument({ name: state().name, presetId: state().presetId, settings: state().settings });
+    saveDebrisDocument({
+      baseSettings: state().baseSettings,
+      name: state().name,
+      presetId: state().presetId,
+      settings: state().settings,
+      styleId: state().styleId,
+    });
   }
 
   function pushHistory(key = null) {
@@ -140,8 +177,18 @@ export function createDebrisStore({ urlParams = new URLSearchParams(window.locat
   }
 
   function commit(patch, { immediate = false, reframe = false, status = null } = {}) {
+    const nextPatch = patch.settings && patch.baseSettings === undefined
+      ? {
+        ...patch,
+        baseSettings: rebaseDebrisSettingsStyle(patch.settings, {
+          baseSettings: state().baseSettings,
+          fromStyle: state().styleId,
+          toStyle: 'default',
+        }),
+      }
+      : patch;
     store.setState((previous) => ({
-      ...patch,
+      ...nextPatch,
       docRevision: previous.docRevision + 1,
       lastChange: { immediate, reframe },
       ...(status === null ? {} : { status }),
@@ -155,37 +202,51 @@ export function createDebrisStore({ urlParams = new URLSearchParams(window.locat
     const document = JSON.parse(entry);
     commit({
       ...document,
+      baseSettings: createDebrisSettings(document.baseSettings ?? document.settings),
       settings: createDebrisSettings(document.settings),
     }, { immediate: true, reframe: true, status: 'History restored.' });
   }
 
-  function replaceForStart(settings, { name, presetId = null, status }) {
+  function replaceForStart(settings, {
+    baseSettings = settings,
+    name,
+    presetId = null,
+    status,
+    styleId = state().styleId,
+  }) {
     pushHistory();
     store.setState({
+      baseSettings: createDebrisSettings(baseSettings),
       bootSource: 'started',
       name,
       presetDirty: false,
       presetId,
       stage: 'type',
+      styleId: resolveDebrisStyleName(styleId),
       view: { drawer: false, export: false, gallery: false },
     });
-    commit({ settings: createDebrisSettings(settings) }, { immediate: true, reframe: true, status });
+    commit({
+      baseSettings: createDebrisSettings(baseSettings),
+      settings: createDebrisSettings(settings),
+    }, { immediate: true, reframe: true, status });
   }
 
   store.actions = {
     applyPreset(id) {
       const preset = findAnyPreset(id);
       if (!preset) return false;
-      replaceForStart(preset.settings, {
+      replaceForStart(applyDebrisStyle(preset.settings, state().styleId), {
+        baseSettings: preset.settings,
         name: preset.label,
         presetId: preset.id,
+        styleId: state().styleId,
         status: `Opened ${preset.label}.`,
       });
       return true;
     },
 
     getRecipeDocument() {
-      return createDebrisRecipeDocument(state().settings, { name: state().name });
+      return createDebrisRecipeDocument(state().baseSettings, { name: state().name });
     },
 
     importRecipe(text) {
@@ -194,7 +255,9 @@ export function createDebrisStore({ urlParams = new URLSearchParams(window.locat
         const result = validateDebrisRecipeDocument(document);
         if (!result.ok) return result;
         replaceForStart(document.settings, {
+          baseSettings: document.settings,
           name: document.name || 'Imported debris',
+          styleId: 'default',
           status: `Imported ${document.name || 'debris recipe'}.`,
         });
         return { errors: [], ok: true };
@@ -237,8 +300,10 @@ export function createDebrisStore({ urlParams = new URLSearchParams(window.locat
 
     resetLab() {
       clearDebrisDocument();
-      replaceForStart(createDebrisSettings(), {
+      replaceForStart(applyDebrisStyle(createDebrisSettings(), DEFAULT_DEBRIS_STYLE), {
+        baseSettings: createDebrisSettings(),
         name: 'Untitled debris',
+        styleId: DEFAULT_DEBRIS_STYLE,
         status: 'Debris Lab reset.',
       });
     },
@@ -255,7 +320,7 @@ export function createDebrisStore({ urlParams = new URLSearchParams(window.locat
         description: 'Saved in this browser.',
         id,
         label: cleanName,
-        settings: createDebrisSettings(state().settings),
+        settings: createDebrisSettings(state().baseSettings),
         type: state().settings.asset.type,
         variant: state().settings.asset.variant,
       });
@@ -366,6 +431,23 @@ export function createDebrisStore({ urlParams = new URLSearchParams(window.locat
       store.setState({ status: String(status || '') });
     },
 
+    setStyle(id) {
+      const styleId = resolveDebrisStyleName(id);
+      if (!getDebrisStyleOptions().some((entry) => entry.id === styleId)) return false;
+      const current = state();
+      pushHistory();
+      const settings = rebaseDebrisSettingsStyle(current.settings, {
+        baseSettings: current.baseSettings,
+        fromStyle: current.styleId,
+        toStyle: styleId,
+      });
+      commit({ baseSettings: current.baseSettings, settings, styleId }, {
+        immediate: true,
+        status: `Applied ${getDebrisStyleOptions().find((entry) => entry.id === styleId)?.label ?? styleId} across this debris preset.`,
+      });
+      return true;
+    },
+
     setSurfaceColor(key, value) {
       const current = state().settings;
       pushHistory(`color:${key}`);
@@ -387,7 +469,7 @@ export function createDebrisStore({ urlParams = new URLSearchParams(window.locat
         name: `Untitled ${DEBRIS_TYPES[type].label.toLowerCase()}`,
         presetDirty: true,
         presetId: null,
-        settings: createDebrisSettings({
+        settings: applyDebrisStyle(createDebrisSettings({
           asset: {
             ...defaults.asset,
             arrangement: current.asset.arrangement,
@@ -400,7 +482,7 @@ export function createDebrisStore({ urlParams = new URLSearchParams(window.locat
           },
           shape: defaults.shape,
           surface: { ...current.surface, ...defaults.surface },
-        }),
+        }), state().styleId),
       }, { immediate: true, reframe: true, status: `Switched to ${DEBRIS_TYPES[type].label}.` });
     },
 
@@ -423,7 +505,10 @@ export function createDebrisStore({ urlParams = new URLSearchParams(window.locat
     },
 
     startFromScratch(type = 'wood') {
-      const defaults = createDebrisSettings({ asset: { count: 1, seed: 0, spread: 0, type } });
+      const defaults = applyDebrisStyle(
+        createDebrisSettings({ asset: { count: 1, seed: 0, spread: 0, type } }),
+        state().styleId,
+      );
       replaceForStart(defaults, {
         name: `Untitled ${DEBRIS_TYPES[type].label.toLowerCase()}`,
         status: 'Started from a single clean procedural piece.',
@@ -437,10 +522,10 @@ export function createDebrisStore({ urlParams = new URLSearchParams(window.locat
       const variant = variants[Math.floor(Math.random() * variants.length)].id;
       const presets = BUILT_IN_DEBRIS_PRESETS.filter((entry) => entry.type === type && entry.variant === variant);
       const base = presets[0]?.settings ?? createDebrisSettings({ asset: { type, variant } });
-      const settings = createDebrisSettings({
+      const settings = applyDebrisStyle(createDebrisSettings({
         ...base,
         asset: { ...base.asset, seed: randomSeed(), type, variant },
-      });
+      }), state().styleId);
       replaceForStart(settings, {
         name: `Random ${DEBRIS_TYPES[type].label.toLowerCase()}`,
         status: `Generated random ${DEBRIS_TYPES[type].label.toLowerCase()} debris.`,

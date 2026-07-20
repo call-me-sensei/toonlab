@@ -56,7 +56,7 @@ async function main() {
   root.add(ground);
   scene.add(root);
 
-  const sky = new StylizedSky({ preset: 'call_me_sensei' });
+  const sky = new StylizedSky({ style: 'call_me_sensei' });
   scene.add(sky);
 
   // buildings: one of each type (or ?type= isolates)

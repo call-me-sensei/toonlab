@@ -1,6 +1,7 @@
-// Style bundles — ONE named document that mixes and matches a preset per
-// system ("slot"): the toon look from one author, trees, grass, flowers and
-// water from others, sky, weather, environment, lighting and post on top.
+// Style bundles — ONE named document that mixes and matches an IP-wide style
+// per visual system ("slot"), plus explicit asset documents such as a tree
+// recipe. Asset/condition presets remain runtime state and are rendered
+// through these styles rather than being mistaken for styles themselves.
 // Labs and games reference a bundle
 // (a local JSON or a published toonlab.io slug) and get every system's
 // resolved settings in one call:
@@ -8,12 +9,13 @@
 //   import { fetchStyleBundle } from '@call-me-sensei/toonlab/styles';
 //   const { settings } = await fetchStyleBundle('sakura-dusk');
 //   applyToonShader(character, { settings: settings.toon });
-//   createWaterSurface({ settings: settings.water, ... });
+//   const water = new WaterSurface({ preset: 'river', ...settings.water });
 //
-// Each slot holds either { preset: '<built-in id>' } or { document: {…} } (a
-// full inline preset document of that system, self-contained). Publishing on
-// toonlab.io resolves any by-reference slots into inline documents, so a
-// fetched bundle always "has all the right ones" with zero further lookups.
+// New style selections serialize as { style: '<built-in id>' }. Historical
+// { preset: '<id>' } payloads remain accepted forever, including the
+// short-lived scenario-as-style encodings. A slot may instead hold
+// { document: {…} } (a full inline portable document) or { creation: '<id>' }.
+// Publishing on toonlab.io resolves references into inline documents.
 
 import {
   createToonSettings,
@@ -23,16 +25,21 @@ import {
 import {
   createWaterSettings,
   parseWaterPresetDocument,
+  resolveWaterStyleName,
   WATER_PRESET_DOCUMENT_TYPE,
 } from '../water/waterSettings.js';
 import { createWeatherSettings } from '../weather/weatherSettings.js';
 import {
   parseWeatherPresetDocument,
+  resolveWeatherPreset,
+  resolveWeatherStyleName,
   WEATHER_PRESET_DOCUMENT_TYPE,
 } from '../weather/weatherPresets.js';
 import { createEnvironmentSettings } from '../environment/environmentMaterialAdapter.js';
 import {
   ENVIRONMENT_PRESET_DOCUMENT_TYPE,
+  ENVIRONMENT_PRESET_ALIASES,
+  normalizeEnvironmentPresetName,
   resolveEnvironmentPreset,
   validateEnvironmentPresetDocument,
 } from '../environment/environmentPresets.js';
@@ -40,6 +47,8 @@ import { createPostProcessingSettings } from '../post/postProcessing.js';
 import {
   createSkySettings,
   parseSkyPresetDocument,
+  resolveSkyStyleName,
+  SKY_PRESET_ALIASES,
   SKY_PRESET_DOCUMENT_TYPE,
 } from '../sky/stylizedSky.js';
 import {
@@ -58,6 +67,14 @@ import {
   validateTreeRecipeDocument,
 } from '../vegetation/treeRecipe.js';
 import { resolveLightingLookPreset } from '../lighting/lightingPresets.js';
+import {
+  LIGHTING_STYLE_DOCUMENT_TYPE,
+  parseLightingStylePresetDocument,
+  resolveLightingStylePreset,
+} from '../lighting/lightingStyle.js';
+import { normalizeRockgenStyleName } from '../rockgen/rockgenPresets.js';
+import { resolveDebrisStyleName } from '../debrisgen/debrisPresets.js';
+import { resolveVfxStyleName } from '../vfxgen/vfxPresets.js';
 
 export const STYLE_BUNDLE_DOCUMENT_TYPE = 'toonlab/style-bundle';
 export const STYLE_BUNDLE_SCHEMA_VERSION = 1;
@@ -65,16 +82,21 @@ export const DEFAULT_STYLE_BUNDLE_BASE_URL = 'https://toonlab.io';
 
 /**
  * The bundle's slots: one per system, each resolving to that system's
- * settings object. `documentType` is the inline preset document type the
- * slot accepts (null = preset-id only), `resolve` turns the slot payload
- * into ready settings.
+ * settings or style-selection object. `selectionKind` distinguishes proper
+ * style selections from document-only slots. `documentType` is the inline
+ * portable document type the slot accepts (null = built-in style only).
  */
 export const STYLE_BUNDLE_SLOTS = Object.freeze({
   toon: Object.freeze({
     documentType: TOON_PRESET_DOCUMENT_TYPE,
     label: 'Character toon shading',
     parseDocument: parseToonPresetDocument,
-    resolve: (payload) => createToonSettings(payload),
+    selectionKind: 'style',
+    resolve: (payload) => {
+      if (payload.document) return createToonSettings(payload.document.settings);
+      const style = selectedStyleId(payload);
+      return withStyleIdentity(createToonSettings({ preset: style }), style);
+    },
   }),
   tree: Object.freeze({
     documentType: TREE_RECIPE_SCHEMA,
@@ -83,6 +105,7 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
     // the recipe document itself — hand it to createPlantFromRecipe(
     // settings.tree). No built-in preset ids: fill by document or creation.
     parseDocument: validateTreeRecipeDocument,
+    selectionKind: 'document',
     resolve: (payload) => {
       if (payload.document) return payload.document;
       throw new Error(
@@ -94,39 +117,93 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
     documentType: GRASS_PRESET_DOCUMENT_TYPE,
     label: 'Grass',
     parseDocument: parseGrassPresetDocument,
-    resolve: (payload) => createGrassSettings(payload.document?.settings ?? payload),
+    selectionKind: 'style',
+    resolve: (payload) => {
+      if (payload.document) return createGrassSettings(payload.document.settings);
+      const style = selectedStyleId(payload);
+      return withStyleIdentity(createGrassSettings({ preset: style }), style);
+    },
   }),
   flowers: Object.freeze({
     documentType: null,
     label: 'Flowers',
     parseDocument: null,
-    resolve: (payload) => createFlowerSettings(payload),
+    selectionKind: 'style',
+    resolve: (payload) => {
+      const style = selectedStyleId(payload);
+      return withStyleIdentity(createFlowerSettings({ preset: style }), style);
+    },
   }),
   vegetationShader: Object.freeze({
     documentType: VEGETATION_SHADER_DOCUMENT_TYPE,
     label: 'Vegetation shader',
     parseDocument: parseVegetationShaderPresetDocument,
-    resolve: (payload) => createVegetationShaderSettings(
-      payload.document?.settings ?? payload,
-    ),
+    selectionKind: 'style',
+    resolve: (payload) => {
+      if (payload.document) return createVegetationShaderSettings(payload.document.settings);
+      const style = selectedStyleId(payload);
+      return withStyleIdentity(createVegetationShaderSettings({ preset: style }), style);
+    },
+  }),
+  rock: Object.freeze({
+    documentType: null,
+    label: 'Rocks',
+    parseDocument: null,
+    selectionKind: 'style',
+    // Rock geometry remains a separate preset/project. Spread this descriptor
+    // into resolveRockgenPreset(assetPreset, settings.rock).
+    resolve: (payload) => ({ style: normalizeRockgenStyleName(selectedStyleId(payload)) }),
+  }),
+  debris: Object.freeze({
+    documentType: null,
+    label: 'Debris',
+    parseDocument: null,
+    selectionKind: 'style',
+    // Pass settings.debris.style to applyDebrisStyle(assetSettings, style).
+    resolve: (payload) => ({ style: resolveDebrisStyleName(selectedStyleId(payload)) }),
   }),
   water: Object.freeze({
     documentType: WATER_PRESET_DOCUMENT_TYPE,
     label: 'Water',
     parseDocument: parseWaterPresetDocument,
-    resolve: (payload) => createWaterSettings(payload.document?.settings ?? payload),
+    selectionKind: 'style',
+    resolve: (payload) => {
+      if (payload.document) return createWaterSettings(payload.document.settings);
+      // Explicit style payloads use the orthogonal axis. Legacy `preset`
+      // payloads retain the historical behavior (including river/ocean).
+      return payload.style
+        ? { style: resolveWaterStyleName(payload.style) }
+        : createWaterSettings(payload);
+    },
   }),
   sky: Object.freeze({
     documentType: SKY_PRESET_DOCUMENT_TYPE,
     label: 'Sky',
     parseDocument: parseSkyPresetDocument,
-    resolve: (payload) => createSkySettings(payload.document?.settings ?? payload),
+    selectionKind: 'style',
+    resolve: (payload) => {
+      if (payload.document) return createSkySettings(payload.document.settings);
+      if (payload.style) return { style: resolveSkyStyleName(payload.style) };
+      const styleIdentity = SKY_PRESET_ALIASES[payload.preset]?.preset ?? payload.preset;
+      return withStyleIdentity(createSkySettings({ preset: payload.preset }), styleIdentity);
+    },
   }),
   weather: Object.freeze({
     documentType: WEATHER_PRESET_DOCUMENT_TYPE,
     label: 'Weather',
     parseDocument: parseWeatherPresetDocument,
-    resolve: (payload) => createWeatherSettings(payload.document?.settings ?? payload),
+    selectionKind: 'style',
+    // A weather bundle selection is a STYLE (default / call_me_sensei) —
+    // conditions are runtime world-state driven through WeatherSystem.
+    // Legacy condition ids keep resolving to that condition unchanged.
+    resolve: (payload) => {
+      if (payload.document) return createWeatherSettings(payload.document.settings ?? payload.document);
+      if (payload.style) {
+        return { style: resolveWeatherStyleName(payload.style) };
+      }
+      const resolved = resolveWeatherPreset(payload.preset);
+      return withStyleIdentity(resolved.settings, resolved.style);
+    },
   }),
   environment: Object.freeze({
     documentType: ENVIRONMENT_PRESET_DOCUMENT_TYPE,
@@ -134,6 +211,7 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
     // Environment preset documents carry { features, parameters } at the
     // validated top level (not .settings like toon/water/weather).
     parseDocument: (input) => validateEnvironmentPresetDocument(input),
+    selectionKind: 'style',
     resolve: (payload) => {
       if (payload.document) {
         const parsed = validateEnvironmentPresetDocument(payload.document);
@@ -143,23 +221,59 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
           parameters: parsed.value.parameters,
         });
       }
+      if (payload.style) {
+        const styleIdentity = ENVIRONMENT_PRESET_ALIASES[payload.style]?.preset
+          ?? normalizeEnvironmentPresetName(payload.style);
+        return { style: styleIdentity };
+      }
       const preset = resolveEnvironmentPreset(payload.preset);
-      return createEnvironmentSettings({ features: preset.features, parameters: preset.parameters });
+      const styleIdentity = ENVIRONMENT_PRESET_ALIASES[payload.preset]?.preset
+        ?? normalizeEnvironmentPresetName(payload.preset);
+      return withStyleIdentity(
+        createEnvironmentSettings({ features: preset.features, parameters: preset.parameters }),
+        styleIdentity,
+      );
     },
   }),
   lighting: Object.freeze({
-    documentType: null,
+    documentType: LIGHTING_STYLE_DOCUMENT_TYPE,
     label: 'Lighting',
+    parseDocument: parseLightingStylePresetDocument,
+    selectionKind: 'style',
+    // A lighting preset is a STYLE — a game-wide identity whose dayCycle
+    // resolves every time-of-day scenario internally. Resolves to lighting
+    // style settings for createLightingSystem({ style }) / setStyle().
+    // Legacy scenario-baked look ids (daylight, golden_hour, moonlit,
+    // character_studio, warm_interior) keep resolving for saved bundles and
+    // return the historical look document (rig recipe + quality +
+    // environment/post hints) unchanged.
+    resolve: (payload) => {
+      if (payload.document) return resolveLightingStylePreset(payload.document);
+      const style = selectedStyleId(payload);
+      try {
+        return withStyleIdentity(resolveLightingStylePreset(style), style);
+      } catch {
+        return resolveLightingLookPreset(style);
+      }
+    },
+  }),
+  vfx: Object.freeze({
+    documentType: null,
+    label: 'Gameplay VFX',
     parseDocument: null,
-    // Resolves to a lighting-look document (rig recipe + quality +
-    // environment/post hints) — apply through the lighting runtime.
-    resolve: (payload) => resolveLightingLookPreset(payload.preset),
+    selectionKind: 'style',
+    // Spread into createVfxSystem({ ...settings.vfx, seed, heightAt }).
+    resolve: (payload) => ({ style: resolveVfxStyleName(selectedStyleId(payload)) }),
   }),
   post: Object.freeze({
     documentType: null,
     label: 'Post processing',
     parseDocument: null,
-    resolve: (payload) => createPostProcessingSettings(payload),
+    selectionKind: 'style',
+    resolve: (payload) => {
+      const style = selectedStyleId(payload);
+      return withStyleIdentity(createPostProcessingSettings({ preset: style }), style);
+    },
   }),
 });
 
@@ -167,6 +281,16 @@ export const STYLE_BUNDLE_SLOT_IDS = Object.freeze(Object.keys(STYLE_BUNDLE_SLOT
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function selectedStyleId(payload) {
+  return typeof payload?.style === 'string' && payload.style.trim()
+    ? payload.style.trim()
+    : typeof payload?.preset === 'string' ? payload.preset.trim() : '';
+}
+
+function withStyleIdentity(settings, style) {
+  return isPlainObject(settings) && style ? { ...settings, style } : settings;
 }
 
 /**
@@ -199,11 +323,16 @@ export function validateStyleBundleDocument(input) {
       errors.push(`Slot "${slotId}" must be an object.`);
       continue;
     }
+    const hasStyle = typeof payload.style === 'string' && payload.style.trim() !== '';
     const hasPreset = typeof payload.preset === 'string' && payload.preset.trim() !== '';
     const hasDocument = isPlainObject(payload.document);
     const hasCreation = typeof payload.creation === 'string' && payload.creation.trim() !== '';
-    if (!hasPreset && !hasDocument && !hasCreation) {
-      errors.push(`Slot "${slotId}" needs { preset }, { document } or { creation }.`);
+    if (!hasStyle && !hasPreset && !hasDocument && !hasCreation) {
+      errors.push(`Slot "${slotId}" needs { style }, { preset }, { document } or { creation }.`);
+      continue;
+    }
+    if (hasStyle && slot.selectionKind !== 'style') {
+      errors.push(`Slot "${slotId}" does not accept { style } payloads.`);
       continue;
     }
     if (hasDocument && slot.parseDocument) {
@@ -218,12 +347,14 @@ export function validateStyleBundleDocument(input) {
       continue;
     }
     if (hasDocument && !slot.parseDocument) {
-      errors.push(`Slot "${slotId}" only accepts { preset } payloads.`);
+      errors.push(`Slot "${slotId}" only accepts a built-in { style } payload.`);
       continue;
     }
-    slots[slotId] = hasPreset
-      ? { preset: payload.preset.trim() }
-      : { creation: payload.creation.trim() };
+    slots[slotId] = hasStyle
+      ? { style: payload.style.trim() }
+      : hasPreset
+        ? { preset: payload.preset.trim() }
+        : { creation: payload.creation.trim() };
   }
 
   if (errors.length) return { errors, ok: false };
@@ -280,11 +411,16 @@ export function parseStyleBundleDocument(input) {
 }
 
 /**
- * Resolve a validated bundle into per-system settings objects:
+ * Resolve a validated bundle into per-system settings/style descriptors:
  * { toon?, tree?, grass?, flowers?, vegetationShader?, water?, sky?, weather?,
- * environment?, lighting?, post? } — each ready to hand to the matching apply/create call
- * (settings.tree is a recipe for createPlantFromRecipe, settings.lighting a
- * lighting-look document). Unresolved by-reference slots
+ * environment?, lighting?, post?, rock?, debris?, vfx? } — each ready to hand to
+ * the matching apply/create call. Systems with an orthogonal runtime axis
+ * expose a small descriptor (for example `settings.rock.style` or
+ * `settings.weather.style`) so the host can apply the bundle style to
+ * whichever preset, condition, or scenario it selected.
+ * (settings.tree is a recipe for createPlantFromRecipe, settings.lighting
+ * lighting-style settings for createLightingSystem({ style }); legacy look
+ * ids resolve to the historical look document). Unresolved by-reference slots
  * ({ creation }) throw: fetch the bundle from toonlab.io (which inlines
  * references) or inline the documents first.
  */

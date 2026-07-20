@@ -100,10 +100,22 @@ foam, lighting, ripples, splashes, quality) are in the
   when the surface is constructed with a `shoreState` field and the beach
   uses a shore-state material.
 
-Built-in presets (`WATER_PRESET_NAMES`): `mirror`, `calm`, `lake`, `river`,
-`coast`, `ocean`, `storm` — plus `call_me_sensei`, the studio-managed
-signature preset (curated and updated over releases). Apply at construction
-(`preset:`) or live with `water.setPreset(name, overrides)` /
+A water **preset** is the water recipe (`mirror`, `calm`, `lake`, `river`,
+`coast`, `ocean`, or `storm`). A **style** is the orthogonal IP-wide
+rendition applied across every preset. Built-in styles
+(`getWaterStyleOptions()`) are `default` and `call_me_sensei`, the
+studio-managed signature style:
+
+```js
+createWaterSettings({ preset: 'river', style: 'call_me_sensei' });
+water.setPreset('coast', { style: 'call_me_sensei' });
+```
+
+The style refines appearance while each preset retains its defining motion
+and shoreline behavior. The short-lived/historical
+`{ preset: 'call_me_sensei', scenario: 'river' }` form remains a compatibility
+alias for `{ preset: 'river', style: 'call_me_sensei' }`. Apply a preset at
+construction or live with `water.setPreset(name, { style })` /
 `water.applySettings(options)`.
 
 ### Authored baseline vs. current scene

@@ -69,7 +69,7 @@ scene.add(runner);
 // --- the VFX system ----------------------------------------------------------
 const vfx = createVfxSystem({
   heightAt: () => 0,
-  preset: 'call_me_sensei',
+  style: 'call_me_sensei',
   seed: SEED,
 });
 scene.add(vfx.root);

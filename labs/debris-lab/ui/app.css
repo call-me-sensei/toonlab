@@ -43,6 +43,8 @@ body[data-hide-hud='true'] #app { display: none; }
 }
 .db-title:hover { color: var(--text-primary); background: var(--surface-3); }
 .db-dirty { color: var(--accent-400); font-size: 8px; }
+.db-style-select { display: inline-flex; align-items: center; gap: var(--space-2); width: 210px; color: var(--text-secondary); font: var(--type-label); }
+.db-style-select > .tk-select { flex: 1; }
 .db-topbar-spacer { flex: 1; }
 
 .db-rail {
@@ -178,7 +180,7 @@ body[data-hide-hud='true'] #app { display: none; }
 /* Gallery ------------------------------------------------------------- */
 .db-gallery {
   position: fixed;
-  inset: 0;
+  inset: var(--tl-site-header-height) 0 0;
   overflow-y: auto;
   padding: var(--space-5) max(var(--space-7), calc((100vw - 1180px) / 2)) var(--space-8);
   background: var(--bg-app);

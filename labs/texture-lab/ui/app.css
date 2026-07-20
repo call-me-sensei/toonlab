@@ -147,7 +147,7 @@ body[data-hide-hud='true'] #app { display: none; }
 /* --- gallery ---------------------------------------------------------------------- */
 .tx-gallery {
   position: fixed;
-  inset: 0;
+  inset: var(--tl-site-header-height) 0 0;
   overflow-y: auto;
   padding: var(--space-7) max(var(--space-7), 6vw) var(--space-8);
   background: var(--bg-app);

@@ -25,7 +25,7 @@ files (unlike the ambientfx handoff doc, nothing here is pending):
 ```
 src/vfxgen/
   vfxSettings.js        DEFAULT_VFX_SETTINGS + groups + field schema
-  vfxPresets.js         'default' + 'call_me_sensei' + registerVfxPreset()
+  vfxPresets.js         'default' + 'call_me_sensei' + registerVfxStyle()
   vfxSystem.js          createVfxSystem — event-driven runtime, pools, clock
   core/                 rendering machinery (no gameplay knowledge)
     burstBackbone.js    ring-buffer one-shot GPU particles, 2 draw calls
@@ -91,7 +91,7 @@ import { createVfxSystem } from '@call-me-sensei/toonlab/vfxgen';
 
 const vfx = createVfxSystem({
   seed: 42,
-  preset: 'call_me_sensei',
+  style: 'call_me_sensei',
   heightAt: world?.collision?.groundHeight ?? terrain?.heightAt, // fireball ground hits
 });
 scene.add(vfx.root);

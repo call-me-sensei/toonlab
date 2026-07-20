@@ -13,6 +13,8 @@ import { StylizedSky } from './sky/stylizedSky.js';
 import { StylizedGrassField } from './vegetation/stylizedGrass.js';
 import { StylizedFlowerField } from './vegetation/stylizedFlowers.js';
 import { StylizedForest } from './vegetation/stylizedForest.js';
+import { StylizedUnderstory, scatterUnderstory } from './vegetation/stylizedUnderstory.js';
+import { StylizedContactShadowField } from './vegetation/contactShadowField.js';
 import {
   applyVegetationShader,
   createVegetationShaderSettings,
@@ -65,6 +67,11 @@ function cleanObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
 }
 
+function finiteOr(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
 function sunColorArray(value, fallback) {
   if (value?.isColor) return [value.r, value.g, value.b];
   if (Array.isArray(value) && value.length >= 3) {
@@ -72,6 +79,35 @@ function sunColorArray(value, fallback) {
     if (next.every(Number.isFinite)) return next;
   }
   return fallback.slice();
+}
+
+function collectRockContactPlacements(root, heightAt) {
+  if (!root) return [];
+  const placements = [];
+  const position = new THREE.Vector3();
+  const scale = new THREE.Vector3();
+  root.updateMatrixWorld(true);
+  root.traverse((object) => {
+    if (!object.isMesh || object.isInstancedMesh) return;
+    let ancestor = object;
+    let rockLike = false;
+    while (ancestor && ancestor !== root.parent) {
+      if (/rock|boulder|spire|outcrop/i.test(ancestor.name ?? '')) {
+        rockLike = true;
+        break;
+      }
+      ancestor = ancestor.parent;
+    }
+    if (!rockLike) return;
+    object.geometry.computeBoundingSphere?.();
+    const localRadius = object.geometry.boundingSphere?.radius ?? 1;
+    object.getWorldPosition(position);
+    object.getWorldScale(scale);
+    const radius = THREE.MathUtils.clamp(localRadius * Math.max(scale.x, scale.z) * 0.55, 0.5, 8);
+    const y = typeof heightAt === 'function' ? heightAt(position.x, position.z) : position.y;
+    placements.push({ aspect: 0.68, radius, rotation: object.rotation.y, x: position.x, y, z: position.z });
+  });
+  return placements;
 }
 
 /**
@@ -97,6 +133,10 @@ function sunColorArray(value, fallback) {
  *   `collision.groundHeight` follows the flattened `paths.heightAt`.
  * @param {Object|false} [options.trees] `{ scatter, settings, center }`
  *   overrides over the world preset, or `false` to skip.
+ * @param {Object|false} [options.understory] `{ scatter, settings, mask }`
+ *   overrides for the bounded instanced shrub/ground-cover layer.
+ * @param {Object|false} [options.contactShadows] Soft instanced tree/rock
+ *   grounding options, or `false` to skip.
  * @param {Object|false} [options.grass] Same shape as trees, or `false`.
  * @param {Object|false} [options.flowers] `{ scatter, settings }`; off unless given.
  * @param {Object|string} [options.vegetationShader] One IP-wide vegetation
@@ -114,7 +154,8 @@ function sunColorArray(value, fallback) {
  * @param {Object} [options.environment] Extra `applyEnvironmentShader`
  *   options merged last (features/parameters/roleOverrides/...).
  * @returns {Promise<Object>} `{ update, dispose, sky, water, sunRig, sunState,
- *   setSun, grass, flowerField, forest, masks, worldPreset, classification }`.
+ *   setSun, grass, flowerField, forest, understory, contactShadows, masks,
+ *   worldPreset, classification }`.
  *   `setSun({ direction, color, sky })` is the transient scene-light adapter
  *   used by Lighting and Weather; it does not rewrite portable asset presets.
  */
@@ -134,6 +175,8 @@ export async function createStylizedWorld({
   fog = {},
   shadows = {},
   trees = {},
+  understory = {},
+  contactShadows = {},
   grass = {},
   flowers = false,
   vegetationShader = {},
@@ -150,7 +193,17 @@ export async function createStylizedWorld({
 
   const worldPreset = resolveWorldPreset(preset);
   if (!worldPreset) throw new Error(`Unknown world preset "${preset}".`);
-  let vegetationShaderSettings = createVegetationShaderSettings(vegetationShader);
+  const vegetationShaderOptions = typeof vegetationShader === 'string'
+    ? { style: vegetationShader }
+    : cleanObject(vegetationShader);
+  let vegetationShaderSettings = createVegetationShaderSettings({
+    preset: vegetationShaderOptions.style
+      ?? vegetationShaderOptions.preset
+      ?? cleanObject(worldPreset.vegetationShader).style
+      ?? cleanObject(worldPreset.vegetationShader).preset
+      ?? 'default',
+    ...vegetationShaderOptions,
+  });
 
   // terrain.size accepts a number (square), { width, depth }, or { x, z }
   // (the shape createStylizedTerrain returns as meshExtent) — silently
@@ -268,7 +321,10 @@ export async function createStylizedWorld({
 
   // Environment shading over the terrain (and anything parented under it).
   const environmentBox = new THREE.Box3().setFromObject(terrainRoot);
-  const environmentPreset = resolveEnvironmentPreset(worldPreset.environment?.preset ?? 'default') ?? {};
+  const environmentPreset = resolveEnvironmentPreset(
+    worldPreset.environment?.style ?? worldPreset.environment?.preset ?? 'default',
+    worldPreset.environment?.scenario,
+  ) ?? {};
   const environmentOverrides = cleanObject(worldPreset.environment?.overrides);
   const classification = await applyEnvironmentShader(terrainRoot, {
     ...environmentPreset,
@@ -289,10 +345,10 @@ export async function createStylizedWorld({
   const skySunDirection = cleanObject(cleanObject(skyOptions).settings).sunDirection
     ?? cleanObject(worldPreset.sky?.settings).sunDirection;
   // Unified atmosphere: scene.fog reaches every material class — converted
-  // environment surfaces, unlit forest impostors, rock clones — so distant
+  // environment surfaces, unlit forest far proxies, rock clones — so distant
   // geometry fades into haze silhouettes together. (The environment
   // shader's height fog layers altitude nuance on top; without scene.fog,
-  // impostor trees float sharp and saturated at any distance.)
+  // far trees float sharp and saturated at any distance.)
   let sceneFog = null;
   if (fog !== false) {
     const fogOptions = cleanObject(fog);
@@ -310,7 +366,7 @@ export async function createStylizedWorld({
   }
 
   // Resolved height-fog parameters (preset overrides, then host overrides).
-  // Water and forest impostors mirror this layer — any surface that skips it
+  // Water and forest far proxies mirror this layer — any surface that skips it
   // stays sharp against hazed terrain and reads as pasted-on.
   const heightFogParams = {
     ...cleanObject(environmentOverrides.parameters),
@@ -446,7 +502,11 @@ export async function createStylizedWorld({
 
   // Sky dome — the water's reflection fallback, so it comes before water.
   const sky = new StylizedSky({
-    preset: worldPreset.sky?.preset,
+    preset: cleanObject(skyOptions).style
+      ?? cleanObject(skyOptions).preset
+      ?? worldPreset.sky?.style
+      ?? worldPreset.sky?.preset,
+    scenario: cleanObject(skyOptions).scenario ?? worldPreset.sky?.scenario,
     ...cleanObject(worldPreset.sky?.settings),
     ...cleanObject(cleanObject(skyOptions).settings),
   });
@@ -466,6 +526,7 @@ export async function createStylizedWorld({
     } = waterOptions;
     waterSurface = new WaterSurface({
       preset: worldPreset.water?.preset,
+      style: worldPreset.water?.style,
       width: Number(configuredWidth) || width,
       depth: Number(configuredDepth) || depth,
       ...(heightAt ? { bedHeight: heightAt } : {}),
@@ -481,7 +542,9 @@ export async function createStylizedWorld({
     // mountains).
     waterSurface.setDistanceFog?.({
       color: heightFogParams.heightFogColor ?? [0.66, 0.8, 0.94],
-      density: Number(heightFogParams.heightFogDensity) || 0.0016,
+      // Zero is a valid explicit opt-out. `Number(value) || fallback` used
+      // to turn it back into dense fog on every non-environment material.
+      density: finiteOr(heightFogParams.heightFogDensity, 0.00055),
     });
     scene.add(waterSurface);
     if (followTarget) {
@@ -542,7 +605,7 @@ export async function createStylizedWorld({
     return vegetationMask ? combineMasks(vegetationMask, custom) : custom;
   };
 
-  // Trees: LOD forest. Far placements render as baked instanced impostors
+  // Trees: LOD forest. Far placements render as instanced volumetric proxies
   // (a couple of draw calls per variant); a budgeted pool of live detailed
   // trees swaps in around the camera. See StylizedForest.
   let forest = null;
@@ -561,8 +624,8 @@ export async function createStylizedWorld({
       canopyColors: treeOptions.canopyColors ?? worldPreset.trees?.canopyColors ?? null,
       placements,
       preset: worldPreset.trees?.preset,
-      // Billboard far-LOD: without the renderer the forest falls back to
-      // merged-geometry impostors (~12k verts/tree) that get redrawn by the
+      // Volumetric far LOD: without the renderer the forest falls back to
+      // merged high-detail geometry (~12k verts/tree) that gets redrawn by the
       // main, water, and shadow passes — the difference between 20 and 60 fps.
       renderer,
       vegetationShader: vegetationShaderSettings,
@@ -570,18 +633,78 @@ export async function createStylizedWorld({
         ...cleanObject(worldPreset.trees?.settings),
         ...cleanObject(treeOptions.settings),
       },
+      ...cleanObject(worldPreset.trees?.lod),
       ...cleanObject(treeOptions.lod),
     });
     // Same height-fog layer the terrain and water get: without it, far
-    // impostor canopies only receive the linear scene.fog and float on the
+    // far canopies only receive the linear scene.fog and float on the
     // fogged mountains as saturated green dots.
     forest.setDistanceFog({
       color: heightFogParams.heightFogColor ?? [0.66, 0.8, 0.94],
-      density: Number(heightFogParams.heightFogDensity) || 0.0016,
-      falloff: Number(heightFogParams.heightFogFalloff) || 400,
+      density: finiteOr(heightFogParams.heightFogDensity, 0.00055),
+      falloff: finiteOr(heightFogParams.heightFogFalloff, 400),
       floorY: environmentBox.min.y,
     });
     scene.add(forest);
+  }
+
+  // Three explicit height layers are part of the outdoor preset contract:
+  // canopy (forest), understory shrubs/rosettes, and the grass field below.
+  // Both middle-layer meshes are instanced and hard-capped.
+  let understoryLayer = null;
+  let understoryPlacements = null;
+  if (understory !== false && forest && worldPreset.understory?.enabled !== false) {
+    const understoryOptions = cleanObject(understory);
+    understoryPlacements = scatterUnderstory({
+      ...cleanObject(worldPreset.understory?.scatter),
+      ...cleanObject(understoryOptions.scatter),
+      forestPlacements: forest.placements,
+      heightAt,
+      mask: withWorldMask(understoryOptions.mask ?? cleanObject(trees).mask),
+    });
+    understoryLayer = new StylizedUnderstory({
+      ...understoryPlacements,
+      ...cleanObject(worldPreset.understory?.settings),
+      ...cleanObject(understoryOptions.settings),
+    });
+    scene.add(understoryLayer);
+  }
+
+  // Broad, luminous contact pools ground trees and rocks at one draw call.
+  // They complement (not replace) the terrain's baked vertex AO and are
+  // deliberately capped below 0.22 opacity so they cannot become black blobs.
+  let contactShadowField = null;
+  if (contactShadows !== false) {
+    const contactOptions = {
+      ...cleanObject(worldPreset.contactShadows),
+      ...cleanObject(contactShadows),
+    };
+    const placements = [];
+    if (forest) {
+      const treeRadius = Number(contactOptions.treeRadius) || 1.25;
+      for (const tree of forest.placements) placements.push({
+        aspect: 0.72,
+        radius: treeRadius,
+        rotation: ((tree.seed >>> 4) % 628) / 100,
+        x: tree.x,
+        y: tree.y,
+        z: tree.z,
+      });
+    }
+    if (understoryPlacements) {
+      for (const shrub of understoryPlacements.shrubs) placements.push({
+        aspect: 0.78, radius: 0.55, x: shrub.x, y: shrub.y, z: shrub.z,
+      });
+    }
+    placements.push(...collectRockContactPlacements(terrainRoot, heightAt));
+    if (placements.length > 0) {
+      contactShadowField = new StylizedContactShadowField({
+        color: contactOptions.color,
+        opacity: Math.min(Number(contactOptions.opacity) || 0.15, 0.22),
+        placements,
+      });
+      scene.add(contactShadowField);
+    }
   }
 
   // Grass: a density-based window that follows the target. Placements are
@@ -683,8 +806,8 @@ export async function createStylizedWorld({
     // stay sharp saturated specks on hazed mountains.
     faunaSystem.setDistanceFog({
       color: heightFogParams.heightFogColor ?? [0.66, 0.8, 0.94],
-      density: Number(heightFogParams.heightFogDensity) || 0.0016,
-      falloff: Number(heightFogParams.heightFogFalloff) || 400,
+      density: finiteOr(heightFogParams.heightFogDensity, 0.00055),
+      falloff: finiteOr(heightFogParams.heightFogFalloff, 400),
       floorY: environmentBox.min.y,
     });
     scene.add(faunaSystem.root);
@@ -711,8 +834,8 @@ export async function createStylizedWorld({
     });
     ambientFx.setDistanceFog({
       color: heightFogParams.heightFogColor ?? [0.66, 0.8, 0.94],
-      density: Number(heightFogParams.heightFogDensity) || 0.0016,
-      falloff: Number(heightFogParams.heightFogFalloff) || 400,
+      density: finiteOr(heightFogParams.heightFogDensity, 0.00055),
+      falloff: finiteOr(heightFogParams.heightFogFalloff, 400),
       floorY: environmentBox.min.y,
     });
     if (Array.isArray(skySunDirection)) ambientFx.setSun({ direction: skySunDirection });
@@ -792,7 +915,7 @@ export async function createStylizedWorld({
       grass: () => grassField,
       groundHeightAt: heightAt,
       precipitationFloorY: environmentBox.min.y,
-      preset: weatherOptions.preset ?? worldPreset.weather?.preset ?? 'call_me_sensei',
+      preset: weatherOptions.preset ?? worldPreset.weather?.preset ?? 'clear',
       renderer,
       scene,
       seed: Number(weatherOptions.seed) || 1,
@@ -808,6 +931,7 @@ export async function createStylizedWorld({
         },
       },
       sky,
+      style: weatherOptions.style ?? worldPreset.weather?.style ?? 'call_me_sensei',
       sunRig,
       water: waterSurface,
     });
@@ -822,12 +946,14 @@ export async function createStylizedWorld({
       disposed = true;
       sunShadowPass?.dispose();
       forest?.dispose();
+      understoryLayer?.dispose();
+      contactShadowField?.dispose();
       if (ownsPaths) pathsSystem?.dispose();
       for (const poi of poiList) poi.dispose();
       faunaSystem?.dispose();
       ambientFx?.dispose();
       weatherSystem?.dispose();
-      for (const object of [sky, waterSurface, forest, grassField, flowerField,
+      for (const object of [sky, waterSurface, forest, understoryLayer, contactShadowField, grassField, flowerField,
         faunaSystem?.root, ambientFx?.root, sunRig?.group ?? sunRig]) {
         if (object?.parent) object.parent.remove(object);
       }
@@ -835,6 +961,8 @@ export async function createStylizedWorld({
     flowerField,
     fog: sceneFog,
     forest,
+    understory: understoryLayer,
+    contactShadows: contactShadowField,
     environmentRoot: terrainRoot,
     get grass() { return grassField; },
     ambientFx,
@@ -896,6 +1024,8 @@ export async function createStylizedWorld({
       grassField?.update(delta);
       flowerField?.update(delta);
       forest?.update(delta, camera);
+      understoryLayer?.update(camera);
+      contactShadowField?.update(camera);
     },
     water: waterSurface,
     worldPreset,

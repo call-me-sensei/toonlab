@@ -116,7 +116,7 @@ Point any model-aware lab at your own model with the Model URL input or
 | Toon character shading | `@call-me-sensei/toonlab/toon` | Modern anime character shader: cel bands with art-directed face lighting, skin-tone shadow management, shadow-color HSV control, scene/self/contact shadows, average-shadow smoothing, rim light (fresnel or screen-space depth), stylized + anisotropic hair highlights, eye catchlights, role-aware specular, source map routing (normal/AO/emissive/MatCap/ramp/detail), inverted-hull outlines, glitter, stickers, perspective removal, shell fur, dither fades — 23 settings groups, all preset-serializable. [Docs](docs/toon-shading.md) |
 | Environment shading | `@call-me-sensei/toonlab/environment` | Modern anime-style scene shader for texture packs, standard glTF, and untextured scenes: material-role classification, wrapped lighting, packed-map hints, window cutouts, sun/lamp rigs, time-of-day, six-direction ambient probe, planar floor reflections, BVH vertex-AO baking, height fog, cloud shadows. [Docs](docs/environment.md) |
 | Lighting | `@call-me-sensei/toonlab/lighting` | Versioned lighting recipes and looks, physical/artistic intensity helpers, reusable luminaire/rig/look/quality presets, deterministic light and shadow budgets, capability diagnostics, runtime Three.js realization, and a data-only Unreal Engine 5.8 MegaLights/Lumen handoff. [Docs](docs/lighting.md) |
-| Weather | `@call-me-sensei/toonlab/weather` | Shared cross-system weather coordinator with 22 presets, smooth transitions, one-draw GPU precipitation (rain, snow, sleet, hail, dust), lightning/thunder events, and normalized wetness/snow/ice outputs. It drives sky, sun, fog, cloud shadows, wind, vegetation, water, fauna, and ambient effects through their public adapters. [Docs](docs/weather.md) |
+| Weather | `@call-me-sensei/toonlab/weather` | Shared cross-system weather coordinator with 21 conditions rendered through an independent IP-wide style, smooth transitions, one-draw GPU precipitation (rain, snow, sleet, hail, dust), lightning/thunder events, and normalized wetness/snow/ice outputs. It drives sky, sun, fog, cloud shadows, wind, vegetation, water, fauna, and ambient effects through their public adapters. [Docs](docs/weather.md) |
 | Water | `@call-me-sensei/toonlab/water` | Fully procedural integrated water system: Gerstner wave stack with a calm→storm dial, wave sets, plunging breakers you can surf, three-stop absorption color, refraction/caustics/foam, GPU ripple sim, splashes, wakes, rain, kelp, underwater view, construction-time quality, and a CPU mirror of the whole spectrum for buoyancy. [Docs](docs/water.md) |
 | Vegetation | `@call-me-sensei/toonlab/vegetation` | Instanced grass and flower fields, procedural trees/flowers with serializable recipes, coordinated grass palettes (base, tip, and shadow tint), and one semantic-role `VegetationShaderProfile` shared across grass, foliage, flowers, bark, and stems. Asset identity and current wind/weather remain separate. [Docs](docs/vegetation-sky.md) |
 | Paths, roads & bridges | `@call-me-sensei/toonlab/pathgen` | Seeded path networks routed over any `heightAt`: cost-field router (slope/water aware), hand-drawn ribbon overlay in dirt/stone/planks, arched plank bridges with collision, stepped stone climbs, flattened `paths.heightAt` for walkability, scatter exclusion mask, minimap overlay. |
@@ -153,22 +153,25 @@ import { createStylizedTerrain, createStylizedWorld, createWorldMinimap } from '
 // Seeded terrain generator — ANY seed is a valid, playable world. One knob
 // per big idea: waterCoverage (how much water), height (mountain range),
 // depth (basins), size (number or { x, z }), floatingIslands, sinkholes.
-const terrain = createStylizedTerrain({ seed: 42, size: 1000, archetype: 'terracedKarst' });
+const terrain = createStylizedTerrain({ seed: 42, size: 1000, archetype: 'lushKarst' });
 const terrainRoot = new THREE.Group();
 terrainRoot.add(terrain.root);
 scene.add(terrainRoot);
 
 // Environment shading, aligned sun + real shadows, sky, anime water, LOD
-// forests (billboard far trees), follow-window grass, cloud shadows,
-// unified three-layer fog, and collision — all on by default.
+// volumetric far-tree LOD, instanced understory, follow-window grass,
+// soft contact grounding, cloud shadows,
+// banded limestone cliffs, luminous blue shadow fill, unified three-layer
+// fog, and collision — all on by default.
 const world = await createStylizedWorld({
   renderer, scene, camera,
   terrain: { heightAt: terrain.heightAt, root: terrainRoot, size: terrain.meshExtent },
   water: { level: terrain.waterLevel },
-  weather: { preset: 'call_me_sensei' }, // 'snow' | 'hail' | 'thunderstorm' | ...
+  weather: { preset: 'partlyCloudy', style: 'call_me_sensei' }, // condition × IP style
   followTarget: character, // your character root (optional): splashes, wakes, grass push
 });
 character.position.copy(terrain.spawn); // probed: walkable, near a shore
+// terrain.landmarks contains the default horizon castle (landmark:false opts out).
 
 const clock = new THREE.Clock();
 renderer.setAnimationLoop(() => {
@@ -176,6 +179,38 @@ renderer.setAnimationLoop(() => {
   renderer.render(scene, camera);
 });
 ```
+
+For fast gliders, vehicles, dashes, or fauna, use the matching motion-streak
+primitive instead of hand-building white boxes:
+
+```js
+import { createMotionTrails } from '@call-me-sensei/toonlab/vfxgen';
+
+const trails = createMotionTrails({
+  target: glider,
+  anchors: [[-1.2, 0, 0.4], [1.2, 0, 0.4]],
+});
+scene.add(trails.root);
+// each frame: trails.update(delta, camera)
+```
+
+Its defaults are speed-gated, 0.2-second, narrow, translucent ribbons that
+taper at both ends; slow movement produces no trail.
+
+Large objective/checkpoint rings should use the open-hoop primitive rather
+than a filled transparent quad:
+
+```js
+import { createGlowRing } from '@call-me-sensei/toonlab/vfxgen';
+
+const checkpoint = createGlowRing({ radius: 4, position: [0, 6, -30] });
+scene.add(checkpoint.root);
+// each frame: checkpoint.update(delta)
+```
+
+It contains only a crisp torus core, a restrained torus line halo, and a
+local shadow-free point glow, so the center can never become a screen-sized
+colored veil.
 
 **Bring your own terrain instead** — the generator is optional. The whole
 contract is a pure `heightAt(x, z)` in meters plus your displaced mesh under
@@ -194,7 +229,7 @@ const world = await createStylizedWorld({
 Add a clickable minimap with `createWorldMinimap({ heightAt, size,
 waterLevel, onPick })`, and solid rocks/trees with the built-in
 `world.collision` (`addCircles` for your own props, `resolve(position,
-radius)` per frame). Archetypes: `terracedKarst`, `lakeland`, `alpine`,
+radius)` per frame). Archetypes: `lushKarst` (default), `terracedKarst`, `lakeland`, `alpine`,
 `rollingPlains`, `archipelago`.
 
 ### Individual clusters
@@ -276,8 +311,10 @@ prompt and iterate. Everything the agent needs ships in this repo under
 
 The skills teach the agent the assembly order, the frame-loop contract, and
 each subsystem's API so it wires ToonLab correctly on the first try. Start
-with `game-dev`; the other twelve cover individual features (water, weather,
-lighting, camera, game feel, …).
+with `game-dev`; use `outdoor-world` whenever visual quality is the goal. It
+now carries enforceable defaults and screenshot checks for geology, luminous
+shadows, high-quality tree/grass LOD, living cloud light, deeper water, open
+checkpoint hoops, and tapered speed trails.
 
 ```bash
 # Claude Code — feature skills + project guidance
@@ -343,7 +380,7 @@ Give the agent a goal, name the skill, and let it verify its own work:
 Using the ToonLab game-dev skill, set up a new Three.js + Vite project with
 @call-me-sensei/toonlab. Build a 1 km seeded open world (archetype
 "lakeland") with the bundled toon-shaded mannequin as the playable character,
-water, sky, the "call_me_sensei" weather preset, post-processing, and a
+water, sky, the "call_me_sensei" weather style, post-processing, and a
 follow camera with game feel. Follow the skill's assembly order and
 frame-loop contract, then run the dev server and fix issues until I can walk
 from spawn to the shoreline and swim.

@@ -13,6 +13,7 @@ import {
   Sparkles,
   Terminal,
 } from 'lucide-react';
+import '../labs/shared/siteHeader.js';
 import './settings.css';
 
 function CopyButton({ label = 'Copy', value }) {
@@ -41,25 +42,6 @@ function CopyButton({ label = 'Copy', value }) {
       {copied ? <Check size={16} aria-hidden /> : <Copy size={16} aria-hidden />}
       {copied ? 'Copied' : label}
     </button>
-  );
-}
-
-function Header() {
-  return (
-    <header className="site-header">
-      <a className="brand" href="/">
-        <span className="brand-mark">ト</span>
-        <span className="brand-word">TOONLAB</span>
-        <span className="brand-edition">Open Source</span>
-      </a>
-      <nav aria-label="Primary">
-        <a href="/">Labs</a>
-        <a href="/gallery/">Gallery</a>
-        <a href="/docs/">Docs</a>
-        <a href="https://github.com/call-me-sensei/toonlab" target="_blank" rel="noreferrer">GitHub</a>
-        <a href="https://toonlab.io" target="_blank" rel="noreferrer">ToonLab Pro</a>
-      </nav>
-    </header>
   );
 }
 
@@ -111,7 +93,7 @@ function SettingsApp() {
 
   return (
     <>
-      <Header />
+      <toonlab-site-header active="settings" />
       <div className="page-shell">
         <header className="settings-page-header">
           <div className="page-kicker">Local tools &amp; preferences</div>

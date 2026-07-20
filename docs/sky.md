@@ -6,8 +6,9 @@ two-tone painterly clouds, and a procedural star field. It uses the same TSL
 material on WebGPU and the WebGL2 fallback and requires no texture assets.
 
 Sky is a World System in ToonLab. Its appearance shader and procedural motion
-ship as one versioned preset because the cloud, sun, horizon, and star terms
-must be judged together. It is not a fourth IP-wide Shader Lab; see
+ship as one versioned style because the cloud, sun, horizon, and star terms
+must be judged together. Runtime scenarios remain a separate axis. It is not
+a fourth IP-wide Shader Lab; see
 [Lab responsibilities](lab-architecture.md).
 
 ## Quickstart
@@ -16,7 +17,7 @@ must be judged together. It is not a fourth IP-wide Shader Lab; see
 import { StylizedSky } from '@call-me-sensei/toonlab/sky';
 
 const sky = new StylizedSky({
-  preset: 'call_me_sensei',
+  style: 'call_me_sensei',
   quality: 'high', // deployment policy; not saved in the art preset
 });
 scene.add(sky);
@@ -29,7 +30,11 @@ renderer.setAnimationLoop(() => {
 
 // Live runtime retuning does not rebuild the material.
 sky.applySettings({ cloudCoverage: 0.55, starsStrength: 0.2 });
-sky.setPreset('golden_hour'); // replaces the authored look from scratch
+
+// A preset is a STYLE; a scenario is a moment. Every style resolves in
+// every canonical scenario (clear_day, golden_hour, overcast, moonlit).
+sky.setStyle('call_me_sensei', { scenario: 'golden_hour' });
+sky.setScenario('moonlit'); // Call Me Sensei night; style identity is retained
 ```
 
 `StylizedSky` centers its dome on the camera and pins it to the far plane, so it
@@ -90,6 +95,10 @@ baseline. `sky.settings` is always authored data, while
 `sky.renderedSettings`, `sky.sceneOverrides`, and `sky.sceneOverrideLayers`
 expose the effective runtime state.
 
+`setStyle(name, overrides)` is the preferred identity-axis API,
+`setScenario(name, overrides)` changes only the moment, and
+`setPreset(name, overrides)` remains the style compatibility alias.
+
 `setSceneOverrides()` is the convenience manual layer and
 `clearSceneOverrides()` removes only that layer. Named owners must call
 `clearSceneOverrideLayer(id)` so they cannot erase each other;
@@ -115,11 +124,27 @@ and animation time. Custom policies may pass `{ cloudOctaves: 1..5 }`.
 Quality is a preview control in Sky Lab and is deliberately absent from
 portable Sky preset documents.
 
-## Presets and portable documents
+## Styles, scenarios, and portable documents
 
-Built-in presets include `default`, `call_me_sensei`, `clear_day`,
-`golden_hour`, `overcast`, and `moonlit`. `getSkyPresetOptions()` lists them
-and any project registrations.
+A sky preset is a **style** — an identity (palette bias, cloud character,
+glow personality) — never a single moment. The world-state axis is the
+**scenario**: `SKY_SCENARIOS` defines the canonical set (`clear_day`,
+`golden_hour`, `overcast`, `moonlit`; `getSkyScenarioOptions()` lists them)
+and every style resolves in every scenario, the same way a lighting style's
+`dayCycle` covers every hour:
+
+```js
+createSkySettings({ style: 'call_me_sensei', scenario: 'moonlit' });
+```
+
+Built-in styles are `default` and `call_me_sensei`; `getSkyPresetOptions()`
+lists them plus any project registrations, with per-scenario coverage
+(`'authored'` vs `'inherited'`). A style authors variants under `scenarios`;
+scenarios it does not author inherit the canonical rendition (the Default
+style's variant) layered over the style base, so single-look registrations
+stay valid. The historical flat preset ids (`clear_day`, `golden_hour`,
+`overcast`, `moonlit`) resolve through `SKY_PRESET_ALIASES` as the Default
+style at that scenario, byte-identical to the presets they replaced.
 
 ```js
 import {
@@ -133,10 +158,16 @@ import {
 
 registerSkyPreset('violet_twilight', {
   label: 'Violet Twilight',
+  // Style base: the identity every scenario shares.
   settings: {
     zenithColor: [0.12, 0.08, 0.32],
     horizonColor: [0.88, 0.38, 0.5],
     starsStrength: 0.35,
+  },
+  // Optional per-scenario variants layered over the base; unauthored
+  // scenarios inherit the canonical rendition automatically.
+  scenarios: {
+    moonlit: { starsStrength: 1.2, zenithColor: [0.05, 0.03, 0.18] },
   },
 });
 
@@ -150,9 +181,11 @@ if (result.ok) registerSerializedSkyPreset(json, { overwrite: true });
 ```
 
 Documents use `{ type: 'toonlab/sky-preset', version, id, label,
-description, settings }`. Use `validateSkyPresetDocument` when a parsed object
-is already available. Documents contain complete normalized appearance
-settings, so they remain portable if a named base preset changes later.
+description, settings, scenarios? }` (schema v2; v1 single-look documents
+stay valid and inherit unauthored scenarios). Use `validateSkyPresetDocument`
+when a parsed object is already available. `settings` contains complete
+normalized appearance values and each `scenarios` entry a normalized partial,
+so documents remain portable if a named base preset changes later.
 
 ## Low-level material API
 
@@ -164,9 +197,9 @@ import {
   createSkyMaterial,
 } from '@call-me-sensei/toonlab/sky';
 
-const material = createSkyMaterial({ preset: 'moonlit' });
+const material = createSkyMaterial({ style: 'call_me_sensei', scenario: 'moonlit' });
 applySkySettingsToMaterial(material, { starsStrength: 1.2 });
-applySkySettingsToMaterial(material, { preset: 'clear_day' }); // full reset
+applySkySettingsToMaterial(material, { scenario: 'clear_day' }); // full reset
 ```
 
 `createSkyMaterial` returns the TSL node material used by `StylizedSky`.

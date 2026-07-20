@@ -215,12 +215,29 @@ export function computeVertexColors(positions, normals, ao, surface, seed, bound
         const cloud = (grain + 1) * 0.5;
         const chalk = smoothstep(0.34, 0.82, cloud) * textureStrength * 0.36;
         const pit = smoothstep(0.18, 0.64, -grain) * textureStrength * 0.18;
+        // Limestone reads through sedimentation first, mottling second.
+        // Normalize by piece height so every rock gets broad horizontal beds
+        // regardless of its authored dimensions. Warped thin dark seams keep
+        // the layers geological instead of decorative.
+        const bandCoord = (positions[i + 1] - minY) * invHeight * (6 + textureScale * 3.5)
+          + grain * 0.18;
+        const bandPhase = fract(bandCoord);
+        const seamDistance = Math.min(bandPhase, 1 - bandPhase) * 2;
+        const seam = (1 - smoothstep(0.025, 0.16, seamDistance)) * textureStrength;
+        const ochreShelf = smoothstep(0.2, 0.42, bandPhase)
+          * (1 - smoothstep(0.55, 0.76, bandPhase)) * textureStrength;
         red += (0.79 - red) * chalk;
         green += (0.77 - green) * chalk;
         blue += (0.66 - blue) * chalk;
         red += (0.38 - red) * pit;
         green += (0.35 - green) * pit;
         blue += (0.28 - blue) * pit;
+        red += (0.27 - red) * seam * 0.58;
+        green += (0.22 - green) * seam * 0.58;
+        blue += (0.16 - blue) * seam * 0.58;
+        red += (0.76 - red) * ochreShelf * 0.18;
+        green += (0.57 - green) * ochreShelf * 0.18;
+        blue += (0.34 - blue) * ochreShelf * 0.18;
       } else if (textureStyle === 'veined') {
         const coolCloud = smoothstep(-0.25, 0.85, grain) * textureStrength * 0.18;
         red += (0.58 - red) * coolCloud;

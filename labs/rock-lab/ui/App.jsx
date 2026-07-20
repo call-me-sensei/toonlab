@@ -9,6 +9,7 @@ import {
   TextField, ToastStack, toast, useStoreState,
 } from '../../shared/ui/index.js';
 import { ScrubValue } from '../../shared/ui/components/Slider.jsx';
+import '../../shared/siteHeader.js';
 import { SCENE_HUB_OPTIONS, navigateSceneHub } from '../../shared/sceneHub.js';
 import { persistLabScene } from '../../shared/labParams.js';
 import { WALK_PREVIEW_TITLE } from '../../shared/walkPreview.js';
@@ -18,6 +19,7 @@ import {
   ROCKGEN_SETTING_GROUPS,
   ROCK_SURFACE_TEXTURE_PRESETS,
   getRockgenPresetOptions,
+  getRockgenStyleOptions,
   isRockHelperPiece,
   resolveRockgenPreset,
   serializeRockDocument,
@@ -509,7 +511,9 @@ function DocumentMenu({ actions, anchor, onClose, state }) {
   async function saveJson() {
     const filename = `${state.document.name.toLowerCase().replace(/[^a-z0-9-_]+/g, '-')}.rockproj.json`;
     downloadBlob(serializeRockDocument(state.document, { pretty: true }), filename, 'application/json');
-    saveRockProject(state.document, { meta: { preset: state.presetName, seed: state.seed } });
+    saveRockProject(state.document, {
+      meta: { preset: state.presetName, seed: state.seed, style: state.styleName },
+    });
     toast(`Saved ${filename}.`);
     onClose();
   }
@@ -596,6 +600,7 @@ function TopBar({ actions, state }) {
       rockPreset: state.presetName,
       rockRes: String(state.previewResolution),
       rockSeed: String(state.seed),
+      rockStyle: state.styleName,
       scene: 'rock',
     });
     const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
@@ -886,10 +891,23 @@ function PresetSection({ actions, state }) {
     <section className="tk-section" data-testid="preset-section">
       <div className="tk-section-title">Document</div>
       <div className="tk-field">
+        <span className="tk-field-label"><span className="tk-field-label-text">Style</span></span>
+        <Select
+          onChange={(value) => actions.setStyle(value)}
+          options={getRockgenStyleOptions().map((option) => ({ label: option.label, value: option.value }))}
+          testId="rock-style"
+          value={state.styleName}
+        />
+        <span />
+      </div>
+      <div className="tk-field">
         <span className="tk-field-label"><span className="tk-field-label-text">Preset</span></span>
         <Select
           onChange={(value) => actions.setPreset(value)}
-          options={getRockgenPresetOptions().map((option) => ({ label: option.label, value: option.value }))}
+          options={[
+            ...(state.presetName === 'custom' ? [{ label: 'Custom document', value: 'custom' }] : []),
+            ...getRockgenPresetOptions().map((option) => ({ label: option.label, value: option.value })),
+          ]}
           testId="rock-preset"
           value={state.presetName}
         />
@@ -1233,6 +1251,7 @@ export function App({ engine, store }) {
   if (state.view.gallery) {
     return (
       <div className="tk">
+        <toonlab-site-header active="labs" />
         <RockGalleryScreen actions={actions} state={state} />
         <ToastStack />
       </div>

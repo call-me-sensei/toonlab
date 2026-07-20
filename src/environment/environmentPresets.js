@@ -1,7 +1,10 @@
-// Named environment presets: one string selects a coherent, reference-checked
-// look — shader features/parameters plus rig hints (sun, lamps, reflection,
-// probe, motes) that scene-level integrations consume. Registry mirrors the
-// character preset helpers in toonSettings.js.
+// Named environment presets: a preset is a STYLE — a coherent,
+// reference-checked identity (shader features/parameters plus rig hints)
+// that resolves in every canonical SCENARIO (venue × time of day), the same
+// way a lighting style's dayCycle covers every hour and a sky style renders
+// every scenario. Selecting "Call Me Sensei" never means "one baked moment";
+// it means the Call Me Sensei rendition of whichever scenario the scene is
+// in. Registry mirrors the character preset helpers in toonSettings.js.
 //
 // 'default' stays an empty override layer so the shipped baseline (the
 // approved Liyue room look) never shifts underneath integrators.
@@ -11,8 +14,40 @@ import { ENVIRONMENT_SETTING_FIELD_SCHEMA } from './environmentSettings.js';
 /** Document type tag stamped on shareable environment preset JSON documents. */
 export const ENVIRONMENT_PRESET_DOCUMENT_TYPE = 'toonlab/environment-preset';
 
-/** Current schema version for environment preset documents. */
-export const ENVIRONMENT_PRESET_SCHEMA_VERSION = 1;
+/** Current schema version for environment preset documents. v2 adds `preset.scenarios`. */
+export const ENVIRONMENT_PRESET_SCHEMA_VERSION = 2;
+
+/**
+ * Canonical environment scenarios — the world-state axis (venue × time of
+ * day). Every style resolves in every scenario via
+ * `resolveEnvironmentPreset(style, scenario)`; styles author variants under
+ * `scenarios` and inherit the canonical rendition for the rest.
+ */
+export const ENVIRONMENT_SCENARIOS = Object.freeze([
+  Object.freeze({ description: 'Sunlit interior at midday.', id: 'interiorDay', label: 'Interior Day' }),
+  Object.freeze({ description: 'Warm lamps balanced against low evening sun.', id: 'interiorEvening', label: 'Interior Evening' }),
+  Object.freeze({ description: 'Lamp-lit interior after dark, sun off.', id: 'interiorNight', label: 'Interior Night' }),
+  Object.freeze({ description: 'Open-air daylight with sky tint and height fog.', id: 'exteriorDay', label: 'Exterior Day' }),
+]);
+
+const ENVIRONMENT_SCENARIO_IDS = new Set(ENVIRONMENT_SCENARIOS.map((scenario) => scenario.id));
+
+/** Lists the canonical scenarios as `{ id, label, description }` (for HUDs). */
+export function getEnvironmentScenarioOptions() {
+  return ENVIRONMENT_SCENARIOS.map(({ description, id, label }) => ({ description, id, label }));
+}
+
+/**
+ * Historical single-look preset ids. Each was the Default style's rendition
+ * of one scenario; they now resolve as exactly that, byte-identical. Kept
+ * indefinitely for saved bundles, lab links, and downstream games.
+ */
+export const ENVIRONMENT_PRESET_ALIASES = Object.freeze({
+  exteriorDay: Object.freeze({ preset: 'default', scenario: 'exteriorDay' }),
+  interiorDay: Object.freeze({ preset: 'default', scenario: 'interiorDay' }),
+  interiorEvening: Object.freeze({ preset: 'default', scenario: 'interiorEvening' }),
+  interiorNight: Object.freeze({ preset: 'default', scenario: 'interiorNight' }),
+});
 
 // Rig keys consumed by the shipped scene integrations. Unknown rig keys are
 // kept (integrations may carry custom hints) but flagged with a warning.
@@ -29,41 +64,110 @@ const KNOWN_ENVIRONMENT_RIG_KEYS = Object.freeze(new Set([
 
 const ENVIRONMENT_PRESETS = new Map();
 
+function scenarioPartial(source) {
+  const partial = source && typeof source === 'object' && !Array.isArray(source) ? source : {};
+  return {
+    features: { ...(partial.features ?? {}) },
+    parameters: { ...(partial.parameters ?? {}) },
+    rig: { ...(partial.rig ?? {}) },
+  };
+}
+
 export function registerEnvironmentPreset(name, preset, { overwrite = false } = {}) {
   const key = String(name ?? '').trim();
   if (!key) throw new Error('Environment preset name is required.');
   if (!overwrite && ENVIRONMENT_PRESETS.has(key)) {
     throw new Error(`Environment preset "${key}" is already registered.`);
   }
+  const source = preset && typeof preset === 'object' ? preset : {};
+  const scenarios = {};
+  for (const [scenarioId, partial] of Object.entries(source.scenarios ?? {})) {
+    if (!ENVIRONMENT_SCENARIO_IDS.has(scenarioId)) continue;
+    scenarios[scenarioId] = scenarioPartial(partial);
+  }
   ENVIRONMENT_PRESETS.set(key, {
     features: {},
     label: key,
     parameters: {},
     rig: {},
-    ...preset,
+    ...source,
+    scenarios,
   });
   return key;
 }
 
+/**
+ * Folds any reference — style id, legacy single-look id, or unknown — to a
+ * resolvable id. Legacy scenario ids stay themselves (they resolve through
+ * {@link ENVIRONMENT_PRESET_ALIASES}); unknown ids fall back to 'default'.
+ */
 export function normalizeEnvironmentPresetName(name) {
   const key = String(name ?? 'default').trim();
-  return ENVIRONMENT_PRESETS.has(key) ? key : 'default';
+  if (ENVIRONMENT_PRESETS.has(key) || ENVIRONMENT_PRESET_ALIASES[key]) return key;
+  return 'default';
 }
 
+/**
+ * Lists registered environment STYLES as `{ label, value, scenarios }`,
+ * where `scenarios` reports per-scenario coverage (`'authored'` vs
+ * `'inherited'`). Every style covers every scenario either way.
+ */
 export function getEnvironmentPresetOptions() {
   return Array.from(ENVIRONMENT_PRESETS.entries())
-    .map(([value, preset]) => ({ label: preset.label, value }));
+    .map(([value, preset]) => ({
+      label: preset.label,
+      scenarios: Object.fromEntries(ENVIRONMENT_SCENARIOS.map((scenario) => [
+        scenario.id,
+        preset.scenarios?.[scenario.id] ? 'authored' : 'inherited',
+      ])),
+      value,
+    }));
 }
 
-// Returns { features, parameters, rig } ready to spread into
-// applyEnvironmentShader options and the rig constructors.
-export function resolveEnvironmentPreset(name) {
-  const preset = ENVIRONMENT_PRESETS.get(normalizeEnvironmentPresetName(name));
-  return {
+// A style's complete payload for one scenario: authored variant over the
+// style base when the style ships one, otherwise the canonical rendition
+// (the Default style's variant) over the style base. Sections merge
+// shallowly (features / parameters / rig).
+function resolveEnvironmentStyleVariant(preset, scenarioId) {
+  const base = {
     features: { ...preset.features },
     parameters: { ...preset.parameters },
     rig: { ...preset.rig },
   };
+  const partial = preset.scenarios?.[scenarioId]
+    ?? ENVIRONMENT_PRESETS.get('default')?.scenarios?.[scenarioId];
+  if (!partial) return base;
+  return {
+    features: { ...base.features, ...partial.features },
+    parameters: { ...base.parameters, ...partial.parameters },
+    rig: { ...base.rig, ...partial.rig },
+  };
+}
+
+/**
+ * Returns { features, parameters, rig } ready to spread into
+ * applyEnvironmentShader options and the rig constructors.
+ *
+ * `name` selects a STYLE; the optional `scenario` (one of
+ * {@link ENVIRONMENT_SCENARIOS}) selects that style's rendition of a venue ×
+ * time of day. Without a scenario the style's base look is returned
+ * unchanged. Legacy single-look ids (`interiorDay`, `interiorEvening`,
+ * `interiorNight`, `exteriorDay`) resolve as the Default style at that
+ * scenario with identical settings.
+ */
+export function resolveEnvironmentPreset(name, scenario = undefined) {
+  const key = String(name ?? 'default').trim();
+  const alias = ENVIRONMENT_PRESETS.has(key) ? undefined : ENVIRONMENT_PRESET_ALIASES[key];
+  const preset = ENVIRONMENT_PRESETS.get(alias?.preset ?? normalizeEnvironmentPresetName(key));
+  const scenarioId = ENVIRONMENT_SCENARIO_IDS.has(scenario) ? scenario : alias?.scenario;
+  if (scenarioId === undefined) {
+    return {
+      features: { ...preset.features },
+      parameters: { ...preset.parameters },
+      rig: { ...preset.rig },
+    };
+  }
+  return resolveEnvironmentStyleVariant(preset, scenarioId);
 }
 
 function isPlainObject(value) {
@@ -188,13 +292,44 @@ export function sanitizeEnvironmentPreset(preset) {
   };
 }
 
+// Sanitizes a `scenarios` map: unknown scenario ids are dropped with a
+// warning; each variant is a partial {features, parameters, rig} validated
+// against the same schema as the base payload.
+function sanitizeEnvironmentScenarios(input) {
+  const errors = [];
+  const warnings = [];
+  const scenarios = {};
+  for (const [scenarioId, partial] of Object.entries(cleanObject(input))) {
+    if (!ENVIRONMENT_SCENARIO_IDS.has(scenarioId)) {
+      warnings.push(`Unknown environment scenario "${scenarioId}" was ignored.`);
+      continue;
+    }
+    const sanitized = sanitizeEnvironmentPreset(cleanObject(partial));
+    errors.push(...sanitized.errors.map((error) => `Scenario "${scenarioId}": ${error}`));
+    warnings.push(...sanitized.warnings.map((warning) => `Scenario "${scenarioId}": ${warning}`));
+    if (sanitized.ok) {
+      scenarios[scenarioId] = {
+        features: sanitized.value.features,
+        parameters: sanitized.value.parameters,
+        rig: sanitized.value.rig,
+      };
+    }
+  }
+  return {
+    errors,
+    scenarios: Object.keys(scenarios).length > 0 ? scenarios : undefined,
+    warnings,
+  };
+}
+
 /**
  * Serializes a registered environment preset into a shareable JSON document
- * (`{ type, schemaVersion, id, label, description, preset }`). The registered
+ * (`{ type, schemaVersion, id, label, description, preset }`, with
+ * `preset.scenarios` when the style authors variants). The registered
  * preset itself is untouched; `label`/`description` overrides only affect the
  * emitted document.
  *
- * @param {string} name Registered preset name (e.g. 'interiorNight').
+ * @param {string} name Registered preset name (e.g. 'call_me_sensei').
  * @param {{ label?: string, description?: string }} [overrides] Optional label/description overrides.
  * @returns {object} Environment preset document ready for `JSON.stringify`.
  * @throws {Error} If the preset is not registered or fails sanitization.
@@ -210,6 +345,8 @@ export function createEnvironmentPresetDocument(name, { description, label } = {
     label: label ?? preset.label ?? key,
   });
   if (!sanitized.ok) throw new Error(sanitized.errors.join(' '));
+  const scenarioResult = sanitizeEnvironmentScenarios(preset.scenarios);
+  if (scenarioResult.errors.length > 0) throw new Error(scenarioResult.errors.join(' '));
 
   return {
     description: sanitized.value.description,
@@ -219,6 +356,7 @@ export function createEnvironmentPresetDocument(name, { description, label } = {
       features: sanitized.value.features,
       parameters: sanitized.value.parameters,
       rig: sanitized.value.rig,
+      ...(scenarioResult.scenarios === undefined ? {} : { scenarios: scenarioResult.scenarios }),
     },
     schemaVersion: ENVIRONMENT_PRESET_SCHEMA_VERSION,
     type: ENVIRONMENT_PRESET_DOCUMENT_TYPE,
@@ -285,6 +423,11 @@ export function validateEnvironmentPresetDocument(input) {
   });
   errors.push(...sanitized.errors);
   warnings.push(...sanitized.warnings);
+  // v1 documents carry a single flat look and no scenarios; they stay valid
+  // as a style whose scenarios inherit the canonical renditions.
+  const scenarioResult = sanitizeEnvironmentScenarios(presetSource.scenarios);
+  errors.push(...scenarioResult.errors);
+  warnings.push(...scenarioResult.warnings);
 
   const ok = errors.length === 0;
   return {
@@ -298,6 +441,7 @@ export function validateEnvironmentPresetDocument(input) {
         label: sanitized.value.label,
         parameters: sanitized.value.parameters,
         rig: sanitized.value.rig,
+        ...(scenarioResult.scenarios === undefined ? {} : { scenarios: scenarioResult.scenarios }),
       }
       : null,
     warnings,
@@ -318,61 +462,81 @@ export function registerEnvironmentPresetDocument(document, { overwrite = false 
   return registerEnvironmentPreset(result.value.id, result.value, { overwrite });
 }
 
+// Built-in STYLES. Every style resolves in every canonical scenario; the
+// historical single-look ids (interiorDay/interiorEvening/interiorNight/
+// exteriorDay) resolve through ENVIRONMENT_PRESET_ALIASES as the Default
+// style at that scenario, byte-identical to the presets they replaced.
+
 registerEnvironmentPreset('default', {
   label: 'Default (Baseline)',
-});
-
-registerEnvironmentPreset('interiorDay', {
-  label: 'Interior Day',
-  parameters: {
-    ambientProbeBlend: 0.35,
-    ambientStrength: 0.22,
-    aoWarmth: 0.6,
-    interiorOcclusionStrength: 0.5,
-  },
-  rig: {
-    dustMotes: true,
-    probe: true,
-    sun: true,
-    timeOfDayHour: 12,
-  },
-});
-
-registerEnvironmentPreset('interiorEvening', {
-  label: 'Interior Evening',
-  parameters: {
-    ambientProbeBlend: 0.4,
-    ambientStrength: 0.42,
-    directLightStrength: 0.85,
-    interiorOcclusionStrength: 0.42,
-    shadowLift: 0.3,
-    spotLightStrength: 0.55,
-  },
-  rig: {
-    dustMotes: true,
-    lampIntensity: 0.8,
-    probe: true,
-    spotShadows: true,
-    sun: true,
-    timeOfDayHour: 18,
-  },
-});
-
-registerEnvironmentPreset('interiorNight', {
-  label: 'Interior Night (Lamp Lit)',
-  parameters: {
-    ambientProbeBlend: 0.4,
-    emissiveStrength: 0.7,
-    pointLightStrength: 0.36,
-    shadowLift: 0.56,
-    spotLightStrength: 0.85,
-  },
-  rig: {
-    lampIntensity: 1.3,
-    probe: true,
-    spotShadows: true,
-    sun: false,
-    timeOfDayHour: 22,
+  // Canonical scenario renditions — settings identical to the historical
+  // flat presets of the same name. Styles that do not author a scenario
+  // inherit these over their own base.
+  scenarios: {
+    interiorDay: {
+      parameters: {
+        ambientProbeBlend: 0.35,
+        ambientStrength: 0.22,
+        aoWarmth: 0.6,
+        interiorOcclusionStrength: 0.5,
+      },
+      rig: {
+        dustMotes: true,
+        probe: true,
+        sun: true,
+        timeOfDayHour: 12,
+      },
+    },
+    interiorEvening: {
+      parameters: {
+        ambientProbeBlend: 0.4,
+        ambientStrength: 0.42,
+        directLightStrength: 0.85,
+        interiorOcclusionStrength: 0.42,
+        shadowLift: 0.3,
+        spotLightStrength: 0.55,
+      },
+      rig: {
+        dustMotes: true,
+        lampIntensity: 0.8,
+        probe: true,
+        spotShadows: true,
+        sun: true,
+        timeOfDayHour: 18,
+      },
+    },
+    interiorNight: {
+      parameters: {
+        ambientProbeBlend: 0.4,
+        emissiveStrength: 0.7,
+        pointLightStrength: 0.36,
+        shadowLift: 0.56,
+        spotLightStrength: 0.85,
+      },
+      rig: {
+        lampIntensity: 1.3,
+        probe: true,
+        spotShadows: true,
+        sun: false,
+        timeOfDayHour: 22,
+      },
+    },
+    exteriorDay: {
+      features: {
+        leftSideShadow: false,
+        windowCutout: false,
+      },
+      parameters: {
+        cloudShadowStrength: 0.35,
+        heightFogDensity: 0.012,
+        heightFogFalloff: 9,
+        skyTintStrength: 0.4,
+      },
+      rig: {
+        sun: true,
+        timeOfDayHour: 12,
+      },
+    },
   },
 });
 
@@ -398,24 +562,6 @@ registerEnvironmentPreset('interiorStudio', {
     probe: true,
     spotShadows: true,
     sun: true,
-  },
-});
-
-registerEnvironmentPreset('exteriorDay', {
-  label: 'Exterior Day',
-  features: {
-    leftSideShadow: false,
-    windowCutout: false,
-  },
-  parameters: {
-    cloudShadowStrength: 0.35,
-    heightFogDensity: 0.012,
-    heightFogFalloff: 9,
-    skyTintStrength: 0.4,
-  },
-  rig: {
-    sun: true,
-    timeOfDayHour: 12,
   },
 });
 
@@ -448,15 +594,98 @@ registerEnvironmentPreset('showcase', {
 // registerEnvironmentPreset / environment preset documents.
 registerEnvironmentPreset('call_me_sensei', {
   label: 'Call Me Sensei',
+  // Identity base: luminous blue-filled shade, restrained aerial haze, and
+  // enough contrast for the light to stay alive. This preset is frequently
+  // applied directly by games (without createStylizedWorld), so its base
+  // must itself be production-safe at outdoor scale.
   parameters: {
-    ambientProbeBlend: 0.35,
+    ambientProbeBlend: 0.45,
+    ambientStrength: 0.38,
     aoWarmth: 0.5,
-    heightFogDensity: 0.006,
-    skyTintStrength: 0.35,
+    cloudShadowCoverage: 0.55,
+    cloudShadowScale: 0.008,
+    cloudShadowStrength: 0.52,
+    directLightStrength: 1.12,
+    exposure: 1.06,
+    heightFogColor: [0.63, 0.8, 0.98],
+    heightFogDensity: 0.00055,
+    heightFogFalloff: 400,
+    lightingInfluence: 0.96,
+    saturation: 1.2,
+    shadowLift: 0.42,
+    shadowTintColor: [0.68, 0.74, 0.94],
+    skyTintStrength: 0.16,
+    sunShadowStrength: 0.72,
+    triplanarDetail: 1,
+    triplanarDetailScale: 28,
+    triplanarEdgeHighlight: 0.7,
+    untexturedGradientStrength: 0.52,
   },
   rig: {
     probe: true,
     sun: true,
     timeOfDayHour: 14,
+  },
+  // The signature style authors every scenario itself — vivid variants of
+  // the canonical venue × time renditions, never a single baked moment.
+  scenarios: {
+    interiorDay: {
+      parameters: {
+        ambientStrength: 0.24,
+        aoWarmth: 0.55,
+        interiorOcclusionStrength: 0.45,
+      },
+      rig: {
+        dustMotes: true,
+        timeOfDayHour: 12,
+      },
+    },
+    interiorEvening: {
+      parameters: {
+        ambientProbeBlend: 0.4,
+        ambientStrength: 0.4,
+        directLightStrength: 0.85,
+        interiorOcclusionStrength: 0.4,
+        shadowLift: 0.32,
+        spotLightStrength: 0.6,
+      },
+      rig: {
+        dustMotes: true,
+        lampIntensity: 0.85,
+        spotShadows: true,
+        timeOfDayHour: 18,
+      },
+    },
+    interiorNight: {
+      parameters: {
+        ambientProbeBlend: 0.4,
+        emissiveStrength: 0.75,
+        pointLightStrength: 0.4,
+        shadowLift: 0.58,
+        spotLightStrength: 0.9,
+      },
+      rig: {
+        lampIntensity: 1.35,
+        spotShadows: true,
+        sun: false,
+        timeOfDayHour: 22,
+      },
+    },
+    exteriorDay: {
+      features: {
+        leftSideShadow: false,
+        windowCutout: false,
+      },
+      parameters: {
+        cloudShadowCoverage: 0.55,
+        cloudShadowScale: 0.008,
+        cloudShadowStrength: 0.52,
+        heightFogDensity: 0.00055,
+        heightFogFalloff: 400,
+      },
+      rig: {
+        timeOfDayHour: 14,
+      },
+    },
   },
 });

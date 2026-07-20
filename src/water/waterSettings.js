@@ -20,6 +20,28 @@ export const WATER_PRESET_NAMES = Object.freeze([
   'storm',
 ]);
 
+/**
+ * Canonical body-of-water presets used by focused scenario pickers. They are
+ * a subset of WATER_PRESET_NAMES; the style axis is always separate and
+ * applies across every preset, including mirror/calm/storm.
+ */
+export const WATER_SCENARIOS = Object.freeze([
+  Object.freeze({ description: 'Balanced still-water body: light swell, anime-blue palette.', id: 'lake', label: 'Lake' }),
+  Object.freeze({ description: 'Fast aligned current with chop, foam lines, and strong caustics.', id: 'river', label: 'River' }),
+  Object.freeze({ description: 'Onshore swell with rolling surf and contact foam.', id: 'coast', label: 'Coast' }),
+  Object.freeze({ description: 'Big open-water swell in sets, whitecaps, curling breakers.', id: 'ocean', label: 'Ocean' }),
+]);
+
+/** The body preset used by legacy style-as-preset calls with no scenario. */
+export const DEFAULT_WATER_SCENARIO = 'lake';
+
+const WATER_SCENARIO_IDS = new Set(WATER_SCENARIOS.map((scenario) => scenario.id));
+
+/** Lists the canonical scenarios as `{ id, label, description }` (for HUDs). */
+export function getWaterScenarioOptions() {
+  return WATER_SCENARIOS.map(({ description, id, label }) => ({ description, id, label }));
+}
+
 export const WATER_QUALITY_LEVELS = Object.freeze(['low', 'medium', 'high']);
 
 // Named body-color palettes, independent of the wave presets: pick a mode
@@ -30,33 +52,31 @@ export const WATER_QUALITY_LEVELS = Object.freeze(['low', 'medium', 'high']);
 export const WATER_COLOR_TONES = Object.freeze({
   // Preset/default palette untouched.
   classic: Object.freeze({}),
-  // Matched against modern anime open-world reference shots (coastal scenes):
-  // bright milky pastel water. Pale luminous turquoise shallows so clear the
-  // bed reads through for meters, azure — never navy — mids and deeps, a high
-  // sky-tint floor, strong-but-soft reflections (clouds smear milky white),
-  // and pronounced caustic dappling on the bed.
+  // Production anime open-world water: luminous at shore, saturated through
+  // the mid band, and deep enough to keep lakes from reading as milky paint.
+  // Reflections remain legible but do not bleach the body color.
   anime: Object.freeze({
     // Swim-depth reference water is a saturated green-leaning turquoise, not
     // pale azure; the beach reference gets its blue from grazing-angle sky
     // reflection, not from the body color.
-    shallowColor: [0.52, 0.94, 0.85],
-    midColor: [0.19, 0.72, 0.74],
-    deepColor: [0.07, 0.47, 0.55],
-    depthFadeDistance: 2.4,
-    deepFadeDistance: 5.5,
-    fresnelColor: [0.68, 0.93, 1.0],
+    shallowColor: [0.28, 0.82, 0.79],
+    midColor: [0.07, 0.5, 0.66],
+    deepColor: [0.018, 0.22, 0.4],
+    depthFadeDistance: 1.8,
+    deepFadeDistance: 4.2,
+    fresnelColor: [0.54, 0.84, 0.96],
     // Low sky-tint floor: looking straight down while swimming, the reference shows
     // nearly pure body color — sky/cloud reflections belong to grazing angles.
     fresnelBias: 0.07,
-    reflectionStrength: 0.62,
-    reflectionSoftness: 0.7,
+    reflectionStrength: 0.46,
+    reflectionSoftness: 0.36,
     // Subtle: the long clarity distances above widen the caustic depth window
     // considerably, and the reference dappling is a soft near-shore accent, not a
     // surface web.
     causticsStrength: 0.3,
     // Glassier surface: the reference water carries long smooth undulations,
     // not constant high-frequency wobble.
-    detailNormalStrength: 0.12,
+    detailNormalStrength: 0.38,
   }),
   // Anime-style lake teal: green pulled above blue in the mid band, long
   // glassy falloff before the deeps.
@@ -441,6 +461,10 @@ const waterPresetRegistry = new Map(
   }]),
 );
 
+// IP-wide rendition styles. A style is never returned by
+// getWaterPresetOptions(); it composes over any entry in waterPresetRegistry.
+const waterStyleRegistry = new Map();
+
 function normalizeWaterPresetId(value) {
   return String(value ?? '')
     .trim()
@@ -464,6 +488,11 @@ export function resolveWaterPresetName(name) {
   const normalized = normalizeWaterPresetId(requested);
   if (waterPresetRegistry.has(normalized)) return normalized;
   return WATER_PRESET_ALIASES[requested] ?? 'lake';
+}
+
+export function resolveWaterStyleName(name) {
+  const requested = normalizeWaterPresetId(name || 'default');
+  return waterStyleRegistry.has(requested) ? requested : 'default';
 }
 
 function finiteNumber(value, fallback) {
@@ -543,8 +572,26 @@ function normalizeLegacyKeys(source) {
 export function createWaterSettings(options = {}) {
   const rawSource = options && typeof options === 'object' ? options : {};
   const source = normalizeLegacyKeys(rawSource);
-  const preset = resolveWaterPresetName(source.preset ?? source.mode);
-  const presetSettings = waterPresetRegistry.get(preset)?.settings ?? WATER_PRESETS[preset] ?? {};
+  const requestedPreset = source.preset ?? source.mode;
+  // Compatibility for the short-lived and historical style-as-preset API:
+  // { preset: 'call_me_sensei', scenario: 'river' } becomes the explicit
+  // { preset: 'river', style: 'call_me_sensei' } contract.
+  const legacyStyle = waterStyleRegistry.has(normalizeWaterPresetId(requestedPreset))
+    ? normalizeWaterPresetId(requestedPreset)
+    : null;
+  const preset = resolveWaterPresetName(
+    legacyStyle && WATER_SCENARIO_IDS.has(source.scenario)
+      ? source.scenario
+      : (legacyStyle ? DEFAULT_WATER_SCENARIO : requestedPreset),
+  );
+  const style = resolveWaterStyleName(source.style ?? legacyStyle);
+  const presetEntry = waterPresetRegistry.get(preset);
+  const styleEntry = waterStyleRegistry.get(style);
+  const presetSettings = {
+    ...(presetEntry?.settings ?? WATER_PRESETS[preset] ?? {}),
+    ...(styleEntry?.settings ?? {}),
+    ...(styleEntry?.presets?.[preset] ?? styleEntry?.scenarios?.[preset] ?? {}),
+  };
   const base = { ...DEFAULT_WATER_SETTINGS, ...presetSettings };
   const colorTone = resolveWaterColorToneName(source.colorTone ?? base.colorTone);
   // A chosen tone forces its palette (see WATER_COLOR_TONES).
@@ -556,6 +603,7 @@ export function createWaterSettings(options = {}) {
 
   return {
     preset,
+    style,
     mode: preset,
     colorTone,
     quality,
@@ -663,6 +711,43 @@ export function createWaterSettings(options = {}) {
     splashColor: colorArray(source.splashColor, base.splashColor),
     splashShadeColor: colorArray(source.splashShadeColor, base.splashShadeColor),
   };
+}
+
+function waterSettingValueEqual(left, right) {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right)
+      && left.length === right.length
+      && left.every((value, index) => waterSettingValueEqual(value, right[index]));
+  }
+  if (left && right && typeof left === 'object' && typeof right === 'object') {
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    return leftKeys.length === rightKeys.length
+      && leftKeys.every((key) => Object.hasOwn(right, key)
+        && waterSettingValueEqual(left[key], right[key]));
+  }
+  return false;
+}
+
+/**
+ * Rebase authored Water settings onto another IP-wide style while retaining
+ * only the user's actual overrides. This prevents a complete serialized
+ * preset from masking every field supplied by the newly selected style.
+ */
+export function rebaseWaterSettingsStyle(settings = {}, style = 'default') {
+  const current = createWaterSettings(settings);
+  const oldBase = createWaterSettings({ preset: current.preset, style: current.style });
+  const overrides = Object.fromEntries(
+    Object.entries(current)
+      .filter(([key, value]) => !['mode', 'preset', 'style'].includes(key)
+        && !waterSettingValueEqual(value, oldBase[key])),
+  );
+  return createWaterSettings({
+    preset: current.preset,
+    style: resolveWaterStyleName(style),
+    ...overrides,
+  });
 }
 
 // --- Gerstner wave spectrum -------------------------------------------------
@@ -1210,8 +1295,8 @@ export const WATER_SETTING_FIELD_SCHEMA_BY_GROUP = Object.freeze(
 /** Document `type` discriminator for serialized water presets. */
 export const WATER_PRESET_DOCUMENT_TYPE = 'toonlab/water-preset';
 
-/** Current water preset document schema version. */
-export const WATER_PRESET_SCHEMA_VERSION = 1;
+/** Current water preset document schema version. v2 adds per-scenario variants. */
+export const WATER_PRESET_SCHEMA_VERSION = 2;
 
 function cleanObject(value) {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
@@ -1303,19 +1388,41 @@ function migrateWaterPresetDocument(input) {
   const source = cleanObject(input);
   const version = Number.isFinite(source.version) ? Math.round(source.version) : 0;
   const settings = cleanObject(source.settings);
+  if (version > WATER_PRESET_SCHEMA_VERSION) return { ...source, version };
+  return {
+    description: source.description ?? '',
+    id: source.id ?? source.name ?? source.preset ?? '',
+    label: source.label ?? source.title ?? source.name ?? source.id ?? '',
+    // v1 documents carry a single flat look and no scenarios; they stay
+    // valid as a style whose scenario renditions inherit the canonical body
+    // recipes at resolve time.
+    ...(source.scenarios === undefined ? {} : { scenarios: source.scenarios }),
+    settings: Object.keys(settings).length > 0 ? settings : collectTopLevelWaterSettings(source),
+    type: source.type ?? WATER_PRESET_DOCUMENT_TYPE,
+    version: WATER_PRESET_SCHEMA_VERSION,
+  };
+}
 
-  if (version <= 1) {
-    return {
-      description: source.description ?? '',
-      id: source.id ?? source.name ?? source.preset ?? '',
-      label: source.label ?? source.title ?? source.name ?? source.id ?? '',
-      settings: Object.keys(settings).length > 0 ? settings : collectTopLevelWaterSettings(source),
-      type: source.type ?? WATER_PRESET_DOCUMENT_TYPE,
-      version: WATER_PRESET_SCHEMA_VERSION,
-    };
+// Sanitizes a `scenarios` map: unknown scenario ids are dropped with a
+// warning; each variant stays a PARTIAL — only the keys the style overrides
+// for that body, each coerced to the serializable schema.
+function sanitizeWaterPresetScenarios(input) {
+  const warnings = [];
+  if (input === undefined) return { scenarios: undefined, warnings };
+  const scenarios = {};
+  for (const [scenarioId, partial] of Object.entries(cleanObject(input))) {
+    if (!WATER_SCENARIO_IDS.has(scenarioId)) {
+      warnings.push(`Unknown water scenario "${scenarioId}" was ignored.`);
+      continue;
+    }
+    warnings.push(...collectUnknownWaterSettingKeys(cleanObject(partial))
+      .map((warning) => `Scenario "${scenarioId}": ${warning}`));
+    scenarios[scenarioId] = sanitizeWaterPresetSettings(cleanObject(partial));
   }
-
-  return source;
+  return {
+    scenarios: Object.keys(scenarios).length > 0 ? scenarios : undefined,
+    warnings,
+  };
 }
 
 /**
@@ -1327,7 +1434,7 @@ function migrateWaterPresetDocument(input) {
  *   and version) when `ok` is true, otherwise null.
  */
 export function validateWaterPresetDocument(input) {
-  return validateSettingsPresetDocument(input, {
+  const result = validateSettingsPresetDocument(input, {
     collectWarnings: collectUnknownWaterSettingKeys,
     documentType: WATER_PRESET_DOCUMENT_TYPE,
     migrateDocument: migrateWaterPresetDocument,
@@ -1335,6 +1442,14 @@ export function validateWaterPresetDocument(input) {
     sanitizeSettings: sanitizeWaterPresetSettings,
     schemaVersion: WATER_PRESET_SCHEMA_VERSION,
   });
+  if (!result.ok) return result;
+  // The shared settings-document helper only knows `settings`; scenario
+  // variants ride alongside it and are sanitized here.
+  const migrated = migrateWaterPresetDocument(cleanObject(input));
+  const { scenarios, warnings } = sanitizeWaterPresetScenarios(migrated.scenarios);
+  result.warnings.push(...warnings);
+  if (scenarios !== undefined) result.value = { ...result.value, scenarios };
+  return result;
 }
 
 /**
@@ -1359,12 +1474,19 @@ export function parseWaterPresetDocument(input) {
  * @returns {object} `{ type, version, id, label, description, settings }`.
  */
 export function createWaterPresetDocument(id, definition = {}) {
-  return createSettingsPresetDocument(id, definition, {
-    collectSettings: (source) => source.settings ?? collectTopLevelWaterSettings(source),
-    documentType: WATER_PRESET_DOCUMENT_TYPE,
-    schemaVersion: WATER_PRESET_SCHEMA_VERSION,
-    validateDocument: validateWaterPresetDocument,
-  });
+  const source = cleanObject(definition);
+  const document = {
+    description: source.description ?? '',
+    id: id ?? source.id ?? source.name ?? source.preset,
+    label: source.label ?? source.title ?? source.name ?? id,
+    ...(source.scenarios === undefined ? {} : { scenarios: source.scenarios }),
+    settings: source.settings ?? collectTopLevelWaterSettings(source),
+    type: WATER_PRESET_DOCUMENT_TYPE,
+    version: WATER_PRESET_SCHEMA_VERSION,
+  };
+  const result = validateWaterPresetDocument(document);
+  if (!result.ok) throw new Error(result.errors.join(' '));
+  return result.value;
 }
 
 /**
@@ -1415,9 +1537,35 @@ export function registerWaterPreset(name, preset = {}, { overwrite = false } = {
   waterPresetRegistry.set(presetId, {
     description: document.description,
     label: document.label,
+    scenarios: Object.freeze(Object.fromEntries(
+      Object.entries(document.scenarios ?? {})
+        .map(([scenarioId, partial]) => [scenarioId, Object.freeze({ ...partial })]),
+    )),
     settings: Object.freeze({ ...document.settings }),
   });
   return { description: document.description, id: presetId, label: document.label };
+}
+
+/** Registers an IP-wide water rendition that composes over every preset. */
+export function registerWaterStyle(name, definition = {}, { overwrite = false } = {}) {
+  const id = normalizeWaterPresetId(name);
+  if (!id) throw new Error('Water style name is required.');
+  if (!overwrite && waterStyleRegistry.has(id)) {
+    throw new Error(`Water style "${id}" already exists.`);
+  }
+  const source = cleanObject(definition);
+  const variants = cleanObject(source.presets ?? source.scenarios);
+  waterStyleRegistry.set(id, Object.freeze({
+    description: String(source.description ?? ''),
+    label: String(source.label ?? id),
+    presets: Object.freeze(Object.fromEntries(
+      Object.entries(variants)
+        .filter(([presetId]) => waterPresetRegistry.has(presetId))
+        .map(([presetId, partial]) => [presetId, Object.freeze({ ...sanitizeWaterPresetSettings(partial) })]),
+    )),
+    settings: Object.freeze({ ...sanitizeWaterPresetSettings(source.settings ?? {}) }),
+  }));
+  return { description: String(source.description ?? ''), id, label: String(source.label ?? id) };
 }
 
 /**
@@ -1449,12 +1597,47 @@ export function getWaterPresetOptions() {
   }));
 }
 
-// Studio-managed signature preset, curated by Call Me Sensei and updated
-// over releases: the tuned lake defaults under the 'anime' body-color tone.
-// Community presets register alongside it via registerWaterPreset /
-// registerSerializedWaterPreset.
-registerWaterPreset('call_me_sensei', {
+/**
+ * Lists water STYLES only — IP identities that resolve over every water
+ * preset — as `{ id, label, description, presets }`, where `presets` reports
+ * whether each preset has a dedicated variant or inherits the style base.
+ */
+export function getWaterStyleOptions() {
+  return Array.from(waterStyleRegistry.entries())
+    .map(([id, style]) => ({
+      description: style.description ?? '',
+      id,
+      label: style.label ?? id,
+      presets: Object.fromEntries(WATER_PRESET_NAMES.map((presetId) => [
+        presetId,
+        style.presets?.[presetId] ? 'authored' : 'inherited',
+      ])),
+    }));
+}
+
+// Built-in STYLES. The preset remains the water recipe; style is the
+// orthogonal IP rendition layered on top.
+
+registerWaterStyle('default', {
+  label: 'Default',
+  description: 'Water presets exactly as authored, with no IP-wide rendition layer.',
+});
+
+// Studio-managed signature style, curated by Call Me Sensei and updated
+// over releases: the anime body-color tone in every scenario, with authored
+// per-body refinements. Community styles register alongside it via
+// registerWaterStyle.
+registerWaterStyle('call_me_sensei', {
   label: 'Call Me Sensei',
-  description: 'Studio-managed signature water: the tuned lake defaults with the anime color tone.',
+  description: 'Studio-managed signature water style applied across every water preset.',
+  // Shared rendition only; motion identity stays owned by each preset.
   settings: { colorTone: 'anime' },
+  // Refinements stay off the tone-owned keys (palette, caustics, reflection,
+  // detail normals — see WATER_COLOR_TONES.anime, which force-applies those).
+  presets: {
+    lake: { flowSpeed: 0.4, sparkleStrength: 0.55, waveIntensity: 0.32 },
+    river: { flowSpeed: 1.15, foamLineSpacing: 0.38, sparkleStrength: 0.45, waveIntensity: 0.3 },
+    coast: { flowSpeed: 0.45, swashFoamAmount: 1.4, sparkleStrength: 0.5, waveIntensity: 0.5 },
+    ocean: { flowSpeed: 0.5, sparkleStrength: 0.7, waveIntensity: 0.7, whitecapAmount: 0.45 },
+  },
 });

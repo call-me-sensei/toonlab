@@ -11,6 +11,7 @@
 // ambientCG has an API but sends no CORS headers; Kenney, Quaternius,
 // Mantissa and 3DTextures.me have no search API.
 
+import '../shared/siteHeader.js';
 import { downloadPolyhavenAsset } from '../shared/polyhavenDownload.js';
 import {
   fetchSmithsonianIndex,

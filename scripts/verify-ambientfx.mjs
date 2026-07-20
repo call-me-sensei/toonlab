@@ -10,6 +10,7 @@ import process from 'node:process';
 import * as THREE from 'three';
 
 import {
+  CUTOUT_NEAR_FADE_METERS,
   createAmbientFx,
   FADE_END_FRACTION,
   RECENTER_FRACTION,
@@ -124,6 +125,9 @@ check('all live particles inside the window radius', maxDistance <= a.stats.wind
 check('fade completes inside the emitted disk (pop-free invariant)',
   FADE_END_FRACTION + RECENTER_FRACTION <= 1,
   `${FADE_END_FRACTION} + ${RECENTER_FRACTION}`);
+check('petals and leaves collapse before becoming screen-sized camera blobs',
+  CUTOUT_NEAR_FADE_METERS[0] >= 0.35 && CUTOUT_NEAR_FADE_METERS[1] <= 1.5,
+  CUTOUT_NEAR_FADE_METERS.join('–'));
 
 const roaming = build({ followTarget: { x: 0, y: 0, z: 0 } });
 const before = spawnHash(roaming);

@@ -22,6 +22,7 @@ import {
   moveDuration,
   sampleMovePose,
 } from '../src/vfxgen/index.js';
+import { createVfxLabStore } from '../labs/vfx-lab/store/vfxStore.js';
 
 let failures = 0;
 function check(label, condition, detail = '') {
@@ -39,6 +40,14 @@ camera.updateMatrixWorld();
 
 const DT = 1 / 60;
 const heightAt = () => 0;
+
+const styleStore = createVfxLabStore({ urlParams: new URLSearchParams() });
+styleStore.actions.setField('impact', 'sparkCount', 99);
+styleStore.actions.applyStyle('default');
+check('VFX style changes retain authored overrides across every effect',
+  styleStore.getState().styleId === 'default'
+    && styleStore.getState().overrides.impact.sparkCount === 99
+    && styleStore.effectiveSettings().impact.sparkCount === 99);
 
 // Deterministic mulberry32 clone for driving the pure builders directly.
 function rngFor(seed) {

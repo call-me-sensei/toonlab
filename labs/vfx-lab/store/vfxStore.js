@@ -9,6 +9,7 @@ import {
   createVfxSettings,
   DEFAULT_VFX_SETTINGS,
   resolveVfxStyle,
+  resolveVfxStyleName,
 } from '../../../src/vfxgen/index.js';
 
 function cleanObject(value) {
@@ -66,6 +67,7 @@ export function createVfxLabStore({ urlParams } = {}) {
     }
   }
   if (urlParams?.get('loop') === '0') initial.loop = false;
+  initial.styleId = resolveVfxStyleName(initial.styleId);
 
   const store = createStore(initial);
 
@@ -76,7 +78,24 @@ export function createVfxLabStore({ urlParams } = {}) {
   }
 
   function applyStyle(styleId) {
-    store.setState({ overrides: {}, status: `Style "${styleId}" applied.`, styleId });
+    const nextStyle = resolveVfxStyleName(styleId);
+    store.setState((state) => {
+      const nextBase = resolveVfxStyle(nextStyle);
+      const overrides = {};
+      for (const [groupId, values] of Object.entries(state.overrides)) {
+        const group = Object.fromEntries(Object.entries(cleanObject(values))
+          .filter(([key, value]) => !sameValue(
+            value,
+            nextBase?.[groupId]?.[key] ?? DEFAULT_VFX_SETTINGS[groupId]?.[key],
+          )));
+        if (Object.keys(group).length > 0) overrides[groupId] = group;
+      }
+      return {
+        overrides,
+        status: `Style "${nextStyle}" applied across every effect.`,
+        styleId: nextStyle,
+      };
+    });
   }
 
   const actions = {

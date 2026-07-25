@@ -324,9 +324,9 @@ export const ROCK_SURFACE_TEXTURE_PRESETS = Object.freeze({
 });
 
 export const DEFAULT_ROCKGEN_MESHING_SETTINGS = Object.freeze({
-  // GLB exports carry <name>_LOD0/1/2 at full/half/quarter resolution —
-  // independent SDF re-meshes, not decimations, so every level keeps
-  // clean toon silhouettes and its own baked colors/AO.
+  // Legacy procedural GLBs carry <name>_LOD0/1/2 as independently planned
+  // SDF meshes. Source-mesh references ignore these settings and preserve
+  // their authored LOD geometry exactly.
   exportLods: true,
   exportResolution: 224,
   normalsMode: 'gradient',

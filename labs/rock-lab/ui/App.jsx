@@ -17,10 +17,14 @@ import { ENVIRONMENT_DEBUG_MODES } from '../../../src/environment/environmentSet
 import {
   ROCKGEN_SETTING_FIELD_SCHEMA,
   ROCKGEN_SETTING_GROUPS,
+  ROCK_REFERENCE_CATALOG,
+  ROCK_REFERENCE_FAMILIES,
   ROCK_SURFACE_TEXTURE_PRESETS,
+  getRockReferenceEntry,
   getRockgenPresetOptions,
   getRockgenStyleOptions,
   isRockHelperPiece,
+  listRockReferenceEntries,
   resolveRockgenPreset,
   serializeRockDocument,
 } from '../../../src/rockgen/index.js';
@@ -98,6 +102,26 @@ const GALLERY_PRESET_OPTIONS = getRockgenPresetOptions()
     preset: resolveRockgenPreset(option.value),
   }));
 const GALLERY_PRESET_THUMBNAILS = getRockPresetThumbnails(GALLERY_PRESET_OPTIONS);
+const REFERENCE_FAMILY_OPTIONS = [
+  { label: 'All families', value: 'all' },
+  ...ROCK_REFERENCE_FAMILIES.map((family) => ({
+    label: family.charAt(0).toUpperCase() + family.slice(1),
+    value: family,
+  })),
+];
+const REFERENCE_GEOMETRY_OPTIONS = [
+  { label: 'Original', value: 'original' },
+  { label: 'Variation', value: 'variation' },
+];
+const REFERENCE_MATERIAL_OPTIONS = [
+  { label: 'Unreal', title: 'Original textures and reconstructed Unreal material graph', value: 'source' },
+  { label: 'ToonLab', title: 'ToonLab rock shader baseline, translated from the Unity S_Rock and URP source', value: 'toonlab' },
+  { label: 'UE bake', title: 'Unreal glTF material bake for this mesh', value: 'authored' },
+  { label: 'Neutral', title: 'Neutral PBR material with no source stylization', value: 'neutral' },
+  { label: 'Legacy', title: 'Previous generic ToonLab environment-shader comparison', value: 'legacy' },
+];
+const GALLERY_REFERENCE_ENTRY = ROCK_REFERENCE_CATALOG.find((entry) => entry.role !== 'metric-utility')
+  ?? ROCK_REFERENCE_CATALOG[0];
 
 // --- Field plumbing -----------------------------------------------------------
 
@@ -481,6 +505,23 @@ function RockGalleryScreen({ actions, state }) {
           <div>Procedural Seed</div>
           <span>Roll an archetype and seed</span>
         </button>
+        {GALLERY_REFERENCE_ENTRY && (
+          <button
+            type="button"
+            className="rk-card rk-card-special"
+            data-testid="gallery-reference-library"
+            onClick={() => {
+              actions.generateReferenceType(GALLERY_REFERENCE_ENTRY.id, {
+                seed: GALLERY_REFERENCE_ENTRY.seed,
+              });
+              actions.setView({ gallery: false });
+            }}
+          >
+            <Icon name="stage-export" />
+            <div>Reference Library</div>
+            <span>{ROCK_REFERENCE_CATALOG.length} exact local source meshes</span>
+          </button>
+        )}
       </div>
 
       <div className="rk-gallery-section">Presets ({GALLERY_PRESET_OPTIONS.length})</div>
@@ -512,7 +553,13 @@ function DocumentMenu({ actions, anchor, onClose, state }) {
     const filename = `${state.document.name.toLowerCase().replace(/[^a-z0-9-_]+/g, '-')}.rockproj.json`;
     downloadBlob(serializeRockDocument(state.document, { pretty: true }), filename, 'application/json');
     saveRockProject(state.document, {
-      meta: { preset: state.presetName, seed: state.seed, style: state.styleName },
+      meta: {
+        preset: state.presetName,
+        referenceFamily: state.referenceFamily,
+        referenceId: state.document.reference?.id ?? null,
+        seed: state.seed,
+        style: state.styleName,
+      },
     });
     toast(`Saved ${filename}.`);
     onClose();
@@ -590,23 +637,38 @@ function EnvironmentMenu({ actions, anchor, onClose, state }) {
   );
 }
 
-function TopBar({ actions, state }) {
+function TopBar({ actions, engine, state }) {
   const [menuAnchor, setMenuAnchor] = useState(null);
   const [envAnchor, setEnvAnchor] = useState(null);
   const [exporting, setExporting] = useState(false);
 
   async function share() {
+    const referenceId = state.document.reference?.id ?? null;
+    const referenceEntry = getRockReferenceEntry(referenceId);
     const params = new URLSearchParams({
-      rockPreset: state.presetName,
       rockRes: String(state.previewResolution),
       rockSeed: String(state.seed),
       rockStyle: state.styleName,
       scene: 'rock',
     });
+    if (referenceId) {
+      params.set('rockType', referenceId);
+      params.set('rockGeometry', state.referenceGeometryMode);
+      params.set('rockMaterial', state.referenceMaterialMode);
+      params.set('rockVariation', String(state.referenceVariation));
+      params.set(
+        'rockFamily',
+        referenceEntry?.family ?? state.document.reference?.family ?? state.referenceFamily,
+      );
+    } else {
+      params.set('rockPreset', state.presetName);
+    }
     const url = `${window.location.origin}${window.location.pathname}?${params.toString()}`;
     try {
       await navigator.clipboard.writeText(url);
-      toast('Share URL copied — it rebuilds preset + seed only; use Save JSON for edits.');
+      toast(referenceId
+        ? 'Share URL copied — it rebuilds this reference type + seed; use Save JSON for edits.'
+        : 'Share URL copied — it rebuilds preset + seed only; use Save JSON for edits.');
     } catch {
       actions.setStatus(url);
     }
@@ -614,8 +676,13 @@ function TopBar({ actions, state }) {
 
   async function exportGlb() {
     setExporting(true);
+    actions.setReferenceLodReport(null);
     try {
-      await exportRockDocumentToFile(state.document, { onStatus: actions.setStatus });
+      await exportRockDocumentToFile(state.document, {
+        onLodReport: actions.setReferenceLodReport,
+        onStatus: actions.setStatus,
+        referenceExporter: () => engine.exportReferenceGLB(),
+      });
       toast('GLB exported.');
     } catch (error) {
       toast(`Export failed: ${error.message}`);
@@ -713,7 +780,9 @@ function StageRail({ actions, state }) {
           onClick={() => {
             actions.setStage(stage.id);
             actions.setView({ drawer: false });
-            if (stage.id === 'pieces') {
+            if (state.document.reference?.id) {
+              actions.setTool('orbit');
+            } else if (stage.id === 'pieces') {
               actions.setTool('adjacentTile');
             } else if (state.tool !== 'orbit' && !toolBelongsToStage(state.tool, stage.id)) {
               actions.setTool('orbit');
@@ -740,6 +809,7 @@ function StageRail({ actions, state }) {
 }
 
 function ToolStrip({ actions, state }) {
+  if (state.document.reference?.id) return null;
   const stageToolIds = STAGE_TOOLS[state.stage] ?? [];
   const toolIds = [
     ...GLOBAL_TOOL_IDS,
@@ -819,8 +889,12 @@ function OptionsBar({ actions, state }) {
           testId="move-mode"
           value={state.moveMode}
         />
-        <GizmoModeControl actions={actions} value={state.gizmoMode} />
-        <GroundGapQuickAction actions={actions} state={state} />
+        {!state.document.reference?.id && (
+          <>
+            <GizmoModeControl actions={actions} value={state.gizmoMode} />
+            <GroundGapQuickAction actions={actions} state={state} />
+          </>
+        )}
       </div>
     );
   }
@@ -934,6 +1008,185 @@ function PresetSection({ actions, state }) {
           value={state.previewResolution}
         />
         <span />
+      </div>
+    </section>
+  );
+}
+
+function ReferenceSelectorSection({ actions, state }) {
+  const entries = listRockReferenceEntries({
+    family: state.referenceFamily === 'all' ? null : state.referenceFamily,
+  });
+  const activeReferenceId = state.document.reference?.id ?? null;
+  const selectedEntry = getRockReferenceEntry(state.referenceTypeId) ?? entries[0] ?? null;
+  const active = Boolean(selectedEntry && activeReferenceId === selectedEntry.id);
+  const statusLabel = state.referenceAssetStatus === 'ready'
+    ? 'Source ready'
+    : state.referenceAssetStatus === 'loading'
+      ? 'Loading source'
+      : state.referenceAssetStatus === 'missing'
+        ? 'Local assets missing'
+        : state.referenceAssetStatus === 'error' ? 'Load error' : null;
+  return (
+    <section className="tk-section" data-testid="reference-section">
+      <div className="tk-section-title">
+        <span>Reference library</span>
+        {active && <Badge tone="accent">Active</Badge>}
+      </div>
+      <div className="tk-section-caption">
+        Load the exact licensed source mesh, then derive variations from its own vertices and authored LODs.
+      </div>
+      <div className="tk-field">
+        <span className="tk-field-label"><span className="tk-field-label-text">Family</span></span>
+        <Select
+          onChange={(value) => actions.setReferenceFamily(value)}
+          options={REFERENCE_FAMILY_OPTIONS}
+          testId="rock-reference-family"
+          value={state.referenceFamily}
+        />
+        <span />
+      </div>
+      <div className="tk-field">
+        <span className="tk-field-label"><span className="tk-field-label-text">Type</span></span>
+        <Select
+          disabled={!selectedEntry}
+          onChange={(value) => actions.setReferenceType(value)}
+          options={entries.map((entry) => ({
+            label: `${entry.label} · ${entry.archetype}`,
+            value: entry.id,
+          }))}
+          testId="rock-reference-type"
+          value={selectedEntry?.id ?? ''}
+        />
+        <span />
+      </div>
+      <div className="rk-reference-count" data-testid="rock-reference-count">
+        {entries.length} of {ROCK_REFERENCE_CATALOG.length} reference types
+        {selectedEntry ? ` · ${selectedEntry.sourceAssetName}` : ''}
+        {active && statusLabel ? ` · ${statusLabel}` : ''}
+      </div>
+      {active && state.referenceAssetStatus === 'missing' && (
+        <div className="rk-reference-local-note" data-testid="rock-reference-missing">
+          Prepare the licensed local files with <code>node scripts/export-rock-reference-assets.mjs</code>.
+        </div>
+      )}
+      <div className="rk-reference-actions">
+        <Button
+          disabled={!selectedEntry}
+          kind="secondary"
+          onClick={() => {
+            if (active) {
+              actions.setReferenceGeometryMode('original');
+              actions.setReferenceMaterialMode('source');
+            }
+            else actions.generateReferenceType(selectedEntry?.id, { geometryMode: 'original' });
+          }}
+          testId="rock-reference-generate"
+        >
+          View original
+        </Button>
+        <Button
+          disabled={!selectedEntry}
+          kind="secondary"
+          onClick={() => {
+            if (active) actions.setReferenceGeometryMode('variation');
+            else actions.generateReferenceType(selectedEntry?.id, {
+              geometryMode: 'variation',
+              variation: state.referenceVariation,
+            });
+          }}
+          testId="rock-reference-variation"
+        >
+          Make variation
+        </Button>
+        <Button
+          disabled={!selectedEntry}
+          icon="dice"
+          kind="secondary"
+          onClick={() => actions.rerollReference()}
+          testId="rock-reference-reroll"
+        >
+          New seed
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function ReferenceVariationSection({ actions, state }) {
+  const entry = getRockReferenceEntry(state.document.reference?.id);
+  if (!entry) return null;
+  return (
+    <section className="tk-section" data-testid="reference-variation-section">
+      <div className="tk-section-title">Source comparison</div>
+      <div className="tk-section-caption">
+        Original leaves the exported render geometry untouched. Variation deforms each authored LOD
+        directly; it never invokes the legacy SDF rock generator.
+      </div>
+      <div className="tk-field rk-reference-control">
+        <span className="tk-field-label"><span className="tk-field-label-text">Geometry</span></span>
+        <SegmentedControl
+          onChange={(value) => actions.setReferenceGeometryMode(value)}
+          options={REFERENCE_GEOMETRY_OPTIONS}
+          testId="rock-reference-geometry"
+          value={state.referenceGeometryMode}
+        />
+        <span />
+      </div>
+      <div className="tk-field rk-reference-control rk-reference-material-control">
+        <span className="tk-field-label"><span className="tk-field-label-text">Material</span></span>
+        <SegmentedControl
+          onChange={(value) => actions.setReferenceMaterialMode(value)}
+          options={REFERENCE_MATERIAL_OPTIONS}
+          testId="rock-reference-material"
+          value={state.referenceMaterialMode}
+        />
+        <span />
+      </div>
+      <div className="tk-section-caption rk-reference-material-note">
+        ToonLab is the default source-faithful rock renderer, translated from the supplied Unity S_Rock
+        and URP implementation. Unreal reconstructs the supplied Unreal graph; UE bake is Unreal's
+        per-mesh PBR bake; Neutral removes stylization; Legacy retains the previous generic shader.
+      </div>
+      <div className="tk-field">
+        <span className="tk-field-label"><span className="tk-field-label-text">Variation strength</span></span>
+        <Slider
+          defaultValue={0.65}
+          max={1}
+          min={0}
+          onChange={(value) => actions.setReferenceVariation(value)}
+          step={0.01}
+          testId="rock-reference-strength"
+          value={state.referenceVariation}
+        />
+        <ScrubValue
+          max={1}
+          min={0}
+          onChange={(value) => actions.setReferenceVariation(value)}
+          step={0.01}
+          value={state.referenceVariation}
+        />
+      </div>
+      <div className="tk-field">
+        <span className="tk-field-label"><span className="tk-field-label-text">Variation seed</span></span>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <TextField
+            onCommit={(value) => actions.setSeed(value)}
+            testId="rock-reference-seed"
+            value={String(state.seed)}
+          />
+          <IconButton
+            icon="dice"
+            label="New source-derived variation"
+            onClick={() => actions.rerollReference()}
+            testId="rock-reference-seed-reroll"
+          />
+        </div>
+        <span />
+      </div>
+      <div className="rk-reference-count">
+        {entry.sourceAssetName} · {entry.target.lodTriangles.length} authored LOD
+        {entry.target.lodTriangles.length === 1 ? '' : 's'} · {entry.target.lodTriangles.join(' / ')} tris
       </div>
     </section>
   );
@@ -1167,15 +1420,98 @@ function PowerDrawer({ actions, state }) {
   );
 }
 
+function referenceLodTargets(entry) {
+  if (!entry) return [];
+  const auditedTargets = Array.isArray(entry.target.lodTriangles)
+    ? entry.target.lodTriangles
+    : [entry.target.lod0Triangles.target];
+  return auditedTargets.map((target, lod) => ({ lod, target }));
+}
+
+function lodReportLevels(report) {
+  if (!report) return [];
+  if (Array.isArray(report)) return report;
+  for (const key of ['levels', 'lods', 'results']) {
+    if (Array.isArray(report[key])) return report[key];
+  }
+  return [report.lod0, report.lod1, report.lod2].filter(Boolean);
+}
+
+function actualLodValue(level) {
+  const value = Number(level?.actualTriangles ?? level?.triangleCount ?? level?.triangles);
+  return Number.isFinite(value) ? Math.max(Math.round(value), 0) : null;
+}
+
+function ReferenceLodSection({ state }) {
+  const activeReferenceId = state.document.reference?.id ?? null;
+  const entry = getRockReferenceEntry(activeReferenceId ?? state.referenceTypeId);
+  if (!entry) return null;
+  const targets = referenceLodTargets(entry);
+  const reportLevels = activeReferenceId ? lodReportLevels(state.referenceLodReport) : [];
+  const reportByLod = new Map(reportLevels.map((level, index) => [
+    Number(level?.lod ?? level?.level ?? index),
+    level,
+  ]));
+  return (
+    <section className="tk-section" data-testid="rock-lod-report">
+      <div className="tk-section-title">Reference LOD budget</div>
+      <div className="tk-section-caption">
+        {entry.sourceAssetName} exact authored targets. Original and varied source meshes preserve them.
+      </div>
+      <div className="rk-lod-report">
+        <div className="rk-lod-row rk-lod-heading" aria-hidden="true">
+          <span>LOD</span><span>Target</span><span>Actual</span>
+        </div>
+        {targets.map((target) => {
+          const level = reportByLod.get(target.lod);
+          const actual = actualLodValue(level);
+          const outOfRange = actual !== null && actual !== target.target;
+          const resolution = Number(level?.resolution);
+          return (
+            <div
+              key={target.lod}
+              className="rk-lod-row"
+              data-out-of-range={outOfRange || undefined}
+              data-testid={`rock-lod-${target.lod}`}
+            >
+              <span>LOD{target.lod}</span>
+              <span
+                data-testid={`rock-lod-${target.lod}-target`}
+                title={`Audited source target: ${target.target.toLocaleString()} triangles`}
+              >
+                {target.target.toLocaleString()}
+              </span>
+              <span data-testid={`rock-lod-${target.lod}-actual`}>
+                {actual === null
+                  ? '—'
+                  : `${actual.toLocaleString()}${Number.isFinite(resolution) ? ` @ ${resolution}³` : ''}`}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function Inspector({ actions, state }) {
+  const referenceActive = Boolean(state.document.reference?.id);
   if (state.view.drawer) {
     return (
       <aside className="rk-inspector tk" data-drawer="true" data-testid="inspector">
-        <div className="rk-inspector-header">All controls</div>
+        <div className="rk-inspector-header">{referenceActive ? 'Reference controls' : 'All controls'}</div>
         <div className="rk-inspector-caption">
-          Piece groups edit the selected piece; Surface &amp; Meshing edit the document.
+          {referenceActive
+            ? 'Compare the untouched source with deterministic mesh-derived variations.'
+            : 'Piece groups edit the selected piece; Surface & Meshing edit the document.'}
         </div>
-        <PowerDrawer actions={actions} state={state} />
+        {referenceActive ? (
+          <>
+            <ReferenceSelectorSection actions={actions} state={state} />
+            <ReferenceVariationSection actions={actions} state={state} />
+            <ReferenceLodSection state={state} />
+          </>
+        ) : <PowerDrawer actions={actions} state={state} />}
       </aside>
     );
   }
@@ -1184,11 +1520,14 @@ function Inspector({ actions, state }) {
     <aside className="rk-inspector tk" data-testid="inspector">
       <div className="rk-inspector-header">{stage.label}</div>
       <div className="rk-inspector-caption">{stage.description}</div>
-      {stage.id === 'shape' && <PresetSection actions={actions} state={state} />}
-      {stage.id === 'pieces' && <PiecesPanel actions={actions} state={state} />}
-      {stage.id === 'look' && <SurfaceTextureSection actions={actions} state={state} />}
-      {stage.id === 'look' && <LookExtras actions={actions} state={state} />}
-      <StageGroups actions={actions} groupIds={stage.groups} state={state} />
+      {stage.id === 'shape' && !referenceActive && <PresetSection actions={actions} state={state} />}
+      {stage.id === 'shape' && <ReferenceSelectorSection actions={actions} state={state} />}
+      {referenceActive && stage.id !== 'export' && <ReferenceVariationSection actions={actions} state={state} />}
+      {stage.id === 'pieces' && !referenceActive && <PiecesPanel actions={actions} state={state} />}
+      {stage.id === 'look' && !referenceActive && <SurfaceTextureSection actions={actions} state={state} />}
+      {stage.id === 'look' && !referenceActive && <LookExtras actions={actions} state={state} />}
+      {stage.id === 'export' && <ReferenceLodSection state={state} />}
+      {!referenceActive && <StageGroups actions={actions} groupIds={stage.groups} state={state} />}
     </aside>
   );
 }
@@ -1203,7 +1542,9 @@ function StatusBar({ actions, engine, state }) {
     <footer className="rk-status tk" data-testid="status-bar">
       <span>{state.status}</span>
       <span className="rk-status-stats">
-        seed {state.seed} · {Number(verts).toLocaleString()} verts · {pieces} piece{pieces === '1' ? '' : 's'}
+        {state.document.reference?.id
+          ? `${state.referenceGeometryMode} · ${state.referenceMaterialMode} · seed ${state.seed} · ${Number(verts).toLocaleString()} verts`
+          : `seed ${state.seed} · ${Number(verts).toLocaleString()} verts · ${pieces} piece${pieces === '1' ? '' : 's'}`}
       </span>
       <span className="rk-view-buttons">
         {CAMERA_VIEW_BUTTONS.map((view) => (
@@ -1261,7 +1602,7 @@ export function App({ engine, store }) {
   return (
     <div className="tk">
       <div className="rk-root">
-        <TopBar actions={actions} state={state} />
+        <TopBar actions={actions} engine={engine} state={state} />
         <StageRail actions={actions} state={state} />
         <Inspector actions={actions} state={state} />
         <StatusBar actions={actions} engine={engine} state={state} />

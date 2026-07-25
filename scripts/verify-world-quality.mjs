@@ -10,10 +10,15 @@ import { createWaterSettings } from '../src/water/waterSettings.js';
 import { createStylizedTerrain } from '../src/stylizedTerrain.js';
 import {
   CONTACT_SHADOW_AERIAL_FADE,
+  combineMasks,
+  createSlopeMask,
+  createSurfaceWeightMask,
   createStylizedTreeSettings,
   deriveCanopyPalette,
   resolveVegetationShaderPreset,
   STYLIZED_FOREST_IMPOSTOR_QUALITY,
+  TREE_LOD_TRIANGLE_CAPS,
+  TREE_RUNTIME_QUALITY_PROFILES,
   UNDERSTORY_AERIAL_FADE,
 } from '../src/vegetation/index.js';
 import { resolveWeatherPreset } from '../src/weather/weatherPresets.js';
@@ -53,14 +58,40 @@ assert.ok(CONTACT_SHADOW_AERIAL_FADE.start < 0.4 && CONTACT_SHADOW_AERIAL_FADE.e
 assert.ok(UNDERSTORY_AERIAL_FADE.start < 0.35 && UNDERSTORY_AERIAL_FADE.end <= 0.5,
   'understory must disappear before tiny shaded plants become aerial dirt');
 
+const grassSurfaceMask = createSurfaceWeightMask({
+  threshold: 0.4,
+  weightAt: (x) => (x < 0 ? 0.39 : 0.8),
+});
+assert.equal(grassSurfaceMask(-1, 0), false,
+  'surface-weight masks must reject painted rock/dirt below the authored threshold');
+assert.equal(grassSurfaceMask(1, 0), true,
+  'surface-weight masks must retain authored meadow weights');
+const flatHeight = (x) => (x > 1 ? x : 0);
+const placementMask = combineMasks(
+  grassSurfaceMask,
+  createSlopeMask({ heightAt: flatHeight, maxSlope: 0.6, sampleDistance: 0.5 }),
+);
+assert.equal(placementMask(-1, 0), false,
+  'surface classification must remain authoritative on otherwise flat terrain');
+assert.equal(placementMask(2, 0), false,
+  'slope rejection must remain active even where a grass layer is painted');
+
 assert.equal(STYLIZED_FOREST_IMPOSTOR_QUALITY.representation, 'instanced-low-poly',
   'far trees must use camera-independent volumetric proxies, never flat color billboards');
 assert.equal(STYLIZED_FOREST_IMPOSTOR_QUALITY.microdetail, 'volumetric-crown',
   'far LODs must discard dirty near-leaf microdetail');
-assert.ok(STYLIZED_FOREST_IMPOSTOR_QUALITY.maxTrianglesPerTree <= 160,
+assert.ok(STYLIZED_FOREST_IMPOSTOR_QUALITY.maxTrianglesPerTree <= 140,
   'volumetric far trees need a strict geometry budget');
 assert.ok(STYLIZED_FOREST_IMPOSTOR_QUALITY.colorFloor[1]
   > STYLIZED_FOREST_IMPOSTOR_QUALITY.colorFloor[2], 'far-tree shadow floor must stay green');
+assert.deepEqual(TREE_LOD_TRIANGLE_CAPS, [12000, 7000, 3500, 140],
+  'compiled tree levels must retain the authored launch budgets');
+assert.deepEqual(TREE_RUNTIME_QUALITY_PROFILES.mobile,
+  { detailedCount: 30, maxPlacements: 1500, variants: 3 },
+  'mobile forest profile must stay within broad-range device budgets');
+assert.deepEqual(TREE_RUNTIME_QUALITY_PROFILES.high,
+  { detailedCount: 120, maxPlacements: 3000, variants: 8 },
+  'desktop forest profile must retain the 3k/8/120 launch target');
 
 const tree = createStylizedTreeSettings({ preset: 'call_me_sensei' });
 assert.ok(tree.tree.leafDensity >= 1, 'signature crowns must not look like sparse broccoli clumps');

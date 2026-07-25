@@ -278,6 +278,9 @@ stack, with WebGL2 fallback through the same TSL path.
 - [Getting started](docs/getting-started.md) — clone, run, tour the labs,
   load your own models.
 - [Toon character shading](docs/toon-shading.md)
+- [Urban prop surface roles](docs/urban-prop-surface-roles.md) — the
+  classify-once material contract for imported/generated GLBs and reusable
+  role-aware prop shaders.
 - [Environment shading](docs/environment.md)
 - [Lighting](docs/lighting.md)
 - [Weather system](docs/weather.md)

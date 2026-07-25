@@ -41,8 +41,10 @@ export function bakeFoliageGeometry(canopyGeometry, {
   const shadeNormals = canopyGeometry.attributes.aShadeNormal;
   const infos = canopyGeometry.attributes.aInfo;
   const cardCount = positions.count / 4;
-  const quadsPerCard = mode === 'crossed' ? 2 : 1;
-  const quadCount = cardCount * quadsPerCard;
+  const hybridCrossedCount = mode === 'hybrid' ? Math.round(cardCount * 0.3) : 0;
+  const quadCount = mode === 'crossed'
+    ? cardCount * 2
+    : cardCount + hybridCrossedCount;
 
   const outPositions = new Float32Array(quadCount * 4 * 3);
   const outNormals = new Float32Array(quadCount * 4 * 3);
@@ -68,6 +70,11 @@ export function bakeFoliageGeometry(canopyGeometry, {
 
   let quadIndex = 0;
   for (let card = 0; card < cardCount; card += 1) {
+    // Spread hybrid crossed cards over the full attachment order instead of
+    // concentrating the view-robust pairs on the first few branches.
+    const hybridCrossed = mode === 'hybrid'
+      && ((card * 17) % Math.max(cardCount, 1)) < hybridCrossedCount;
+    const quadsPerCard = mode === 'crossed' || hybridCrossed ? 2 : 1;
     const base = card * 4;
     center.fromBufferAttribute(positions, base);
     if (matrix) center.applyMatrix4(matrix);
@@ -159,6 +166,23 @@ export function bakeFoliageGeometry(canopyGeometry, {
 export function createBakedLeafTexture(sourceTexture) {
   const image = sourceTexture?.image;
   if (!image) return sourceTexture;
+  if (sourceTexture.isDataTexture && image.data) {
+    const data = new Uint8Array(image.data);
+    for (let i = 0; i < data.length; i += 4) {
+      data[i] = Math.min(255, 0.78 * 255 + data[i] * 0.36);
+      data[i + 1] = Math.min(255, 0.78 * 255 + data[i + 1] * 0.36);
+      data[i + 2] = Math.min(255, 0.78 * 255 + data[i + 2] * 0.36);
+    }
+    const texture = new THREE.DataTexture(
+      data, image.width, image.height, sourceTexture.format, sourceTexture.type,
+    );
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.flipY = false;
+    texture.needsUpdate = true;
+    texture.userData.bakedLeafTexture = true;
+    return texture;
+  }
+  if (typeof document === 'undefined') return sourceTexture;
   const canvas = document.createElement('canvas');
   canvas.width = image.width;
   canvas.height = image.height;

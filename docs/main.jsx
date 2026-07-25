@@ -17,6 +17,7 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import settingsReferenceRaw from './settings-reference.md?raw';
+import urbanPropSurfaceRolesRaw from './urban-prop-surface-roles.md?raw';
 import '../labs/shared/siteHeader.js';
 import './docs.css';
 
@@ -327,6 +328,11 @@ function Library() {
         the preset document, and load it in your game (<code>serializeToonPreset</code> /{' '}
         <code>registerToonPreset</code>). For looks beyond the schema, the shaders are open-source
         TSL modules — fork the cluster and keep the preset contract.
+      </p>
+      <p>
+        Custom prop shaders follow the same separation through the{' '}
+        <a href="#/urban-prop-roles">urban prop surface-role contract</a>: assets keep stable
+        semantic roles while each shader supplies global settings and sparse role profiles.
       </p>
 
       <h2>Create assets</h2>
@@ -667,11 +673,37 @@ function Reference() {
   );
 }
 
+/* ------------------------------------------------------ urban prop roles */
+
+let urbanPropSurfaceRolesHtmlCache = null;
+
+function urbanPropSurfaceRolesHtml() {
+  if (urbanPropSurfaceRolesHtmlCache) return urbanPropSurfaceRolesHtmlCache;
+  let html = marked.parse(urbanPropSurfaceRolesRaw, { async: false });
+  html = html.replace(
+    /<h([123])>([^<]+)<\/h\1>/g,
+    (_m, level, text) => `<h${level} id="${slugify(text)}">${text}</h${level}>`,
+  );
+  urbanPropSurfaceRolesHtmlCache = html;
+  return html;
+}
+
+function UrbanPropSurfaceRoles() {
+  const html = useMemo(urbanPropSurfaceRolesHtml, []);
+  return (
+    <article>
+      <div className="docs-eyebrow">Asset material contract</div>
+      <div className="docs-md" dangerouslySetInnerHTML={{ __html: html }} />
+    </article>
+  );
+}
+
 /* --------------------------------------------------------------------- app */
 
 const SECTIONS = [
   { hash: '', label: 'Overview', component: Overview },
   { hash: '#/library', label: 'Using the library', component: Library },
+  { hash: '#/urban-prop-roles', label: 'Urban prop roles', component: UrbanPropSurfaceRoles },
   { hash: '#/mcp', label: 'Connect via MCP', component: Mcp },
   { hash: '#/prompts', label: 'Prompt cookbook', component: Prompts },
   { hash: '#/reference', label: 'Settings reference', component: Reference },

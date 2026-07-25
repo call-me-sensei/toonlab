@@ -14,12 +14,32 @@ function safeFilename(name) {
   return `${String(name || 'rock').toLowerCase().replace(/[^a-z0-9-_]+/g, '-')}.glb`;
 }
 
-export async function exportRockDocumentToFile(document, { onStatus = () => {}, resolution = null } = {}) {
+export async function exportRockDocumentToFile(document, {
+  onLodReport = () => {},
+  onStatus = () => {},
+  referenceExporter = null,
+  resolution = null,
+} = {}) {
+  if (document.reference?.sourceMode === 'mesh-template') {
+    if (typeof referenceExporter !== 'function') {
+      throw new Error('The local source-mesh exporter is unavailable.');
+    }
+    onStatus('Packing exact authored LOD meshes…');
+    await nextFrame();
+    const { buffer, report } = await referenceExporter();
+    onLodReport(report);
+    downloadBlob(buffer, safeFilename(document.name), 'model/gltf-binary');
+    onStatus(`Exported ${safeFilename(document.name)} (${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB).`);
+    return;
+  }
   const exportResolution = resolution ?? document.meshing.exportResolution;
-  onStatus(`Meshing at ${exportResolution}³ for export…`);
+  onStatus(`Planning budgeted LOD meshes (up to ${exportResolution}³)…`);
   await nextFrame();
   await nextFrame();
-  const buffer = await exportDocumentToGLB(document, { resolution: exportResolution });
+  const buffer = await exportDocumentToGLB(document, {
+    onLodPlan: onLodReport,
+    resolution: exportResolution,
+  });
   downloadBlob(buffer, safeFilename(document.name), 'model/gltf-binary');
   onStatus(`Exported ${safeFilename(document.name)} (${(buffer.byteLength / 1024 / 1024).toFixed(1)} MB).`);
 }

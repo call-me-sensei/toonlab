@@ -29,7 +29,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 // Bake a built prop group into flat [{ geometry, material }] with mesh
 // transforms applied — what instancing needs. Geometries are consumed
 // (each asset.build() returns fresh ones).
-function bakeSources(object3D) {
+export function bakeSources(object3D) {
   object3D.updateWorldMatrix(true, true);
   const sources = [];
   object3D.traverse((child) => {
@@ -48,7 +48,7 @@ function bakeSources(object3D) {
   return sources;
 }
 
-function slopeQuaternion(heightAt, x, z, maxTilt, out) {
+export function slopeQuaternion(heightAt, x, z, maxTilt, out) {
   if (typeof heightAt !== 'function' || maxTilt <= 0) return out.identity();
   const step = 0.6;
   const dx = (heightAt(x + step, z) - heightAt(x - step, z)) / (2 * step);
@@ -227,7 +227,7 @@ export class PropInstances extends THREE.Group {
   }
 }
 
-function resolvePlacement(position, heightAt, random, { yawMode, scaleRange, alignToSlope }) {
+export function resolvePlacement(position, heightAt, random, { yawMode, scaleRange, alignToSlope }) {
   const x = Number(position.x ?? position[0]) || 0;
   const z = Number(position.z ?? position[1]) || 0;
   const y = typeof heightAt === 'function' ? (Number(heightAt(x, z)) || 0) : Number(position.y) || 0;

@@ -21,6 +21,7 @@ import {
   float,
   Fn,
   fract,
+  If,
   length,
   mix,
   modelWorldMatrix,
@@ -40,6 +41,7 @@ import {
 import { NodeMaterial } from 'three/webgpu';
 
 import { sampleEnvironmentSunShadow } from './chunks/environment-sun-shadow.js';
+import { sampleGroundColor } from './chunks/environment-ground-field.js';
 import { stylizedCloudShadow } from './chunks/stylized-cloud-shadow.js';
 import {
   createVegetationStyleUniforms,
@@ -57,6 +59,9 @@ export function createGrassNodeMaterial(settings, vegetationShader = null) {
     uCloudShadowVelocity: uniform(new THREE.Vector2(settings.cloudShadowVelocity[0], settings.cloudShadowVelocity[1])),
     uFadeEnd: uniform(1e6 + 1),
     uFadeStart: uniform(1e6),
+    uGroundAdoptHeight: uniform(settings.groundAdoptHeight),
+    uGroundAdoptStrength: uniform(settings.groundAdoptStrength),
+    uGroundAdoptTint: uniform(new THREE.Color(...settings.groundAdoptTint)),
     uGustFrequency: uniform(settings.gustFrequency),
     uGustResponse: uniform(settings.gustResponse),
     uGustSpeed: uniform(settings.gustSpeed),
@@ -89,6 +94,7 @@ export function createGrassNodeMaterial(settings, vegetationShader = null) {
   const vGust = varying(float(), 'vGrassGust');
   const vNormal = varying(vec3(), 'vGrassNormal');
   const vWorldPosition = varying(vec3(), 'vGrassWorldPosition');
+  const vGroundColor = varying(vec4(), 'vGrassGroundColor');
 
   material.vertexNode = Fn(() => {
     const iOrigin = attribute('iOrigin', 'vec3');
@@ -151,9 +157,16 @@ export function createGrassNodeMaterial(settings, vegetationShader = null) {
     vNormal.assign(normalize(vec3(tilt.x.mul(1.4), 1.0, tilt.y.mul(1.4))));
 
     // Distance fade to a degenerate point.
-    const fadeDistance = distance(modelWorldMatrix.mul(vec4(iOrigin, 1.0)).xz, cameraPosition.xz);
+    const originWorld = modelWorldMatrix.mul(vec4(iOrigin, 1.0)).toVar();
+    const fadeDistance = distance(originWorld.xz, cameraPosition.xz);
     const fade = smoothstep(u.uFadeStart, u.uFadeEnd, fadeDistance).oneMinus();
     bladePosition.assign(mix(iOrigin, bladePosition, fade));
+
+    // Ground-field adoption: one sample per vertex at the blade ROOT, so the
+    // whole blade carries the color of the terrain it grows from (the
+    // reference pack's RVT-colored grass). Alpha is field coverage — 0 off
+    // the terrain or before the pass runs, leaving the palette untouched.
+    vGroundColor.assign(sampleGroundColor(originWorld.xyz));
 
     const worldPosition = modelWorldMatrix.mul(vec4(bladePosition, 1.0));
     vWorldPosition.assign(worldPosition.xyz);
@@ -172,6 +185,15 @@ export function createGrassNodeMaterial(settings, vegetationShader = null) {
       vUv.y.mul(vJitter.mul(0.3).add(0.85)),
     ).toVar();
     const color = mix(u.uBaseColor, u.uTipColor, tipMix).toVar();
+    // Ground adoption: the terrain's albedo drives the blade from the root
+    // up to uGroundAdoptHeight, fading back to the palette at the tips —
+    // grass, dirt paths, and meadow melt into one carpet. Weighted by field
+    // coverage so blades off the terrain keep the authored palette.
+    If(u.uGroundAdoptStrength.greaterThan(0.0), () => {
+      const rootWeight = smoothstep(u.uGroundAdoptHeight, 0.0, vUv.y);
+      const adopt = clamp(u.uGroundAdoptStrength.mul(vGroundColor.a).mul(rootWeight), 0.0, 1.0);
+      color.assign(mix(color, vGroundColor.rgb.mul(u.uGroundAdoptTint), adopt));
+    });
     color.mulAssign(vJitter.sub(0.5).mul(u.uStyleGrassColorVariationStrength).add(1.0));
 
     // Dense-field AO toward the roots.

@@ -4,8 +4,9 @@
 // and store still boot so every body-dataset capture gate works.
 //
 // URL params: ?rockProject= ?rockPreset= ?rockStyle= ?rockSeed= ?rockRes=
-// ?envDebug= ?rockMerge=0. `rockProject` is the local/Pro-hydrated portable
-// document id; preset and style remain separate axes.
+// ?rockType= ?rockGeometry=original|variation ?rockMaterial=source|toonlab|authored|neutral|legacy
+// ?rockVariation=0..1 ?envDebug= ?rockMerge=0. `rockProject` is the
+// local/Pro-hydrated portable document id; preset and style remain separate.
 //             ?hud=0
 //             ?captureView=hero|front|side|top
 //             ?grass=<blades> is a legacy/capture override; UI defaults off.

@@ -99,6 +99,14 @@ export const WORLD_SYSTEMS_SHOWCASE = Object.freeze([
     desc: 'Author the complete water system — waves, surface, foam, lighting, ripples, splashes, and quality',
     href: '/water-lab/',
   }),
+  Object.freeze({
+    id: 'landscape',
+    i: '18',
+    title: 'Landscape Lab',
+    jp: '地形',
+    desc: 'Sculpt terrain, paint splat materials, and brush foliage — a UE-style landscape editor',
+    href: '/landscape-lab/',
+  }),
 ]);
 
 // Backwards-compatible aggregate used by the marketing homepage. The Labs

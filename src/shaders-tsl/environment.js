@@ -56,6 +56,7 @@ import {
   pow,
   select,
   smoothstep,
+  step,
   texture,
   transformNormalToView,
   uniform,
@@ -79,7 +80,9 @@ import {
 import { applySaturation, envLuma, windowPaneMask } from './chunks/environment-color.js';
 import { environmentDebugColor } from './chunks/environment-debug.js';
 import { createEnvironmentLightingChunk } from './chunks/environment-lighting.js';
+import { groundBlendFactor, sampleGroundColor } from './chunks/environment-ground-field.js';
 import { sampleEnvironmentSunShadow } from './chunks/environment-sun-shadow.js';
+import { worldFbm2 } from './chunks/world-noise.js';
 import { projectedWaterCaustics } from './chunks/projected-water-caustics.js';
 import { stylizedCloudShadow } from './chunks/stylized-cloud-shadow.js';
 import { toonSceneLights } from './chunks/character-scene-lights.js';
@@ -211,6 +214,37 @@ export function createEnvironmentNodeMaterial({
     triplanarDetail: uniform(0.0),
     triplanarDetailScale: uniform(8.0),
     triplanarEdgeHighlight: uniform(0.6),
+    // Slope band for the triplanar stone takeover. cliffNoiseStrength > 0
+    // breaks the band edge with world-space fbm — flat, perfectly smooth
+    // grass↔cliff transitions are the single strongest "procedural" tell.
+    cliffStart: uniform(0.12),
+    cliffFade: uniform(0.18),
+    cliffNoiseScale: uniform(0.045),
+    cliffNoiseStrength: uniform(0.0),
+    // Second ground-detail sample at a coarser tiling, blended in to hide
+    // the base map's repeat. 0 = off (default, back-compat).
+    dualDetailMix: uniform(0.0),
+    dualDetailScale: uniform(0.21),
+    // World-space macro colormap: low-frequency biome tint multiplied over
+    // flat ground (texels encode a multiplier around mid-gray; ×2 decodes).
+    colormapTex: texture(textureSet.colormapMap ?? fallbackEnvironmentWhiteTexture),
+    colormapStrength: uniform(0.0),
+    // Texel decode factor: 2 for our mid-gray-neutral generated maps,
+    // 1 for hand-painted direct-color maps (the reference pack's).
+    colormapDecode: uniform(2.0),
+    // 0 = tint-multiply (our generated maps). 1 = the reference landscape
+    // formula: DESATURATE the ground texture to luminance, then OVERLAY the
+    // colormap — all hue comes from the painted map, so a green ground
+    // texture can never double-saturate it.
+    colormapMode: uniform(0.0),
+    // (offsetX, offsetZ, 1/sizeX, 1/sizeZ): worldXZ → colormap UV.
+    colormapRegion: uniform(textureSet.colormapRegion ?? new THREE.Vector4(0, 0, 0.001, 0.001)),
+    // Ground-field contact melt: fragments within vtBlendHeight of the
+    // terrain surface adopt its albedo, so rock and trunk bases sit IN the
+    // meadow instead of on it. 0 = off; never enable on ground-field
+    // WRITERS (the terrain would resample its own blurred output).
+    vtBlendStrength: uniform(0.0),
+    vtBlendHeight: uniform(0.6),
     planarReflectionStrength: uniform(isGlossFloor ? 0.3 : 0.0),
     planarReflectionFresnel: uniform(2.4),
 
@@ -264,6 +298,7 @@ export function createEnvironmentNodeMaterial({
     lightMapTex: u.lightMapTex,
     normalMapTex: u.normalMapTex,
     packedMap: u.packedMap,
+    colormapTex: u.colormapTex,
     planarReflectionMap: shared.planarReflectionMap,
     triplanarMapTex: u.triplanarMapTex,
   };
@@ -401,6 +436,17 @@ export function createEnvironmentNodeMaterial({
 
   material.fragmentNode = Fn(() => {
     const texel = tex.baseMap.sample(vUv).toVar();
+    // Dual-scale detail: the same ground map re-sampled at a coarser tiling
+    // and blended in breaks the visible repeat of the base tile — the
+    // classic anti-tiling move for big open meadows. Compile-gated to
+    // materials with a real diffuse map: on the untextured class the
+    // white-fallback math would read as a flat ×2 brightness lift.
+    if (!textureSet.untextured) {
+      If(u.dualDetailMix.greaterThan(0.0), () => {
+        const coarse = tex.baseMap.sample(vUv.mul(u.dualDetailScale)).rgb;
+        texel.rgb.assign(mix(texel.rgb, texel.rgb.mul(coarse).mul(2.0), clamp(u.dualDetailMix, 0.0, 1.0)));
+      });
+    }
     // Triplanar detail: re-sample the base map projected in world space and
     // blended by the surface normal, so steep faces (cliff walls, terrace
     // sides) keep the same texture density as the ground. A heightfield's
@@ -431,6 +477,41 @@ export function createEnvironmentNodeMaterial({
       texel.rgb.mulAssign(vColor.rgb);
       texel.a.mulAssign(vColor.a);
     }
+    // Shared slope classification: the stone takeover and the macro colormap
+    // both key off it. cliffNoiseStrength > 0 offsets the threshold with
+    // world-space fbm so the grass↔stone edge wanders organically instead of
+    // tracing a perfectly smooth analytic contour.
+    const slope01 = abs(normalWorld.y).oneMinus().toVar();
+    If(u.cliffNoiseStrength.greaterThan(0.0), () => {
+      const wander = worldFbm2(vWorldPosition.xz.mul(max(u.cliffNoiseScale, 0.0001)))
+        .sub(0.5).mul(2.0).mul(u.cliffNoiseStrength);
+      slope01.addAssign(wander);
+    });
+    const steepMask = smoothstep(u.cliffStart, u.cliffStart.add(max(u.cliffFade, 0.001)), slope01).toVar();
+
+    if (textureSet.colormapMap) {
+      // World-space macro colormap: a low-frequency biome tint (the
+      // hand-painted grass colormap of the reference pack, generated seeded
+      // here) multiplied over flat ground. Texels encode a multiplier
+      // around mid-gray; cliffs keep their stone color.
+      If(u.colormapStrength.greaterThan(0.0), () => {
+        const mapUv = vWorldPosition.xz.sub(u.colormapRegion.xy).mul(u.colormapRegion.zw);
+        const colormap = tex.colormapTex.sample(mapUv).rgb;
+        const flatWeight = steepMask.oneMinus().mul(clamp(u.colormapStrength, 0.0, 1.0));
+        const tinted = vec3(0.0).toVar();
+        If(u.colormapMode.greaterThan(0.5), () => {
+          // Reference formula: Overlay(luminance(ground), colormap).
+          const grey = dot(texel.rgb, vec3(0.299, 0.587, 0.114));
+          const lo = colormap.mul(grey.mul(2.0));
+          const hi = vec3(1.0).sub(vec3(1.0).sub(colormap).mul(grey.oneMinus().mul(2.0)));
+          tinted.assign(mix(lo, hi, step(0.5, grey)));
+        }).Else(() => {
+          tinted.assign(texel.rgb.mul(colormap.mul(u.colormapDecode)));
+        });
+        texel.rgb.assign(mix(texel.rgb, tinted, flatWeight));
+      });
+    }
+
     if (textureSet.triplanarMap) {
       // Dedicated steep-face material (userData.envTriplanarMap): a painted
       // stone/cliff diffuse sampled triplanar in world space and blended in
@@ -446,11 +527,12 @@ export function createEnvironmentNodeMaterial({
           .add(tex.triplanarMapTex.sample(vWorldPosition.xz.div(scale)).rgb.mul(weights.y))
           .add(tex.triplanarMapTex.sample(vWorldPosition.xy.div(scale)).rgb.mul(weights.z))
           .div(weightSum).toVar();
-        // Early stone takeover (0.12 ≈ 29°): the grass↔stone transition band
-        // is where the terrain triangulation shows — per-vertex meadow/gold
-        // paint interpolating across wall triangles reads as green sawtooth
-        // wedges, so the band must be narrow and mostly stone.
-        const steep = smoothstep(0.12, 0.3, abs(normalWorld.y).oneMinus());
+        // Early stone takeover (default cliffStart 0.12 ≈ 29°): the
+        // grass↔stone transition band is where the terrain triangulation
+        // shows — per-vertex meadow/gold paint interpolating across wall
+        // triangles reads as green sawtooth wedges, so the band must be
+        // narrow and mostly stone.
+        const steep = steepMask;
         // Tint by the vertex paint's LUMINANCE only: brightness variation
         // (strata, haze) carries through, but its hue never does — green
         // tread color bleeding into wall stone is the sawtooth's other half.
@@ -500,6 +582,15 @@ export function createEnvironmentNodeMaterial({
     );
 
     const albedo = pow(max(texel.rgb.mul(u.baseColor), vec3(0.0)), vec3(0.92)).toVar();
+
+    // Ground-field contact melt (the reference pack's VT blend): the base of
+    // a rock or trunk takes the terrain albedo where it meets the ground.
+    If(u.vtBlendStrength.greaterThan(0.0), () => {
+      const ground = sampleGroundColor(vWorldPosition).toVar();
+      const melt = groundBlendFactor(vWorldPosition, u.vtBlendHeight)
+        .mul(clamp(u.vtBlendStrength, 0.0, 1.0)).mul(ground.a);
+      albedo.assign(mix(albedo, ground.rgb, melt));
+    });
 
     const N = normalize(vWorldNormal)
       .mul(select(frontFacing, float(1.0), float(-1.0)))

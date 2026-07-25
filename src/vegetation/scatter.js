@@ -51,6 +51,30 @@ export function createSlopeMask({ heightAt, maxSlope = 0.6, sampleDistance = 0.5
 }
 
 /**
+ * Mask factory: keeps only terrain whose authored/procedural surface weight
+ * reaches `threshold`. Use a grass/meadow weight sampler here so dirt paths,
+ * painted rock, cliff masks, and other excluded materials do not receive
+ * vegetation even when they share the same height field.
+ *
+ * The sampler should return a normalized 0..1 weight. Because it is evaluated
+ * when scatter is rebuilt, terrain painting or procedural layer changes do
+ * not require hand-removing individual grass instances.
+ *
+ * @returns {(x: number, z: number) => boolean}
+ */
+export function createSurfaceWeightMask({
+  weightAt,
+  threshold = 0.4,
+} = {}) {
+  if (typeof weightAt !== 'function') return () => true;
+  const minimum = Math.min(Math.max(Number(threshold) || 0, 0), 1);
+  return (x, z) => {
+    const weight = Number(weightAt(x, z));
+    return Number.isFinite(weight) && weight > minimum;
+  };
+}
+
+/**
  * Mask factory: rejects points at or below the water line (terrain height
  * under `waterLevel + margin`), so grass and trees stay out of lakes and
  * surf. Pair `waterLevel` with the WaterSurface's world y position.
@@ -255,7 +279,10 @@ export function scatterForest({
  * controls coverage: 0.5 ≈ half the map in patches, 0.6 ≈ sparse islands.
  *
  *   const forestMask = createNoisePatchMask({ seed: 7, scale: 0.004, threshold: 0.52 });
- *   scatterForest({ ..., mask: combineMasks(forestMask, slopeMask, waterMask) });
+ *   scatterForest({
+ *     ...,
+ *     mask: combineMasks(forestMask, surfaceWeightMask, slopeMask, waterMask),
+ *   });
  *
  * @returns {(x: number, z: number) => boolean}
  */

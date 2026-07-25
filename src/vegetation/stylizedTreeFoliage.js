@@ -2,6 +2,17 @@ import * as THREE from 'three';
 
 import { createTreeLeafNodeMaterial } from '../shaders-tsl/tree-leaf.js';
 
+export const TREE_FOLIAGE_ARCHITECTURES = Object.freeze([
+  'cloud-cards',
+  'layered-sprays',
+  'needle-whorls',
+  'radial-fronds',
+]);
+
+function resolveFoliageArchitecture(value) {
+  return TREE_FOLIAGE_ARCHITECTURES.includes(value) ? value : 'cloud-cards';
+}
+
 // Modern anime-style tree canopies: instead of a lumpy low-poly blob, the crown is
 // built from hundreds of camera-facing leaf-cluster cards sampled over a set
 // of overlapping sphere "blobs". Each card's shading normal is baked to point
@@ -235,6 +246,18 @@ export function createTreeFoliageGeometry({
   // gap culling removes whole tufts, exposing the wood beneath. Without
   // attachments, cards sample the blob shells directly.
   attachments = null,
+  // Crown construction. cloud-cards is the historical spherical tuft path;
+  // the other modes arrange the same leaf-card material along branch-local
+  // planes, whorls, or frond rays. They remain camera-facing cards at render
+  // time, but their centers form authored volumes rather than round puffs.
+  architecture = 'cloud-cards',
+  sprayLayers = 3,
+  spraySpread = 0.8,
+  sprayThickness = 0.18,
+  whorlArms = 6,
+  whorlRadius = 0.48,
+  frondCount = 7,
+  frondLength = 1.25,
   cardsPerCluster = 5,
   clusterRadius = 0.48,
   // Per-attachment overrides keyed by attachment index:
@@ -246,7 +269,7 @@ export function createTreeFoliageGeometry({
   // false = no blob-shell fill between the attachment tufts: the crown is
   // ONLY bushes at the branch ends and the wood in between stays on show
   // (the Sumeru bare-limb look). Only meaningful with attachments.
-  shellFill = true,
+  shellFill = null,
   // When set, the blob-shell fill ADDS this many cards (scaled by density
   // and coverage) on top of whatever the attachments produced, instead of
   // only topping up to cardCount. Scribbled foliage areas need this: a
@@ -255,6 +278,10 @@ export function createTreeFoliageGeometry({
   shellBudget = null,
   seed = 1,
 } = {}) {
+  const resolvedArchitecture = resolveFoliageArchitecture(architecture);
+  const resolvedShellFill = shellFill == null
+    ? resolvedArchitecture === 'cloud-cards'
+    : Boolean(shellFill);
   const rng = mulberry32(seed + 11.7);
   const density = THREE.MathUtils.clamp(leafDensity, 0.05, 2);
   // Gap/culling math below is written for 0..1 coverage; density above 1
@@ -307,7 +334,7 @@ export function createTreeFoliageGeometry({
   // attachment = index of the tuft's branch end, -1 for shell-fill cards —
   // baked into the aAttachment vertex attribute so pointer picks can map a
   // leaf card back to its branch.
-  const pushCard = (cardRng = rng, attachment = -1) => {
+  const pushCard = (cardRng = rng, attachment = -1, cardSizeScale = 1) => {
     shadeNormal.copy(cardCenter).sub(core).normalize();
     cardCenter.multiplyScalar(size);
     minY = Math.min(minY, cardCenter.y);
@@ -316,7 +343,8 @@ export function createTreeFoliageGeometry({
       attachment,
       center: cardCenter.clone(),
       normal: shadeNormal.clone(),
-      size: THREE.MathUtils.lerp(cardSizeRange[0], cardSizeRange[1], cardRng()) * size,
+      size: THREE.MathUtils.lerp(cardSizeRange[0], cardSizeRange[1], cardRng())
+        * size * cardSizeScale,
       phase: cardRng(),
       tint: cardRng(),
     });
@@ -345,45 +373,109 @@ export function createTreeFoliageGeometry({
     pushCard();
   };
 
-  if (attachments?.length) {
+  const attachmentEntries = (attachments ?? []).map((attachment, attachmentIndex) => ({
+    attachment,
+    attachmentIndex,
+  }));
+  // A palm crown is one radial rosette at the highest leader. Repeating a
+  // complete rosette at every twig tip turns a palm into a round broadleaf
+  // ball and produces bare, disconnected-looking frond clusters.
+  const foliageAttachmentEntries = resolvedArchitecture === 'radial-fronds'
+    && attachmentEntries.length
+    ? [attachmentEntries.reduce((highest, entry) => (
+      (entry.attachment.normalizedHeight ?? entry.attachment.position.y)
+        > (highest.attachment.normalizedHeight ?? highest.attachment.position.y)
+        ? entry : highest
+    ))]
+    : attachmentEntries;
+
+  if (foliageAttachmentEntries.length) {
     // MANDATORY pass first: every attachment gets a full puff of cards
     // engulfing the branch end — dense terminal masses are what make the
     // anime look, and a skipped puff means a naked branch. Never culled,
     // never budget-capped. Each tuft draws from its OWN seeded rng so a
     // per-branch override reshapes only that tuft, never its neighbors.
-    attachments.forEach((attachment, attachmentIndex) => {
+    foliageAttachmentEntries.forEach(({ attachment, attachmentIndex }) => {
       const tuftRng = mulberry32(seed * 3.7 + 17.9 + attachmentIndex * 101.3);
       const override = attachmentOverrides?.[attachmentIndex] ?? null;
       const tuftCardsPerCluster = override?.cardsPerCluster ?? cardsPerCluster;
       const tuftRadius = override?.clusterRadius ?? clusterRadius;
       const densityScale = override?.densityScale ?? 1;
+      const layerTotal = Math.max(1, Math.round(sprayLayers));
+      const whorlTotal = Math.max(3, Math.round(whorlArms));
+      const frondTotal = Math.max(3, Math.round(frondCount));
       const rawCount = Math.round(
         tuftCardsPerCluster * (0.8 + tuftRng() * 0.5) * coverage * densityScale *
         Math.max(1, density));
       // Only an explicit override may bare a branch.
-      const tuftCards = override ? Math.max(rawCount, 0) : Math.max(rawCount, 3);
+      const architectureMinimum = resolvedArchitecture === 'radial-fronds'
+        ? frondTotal * 3
+        : resolvedArchitecture === 'needle-whorls' ? whorlTotal : 3;
+      const tuftCards = override ? Math.max(rawCount, 0) : Math.max(rawCount, architectureMinimum);
+      const growth = (attachment.tangent ?? attachment.direction ?? new THREE.Vector3(0, 1, 0))
+        .clone().normalize();
+      const basisReference = Math.abs(growth.y) > 0.92
+        ? new THREE.Vector3(1, 0, 0)
+        : new THREE.Vector3(0, 1, 0);
+      const branchRight = new THREE.Vector3().crossVectors(growth, basisReference).normalize();
+      const branchForward = new THREE.Vector3().crossVectors(branchRight, growth).normalize();
       for (let i = 0; i < tuftCards; i += 1) {
-        // Point in a sphere around the branch end, pushed slightly past it
-        // along the growth direction so the wood tip is swallowed by leaves.
-        const radius = tuftRadius * (0.35 + 0.65 * Math.cbrt(tuftRng()));
-        const theta = tuftRng() * Math.PI * 2;
-        const cosPhi = tuftRng() * 2 - 1;
-        const sinPhi = Math.sqrt(Math.max(0, 1 - cosPhi * cosPhi));
-        cardCenter.set(
-          Math.cos(theta) * sinPhi,
-          cosPhi,
-          Math.sin(theta) * sinPhi,
-        ).multiplyScalar(radius).add(attachment.position);
-        if (attachment.direction) {
-          cardCenter.addScaledVector(
-            attachment.direction, (0.1 + tuftRng() * 0.35) * tuftRadius);
+        let cardSizeScale = 1;
+        if (resolvedArchitecture === 'layered-sprays') {
+          const layer = i % layerTotal;
+          const layerT = layerTotal === 1 ? 0 : layer / (layerTotal - 1) - 0.5;
+          const radialT = Math.sqrt(tuftRng());
+          const angle = tuftRng() * Math.PI * 2;
+          cardCenter.copy(attachment.position)
+            .addScaledVector(branchRight, Math.cos(angle) * radialT * spraySpread)
+            .addScaledVector(branchForward, Math.sin(angle) * radialT * spraySpread * 0.62)
+            .addScaledVector(growth, layerT * sprayThickness + tuftRadius * 0.16);
+          cardSizeScale = 0.88 + tuftRng() * 0.2;
+        } else if (resolvedArchitecture === 'needle-whorls') {
+          const arm = i % whorlTotal;
+          const ring = Math.floor(i / whorlTotal);
+          const ringCount = Math.max(1, Math.ceil(tuftCards / whorlTotal));
+          const angle = (arm / whorlTotal) * Math.PI * 2 + tuftRng() * 0.22;
+          const radius = whorlRadius * (0.68 + tuftRng() * 0.34);
+          const ringT = ringCount === 1 ? 0 : ring / (ringCount - 1) - 0.5;
+          cardCenter.copy(attachment.position)
+            .addScaledVector(branchRight, Math.cos(angle) * radius)
+            .addScaledVector(branchForward, Math.sin(angle) * radius)
+            .addScaledVector(growth, ringT * tuftRadius * 1.25);
+          cardSizeScale = 0.52 + tuftRng() * 0.16;
+        } else if (resolvedArchitecture === 'radial-fronds') {
+          const arm = i % frondTotal;
+          const step = Math.floor(i / frondTotal);
+          const stepCount = Math.max(1, Math.ceil(tuftCards / frondTotal));
+          const along = (step + 1) / (stepCount + 0.5);
+          const angle = (arm / frondTotal) * Math.PI * 2 + tuftRng() * 0.16;
+          cardCenter.copy(attachment.position)
+            .addScaledVector(branchRight, Math.cos(angle) * frondLength * along)
+            .addScaledVector(branchForward, Math.sin(angle) * frondLength * along)
+            .addScaledVector(growth, tuftRadius * (0.28 - along * 0.32));
+          cardSizeScale = 0.62 + along * 0.3;
+        } else {
+          // Historical cloud-card puff: preserve the existing seeded layout.
+          const radius = tuftRadius * (0.35 + 0.65 * Math.cbrt(tuftRng()));
+          const theta = tuftRng() * Math.PI * 2;
+          const cosPhi = tuftRng() * 2 - 1;
+          const sinPhi = Math.sqrt(Math.max(0, 1 - cosPhi * cosPhi));
+          cardCenter.set(
+            Math.cos(theta) * sinPhi,
+            cosPhi,
+            Math.sin(theta) * sinPhi,
+          ).multiplyScalar(radius).add(attachment.position);
+          if (attachment.direction) {
+            cardCenter.addScaledVector(
+              attachment.direction, (0.1 + tuftRng() * 0.35) * tuftRadius);
+          }
         }
-        pushCard(tuftRng, attachmentIndex);
+        pushCard(tuftRng, attachmentIndex, cardSizeScale);
       }
     });
     // Then shell fill (gap-cullable) tops the crown up to a solid mass —
     // unless the caller wants bare wood between the tufts.
-    if (shellFill) {
+    if (resolvedShellFill) {
       const shellTarget = shellBudget != null
         ? cardData.length + Math.round(shellBudget * (0.4 + 0.6 * density) * coverage)
         : targetCards;
@@ -444,6 +536,7 @@ export function createTreeFoliageGeometry({
   geometry.setAttribute('aInfo', new THREE.BufferAttribute(infos, 4));
   // Branch-end index per card (-1 = shell fill), for pointer picking.
   geometry.setAttribute('aAttachment', new THREE.BufferAttribute(attachmentIds, 1));
+  geometry.userData.treeFoliageArchitecture = resolvedArchitecture;
   // Billboards expand past their centers; pad the bounds so culling and the
   // shadow camera keep the swaying crown fully inside.
   geometry.computeBoundingSphere();

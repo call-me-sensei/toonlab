@@ -9,6 +9,10 @@ import {
 
 import { StylizedTree } from './stylizedTree.js';
 import { disposeExportGroup, prepareTreeForExport } from './treeExport.js';
+import {
+  projectedTreeScreenCoverage,
+  TREE_RUNTIME_QUALITY_PROFILES,
+} from './compiledTree.js';
 
 export const STYLIZED_FOREST_IMPOSTOR_QUALITY = Object.freeze({
   colorFloor: Object.freeze([0.16, 0.3, 0.14]),
@@ -60,6 +64,34 @@ function setFlatGeometryColor(geometry, color, tone = 1) {
   }
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   return geometry;
+}
+
+function installInstancedTreeDither(material, mode, materialSet) {
+  const frame = { value: 0 };
+  material.userData.treeDitherMode = mode;
+  material.userData.treeDitherFrameUniform = frame;
+  material.alphaHash = true;
+  material.transparent = false;
+  const previous = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    previous?.(shader, renderer);
+    shader.uniforms.uTreeDitherFrame = frame;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute float treeLodFade;\nvarying float vTreeLodFade;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvTreeLodFade = treeLodFade;');
+    const threshold = mode === 'temporal'
+      ? 'fract(dot(floor(gl_FragCoord.xy), vec2(0.754877666, 0.569840296)) + uTreeDitherFrame * 0.618033989)'
+      : 'fract(dot(mod(floor(gl_FragCoord.xy), 4.0), vec2(0.754877666, 0.569840296)))';
+    shader.fragmentShader = `uniform float uTreeDitherFrame;\nvarying float vTreeLodFade;\n${shader.fragmentShader}`
+      .replace(
+        '#include <alphatest_fragment>',
+        `#include <alphatest_fragment>\nif (vTreeLodFade < ${threshold}) discard;`,
+      );
+  };
+  material.customProgramCacheKey = () => `toonlab-instanced-tree-dither:${mode}`;
+  material.needsUpdate = true;
+  materialSet.add(material);
+  return material;
 }
 
 function asNonIndexed(geometry) {
@@ -162,9 +194,22 @@ export class StylizedForest extends THREE.Group {
     castShadow = true,          // near live clones cast; anchors the forest to the ground
     renderer = null,            // enables the bounded volumetric far proxy (strongly recommended)
     vegetationShader = null,
+    compiledAssets = null,      // loaded CompiledTreeAsset[]; enables four-level instanced runtime
+    quality = 'high',
   } = {}) {
     super();
     this.name = 'StylizedForest';
+    if (Array.isArray(compiledAssets) && compiledAssets.length) {
+      this._initCompiledForest({
+        assets: compiledAssets,
+        castShadow,
+        detailCount,
+        placements,
+        quality,
+        updateInterval,
+      });
+      return;
+    }
     this.detailDistance = detailDistance;
     this.detailCount = detailCount;
     this.updateInterval = updateInterval;
@@ -321,6 +366,193 @@ export class StylizedForest extends THREE.Group {
     this._detailed = new Set();
   }
 
+  _initCompiledForest({ assets, castShadow, detailCount, placements, quality, updateInterval }) {
+    const profile = TREE_RUNTIME_QUALITY_PROFILES[quality] ?? TREE_RUNTIME_QUALITY_PROFILES.high;
+    const activeAssets = assets.slice(0, Math.max(1, profile.variants));
+    this._compiledMode = true;
+    this.detailCount = Math.min(Math.max(0, detailCount), profile.detailedCount);
+    this.updateInterval = updateInterval;
+    this._timer = updateInterval;
+    this.variantTrees = [];
+    this._bakedVariants = [];
+    this._pool = [];
+    this._detailed = new Set();
+    this._instanced = [];
+    this._compiledTransitions = new Set();
+    this._compiledDitherMaterials = new Set();
+    this._compiledDitherFrame = 0;
+    this._compiledTransitionSeconds = 0.18;
+    this._compiledHysteresis = 0.1;
+    this._impostorMaterials = new Map();
+    this._fogUniforms = null;
+    this.hasBakedImpostors = true;
+    const cappedPlacements = placements.slice(0, profile.maxPlacements);
+    this._placements = cappedPlacements.map((placement, index) => ({
+      index,
+      seed: placement.seed ?? index,
+      variant: stableVariant(placement.seed ?? index, index, activeAssets.length),
+      x: placement.x,
+      y: placement.y,
+      z: placement.z,
+      currentLod: 3,
+      matrix: null,
+      lodMeshes: [],
+    }));
+    const byVariant = Array.from({ length: activeAssets.length }, () => []);
+    this._placements.forEach((entry) => byVariant[entry.variant].push(entry));
+    const up = new THREE.Vector3(0, 1, 0);
+    const quaternion = new THREE.Quaternion();
+    const compose = new THREE.Matrix4();
+    const zero = new THREE.Matrix4().makeScale(0, 0, 0);
+    this._zeroMatrix = zero;
+
+    activeAssets.forEach((asset, variant) => {
+      const entries = byVariant[variant];
+      if (!entries.length) return;
+      const variantBatches = asset.levels.map((levelRoot, lod) => {
+        const sources = [];
+        levelRoot.traverse((object) => { if (object.isMesh) sources.push(object); });
+        return sources.map((source) => {
+          const geometry = source.geometry.clone();
+          geometry.setAttribute(
+            'treeLodFade',
+            new THREE.InstancedBufferAttribute(new Float32Array(Math.max(entries.length, 1)), 1),
+          );
+          const material = installInstancedTreeDither(
+            source.material.clone(),
+            asset.ditherMode ?? 'bayer',
+            this._compiledDitherMaterials,
+          );
+          const mesh = new THREE.InstancedMesh(
+            geometry,
+            material,
+            Math.max(entries.length, 1),
+          );
+          mesh.name = `${asset.manifest.catalogId}:LOD${lod}:${source.name || 'mesh'}`;
+          mesh.castShadow = Boolean(castShadow && lod <= 1);
+          mesh.receiveShadow = false;
+          mesh.frustumCulled = false;
+          mesh.customDepthMaterial = installInstancedTreeDither(new THREE.MeshDepthMaterial({
+            alphaMap: material.alphaMap ?? null,
+            alphaTest: material.alphaTest ?? 0,
+            depthPacking: THREE.RGBADepthPacking,
+            map: material.map ?? null,
+            side: material.side,
+          }), asset.ditherMode ?? 'bayer', this._compiledDitherMaterials);
+          mesh.customDistanceMaterial = installInstancedTreeDither(new THREE.MeshDistanceMaterial({
+            alphaMap: material.alphaMap ?? null,
+            alphaTest: material.alphaTest ?? 0,
+            map: material.map ?? null,
+            side: material.side,
+          }), asset.ditherMode ?? 'bayer', this._compiledDitherMaterials);
+          this.add(mesh);
+          return mesh;
+        });
+      });
+      entries.forEach((entry, slot) => {
+        entry.instanceSlot = slot;
+        entry.asset = asset;
+        entry.lodMeshes = variantBatches;
+        quaternion.setFromAxisAngle(up, ((entry.seed >>> 4) % 628) / 100);
+        const jitter = 0.9 + (((entry.seed >>> 12) % 21) / 100);
+        compose.compose(
+          new THREE.Vector3(entry.x, entry.y, entry.z),
+          quaternion,
+          new THREE.Vector3(jitter, jitter, jitter),
+        );
+        entry.matrix = compose.clone();
+        variantBatches.forEach((meshes, lod) => {
+          for (const mesh of meshes) {
+            mesh.setMatrixAt(slot, lod === 3 ? entry.matrix : zero);
+            const fade = mesh.geometry.getAttribute('treeLodFade');
+            fade.setX(slot, lod === 3 ? 1 : 0);
+            fade.needsUpdate = true;
+          }
+        });
+      });
+      variantBatches.flat().forEach((mesh) => { mesh.instanceMatrix.needsUpdate = true; });
+      this._instanced.push(...variantBatches);
+    });
+  }
+
+  _assignCompiled(camera) {
+    const focus = camera.getWorldPosition(new THREE.Vector3());
+    const ranked = this._placements.map((entry) => {
+      const dx = entry.x - focus.x;
+      const dy = entry.y - focus.y;
+      const dz = entry.z - focus.z;
+      return [dx * dx + dy * dy + dz * dz, entry];
+    }).sort((a, b) => a[0] - b[0]);
+    const detailed = new Set(ranked.slice(0, this.detailCount).map(([, entry]) => entry));
+    const center = new THREE.Vector3();
+    for (const [, entry] of ranked) {
+      center.set(...entry.asset.manifest.bounds.center).add(
+        new THREE.Vector3(entry.x, entry.y, entry.z));
+      const coverage = projectedTreeScreenCoverage(
+        camera,
+        center,
+        entry.asset.manifest.bounds.radius,
+      );
+      let nextLod = entry.asset.manifest.lods.find(
+        (lod) => coverage >= lod.minScreenCoverage,
+      )?.level ?? 3;
+      if (nextLod === 0 && !detailed.has(entry)) nextLod = 1;
+      if (entry.transitionTo !== undefined) continue;
+      if (nextLod > entry.currentLod) {
+        const threshold = entry.asset.manifest.lods[entry.currentLod].minScreenCoverage;
+        if (coverage > threshold * (1 - this._compiledHysteresis)) nextLod = entry.currentLod;
+      } else if (nextLod < entry.currentLod) {
+        const threshold = entry.asset.manifest.lods[nextLod].minScreenCoverage;
+        if (coverage < threshold * (1 + this._compiledHysteresis)) nextLod = entry.currentLod;
+      }
+      if (nextLod === entry.currentLod) continue;
+      for (const mesh of entry.lodMeshes[nextLod]) {
+        mesh.setMatrixAt(entry.instanceSlot, entry.matrix);
+        mesh.instanceMatrix.needsUpdate = true;
+        const fade = mesh.geometry.getAttribute('treeLodFade');
+        fade.setX(entry.instanceSlot, 0);
+        fade.needsUpdate = true;
+      }
+      entry.transitionFrom = entry.currentLod;
+      entry.transitionTo = nextLod;
+      entry.transitionElapsed = 0;
+      this._compiledTransitions.add(entry);
+    }
+  }
+
+  _advanceCompiledTransitions(delta) {
+    this._compiledDitherFrame += 1;
+    for (const material of this._compiledDitherMaterials) {
+      if (material.userData.treeDitherMode === 'temporal') {
+        material.userData.treeDitherFrameUniform.value = this._compiledDitherFrame;
+      }
+    }
+    for (const entry of this._compiledTransitions) {
+      entry.transitionElapsed += Math.max(Number(delta) || 0, 0);
+      const progress = Math.min(1, entry.transitionElapsed / this._compiledTransitionSeconds);
+      for (const mesh of entry.lodMeshes[entry.transitionFrom]) {
+        const fade = mesh.geometry.getAttribute('treeLodFade');
+        fade.setX(entry.instanceSlot, 1 - progress);
+        fade.needsUpdate = true;
+      }
+      for (const mesh of entry.lodMeshes[entry.transitionTo]) {
+        const fade = mesh.geometry.getAttribute('treeLodFade');
+        fade.setX(entry.instanceSlot, progress);
+        fade.needsUpdate = true;
+      }
+      if (progress < 1) continue;
+      for (const mesh of entry.lodMeshes[entry.transitionFrom]) {
+        mesh.setMatrixAt(entry.instanceSlot, this._zeroMatrix);
+        mesh.instanceMatrix.needsUpdate = true;
+      }
+      entry.currentLod = entry.transitionTo;
+      delete entry.transitionFrom;
+      delete entry.transitionTo;
+      delete entry.transitionElapsed;
+      this._compiledTransitions.delete(entry);
+    }
+  }
+
   _acquireClone(variant) {
     const idle = this._pool.find((entry) => entry.placement === null && entry.variant === variant);
     if (idle) return idle;
@@ -391,6 +623,15 @@ export class StylizedForest extends THREE.Group {
    * clone) and periodically re-picks which trees deserve full detail.
    */
   update(delta, camera) {
+    if (this._compiledMode) {
+      this._advanceCompiledTransitions(delta);
+      this._timer += delta;
+      if (camera && this._timer >= this.updateInterval) {
+        this._timer = 0;
+        this._assignCompiled(camera);
+      }
+      return;
+    }
     for (const tree of this.variantTrees) tree.update(delta);
     this._timer += delta;
     if (camera && this._timer >= this.updateInterval) {
@@ -401,32 +642,38 @@ export class StylizedForest extends THREE.Group {
 
   /** Re-tune live foliage uniforms on every variant (near clones share them). */
   applySettings(options = {}) {
+    if (this._compiledMode) return this;
     for (const tree of this.variantTrees) tree.applySettings(options);
     return this;
   }
 
   setCloudShadow(options) {
+    if (this._compiledMode) return this;
     for (const tree of this.variantTrees) tree.setCloudShadow?.(options);
     return this;
   }
 
   setWind(options) {
+    if (this._compiledMode) return this;
     for (const tree of this.variantTrees) tree.setWind?.(options);
     return this;
   }
 
   /** Keeps every live near-LOD tree on the current scene sun/sky inputs. */
   setSun(options) {
+    if (this._compiledMode) return this;
     for (const tree of this.variantTrees) tree.setSun?.(options);
     return this;
   }
 
   setSurfaceWeather(options) {
+    if (this._compiledMode) return this;
     for (const tree of this.variantTrees) tree.setSurfaceWeather?.(options);
     return this;
   }
 
   setVegetationShader(profile) {
+    if (this._compiledMode) return { applied: 0, compiled: true, requiresImpostorRebake: false };
     const report = applyVegetationShader(this.variantTrees, profile);
     // Far proxy colors are derived from variant trees at construction time.
     // Live materials update immediately; hosts exposing runtime style editing
@@ -443,6 +690,7 @@ export class StylizedForest extends THREE.Group {
    * Density 0 disables the layer. createStylizedWorld wires this by default.
    */
   setDistanceFog({ color, density, falloff, floorY } = {}) {
+    if (this._compiledMode) return this;
     const u = this._fogUniforms;
     if (density !== undefined) u.density.value = Math.max(Number(density) || 0, 0);
     if (falloff !== undefined) u.falloff.value = Math.max(Number(falloff) || 0, 0.001);
@@ -464,6 +712,19 @@ export class StylizedForest extends THREE.Group {
   }
 
   dispose() {
+    if (this._compiledMode) {
+      for (const meshes of this._instanced) {
+        for (const mesh of meshes) {
+          mesh.geometry.dispose();
+          mesh.material.dispose();
+          mesh.customDepthMaterial?.dispose();
+          mesh.customDistanceMaterial?.dispose();
+          mesh.dispose();
+        }
+      }
+      this.parent?.remove(this);
+      return;
+    }
     for (const meshes of this._instanced) {
       for (const mesh of meshes) {
         mesh.geometry?.dispose?.();

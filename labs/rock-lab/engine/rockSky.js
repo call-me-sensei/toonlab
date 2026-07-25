@@ -31,6 +31,7 @@ function createDomeMaterial() {
     uTopColor: uniform(new THREE.Color(0x5da4e8)),
   };
   const material = new MeshBasicNodeMaterial({
+    depthTest: false,
     depthWrite: false,
     side: THREE.BackSide,
   });
@@ -47,17 +48,30 @@ function createDomeMaterial() {
 }
 
 export function createRockSky({ deterministic = false, engine, grass = null, store }) {
-  const { ambient, controls, scene, setSunState } = engine;
-  const baseFog = { far: scene.fog.far, near: scene.fog.near };
+  const {
+    ambient, camera, controls, getRenderAuthority, scene, setFogScale, setSunState,
+  } = engine;
   const baseAmbient = ambient.intensity;
 
   const dome = new THREE.Mesh(
     new THREE.SphereGeometry(320, 32, 16),
     createDomeMaterial(),
   );
+  // A sky is camera-relative presentation, not world geometry. Keeping it
+  // centered on the render camera prevents source-scale cliffs and mountains
+  // from walking outside (or beyond the far side of) a fixed world sphere.
+  dome.castShadow = false;
+  dome.receiveShadow = false;
+  dome.frustumCulled = false;
   dome.renderOrder = -1;
+  dome.userData.environmentShaderExclude = true;
+  dome.userData.environmentVertexAoOccluderExclude = true;
+  dome.onBeforeRender = (_renderer, _scene, renderCamera) => {
+    dome.position.copy(renderCamera?.position ?? camera.position);
+    dome.updateMatrixWorld(true);
+  };
   scene.add(dome);
-  scene.background = null;
+  if (getRenderAuthority() !== 'source') scene.background = null;
 
   // --- Shared precipitation runtime (skipped in deterministic captures) -----
   let precipitation = null;
@@ -73,6 +87,12 @@ export function createRockSky({ deterministic = false, engine, grass = null, sto
   }
 
   function apply() {
+    const sourceAuthority = getRenderAuthority() === 'source';
+    dome.visible = !sourceAuthority;
+    if (precipitation) precipitation.visible = !sourceAuthority;
+    if (sourceAuthority) return;
+
+    scene.background = null;
     const { sky } = store.getState();
     const weather = WEATHER_PRESETS[sky.weather] ?? WEATHER_PRESETS.clear;
     const state = sampleEnvironmentTimeOfDay(sky.hour);
@@ -101,8 +121,7 @@ export function createRockSky({ deterministic = false, engine, grass = null, sto
       ? new THREE.Color(...weather.fogColor)
       : desaturate(state.fogColor.clone(), weather.skyGray * 0.6);
     scene.fog.color.copy(fogColor);
-    scene.fog.near = baseFog.near / weather.fogScale;
-    scene.fog.far = baseFog.far / weather.fogScale;
+    setFogScale(weather.fogScale);
 
     precipitation?.applySettings(weather.precipitation, weather.wind);
 
@@ -114,10 +133,12 @@ export function createRockSky({ deterministic = false, engine, grass = null, sto
   }
 
   let lastSky = null;
+  let lastMaterialMode = null;
   store.subscribe(() => {
-    const { sky } = store.getState();
-    if (sky !== lastSky) {
+    const { referenceMaterialMode, sky } = store.getState();
+    if (sky !== lastSky || referenceMaterialMode !== lastMaterialMode) {
       lastSky = sky;
+      lastMaterialMode = referenceMaterialMode;
       apply();
     }
   });

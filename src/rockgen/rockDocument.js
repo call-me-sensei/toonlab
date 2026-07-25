@@ -1,6 +1,9 @@
 // Rock document: the JSON-serializable source of truth for one rock /
-// cliff / mountain project. A flat ordered list of SDF pieces (left-folded
-// with their combine ops) plus a global sculpt-edit list — no node graph.
+// cliff / mountain project. Legacy procedural documents use a flat ordered
+// list of SDF pieces (left-folded with their combine ops) plus sculpt edits.
+// Source-mesh reference documents instead carry `reference.sourceMode =
+// 'mesh-template'`; their required piece is compatibility-only and is never
+// meshed by the SDF path.
 // `revision` is a runtime dirty counter (never serialized); every mutation
 // helper bumps it so compileDocument's cache and the lab's schedulers can
 // tell stale work from fresh.
@@ -21,9 +24,78 @@ import { compileDocument } from './sdf/fieldCompiler.js';
 export const ROCKGEN_PROJECT_DOCUMENT_TYPE = 'toonlab/rockgen-project';
 
 /** Current schema version for rockgen project documents. */
-export const ROCKGEN_PROJECT_SCHEMA_VERSION = 2;
+export const ROCKGEN_PROJECT_SCHEMA_VERSION = 3;
 
 const COMBINE_OPS = Object.freeze(['union', 'smoothUnion', 'subtract', 'intersect']);
+
+function positiveInteger(value, fallback = 0) {
+  const number = Math.round(Number(value));
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function lodRatiosOption(value) {
+  if (!Array.isArray(value) || value.length === 0) return [1, 0.5, 0.25];
+  const ratios = value
+    .map(Number)
+    .filter((ratio) => Number.isFinite(ratio) && ratio > 0 && ratio <= 1)
+    .sort((left, right) => right - left);
+  if (ratios.length === 0) return [1, 0.5, 0.25];
+  if (ratios[0] !== 1) ratios.unshift(1);
+  return [...new Set(ratios)].slice(0, 3);
+}
+
+function lodTrianglesOption(value, targetTriangles, lodRatios) {
+  if (Array.isArray(value)) {
+    const levels = value
+      .slice(0, 3)
+      .map((entry) => positiveInteger(entry, 0))
+      .filter((entry) => entry > 0);
+    if (levels.length > 0) {
+      for (let index = 1; index < levels.length; index += 1) {
+        levels[index] = Math.min(levels[index], levels[index - 1]);
+      }
+      return levels;
+    }
+  }
+  const lod0 = positiveInteger(targetTriangles, 0);
+  return lod0 > 0
+    ? lodRatios.map((ratio) => Math.max(Math.round(lod0 * ratio), 1))
+    : [];
+}
+
+/**
+ * Portable identity for source-mesh reference generation. Licensed geometry
+ * remains in the gitignored local asset library; the document stores only the
+ * stable catalog id, deterministic deformation seed/strength, and exact LOD
+ * contract needed to reopen that local source.
+ */
+export function createRockReferenceIdentity(options = null) {
+  if (!options || typeof options !== 'object') return null;
+  const id = String(options.id ?? '').trim();
+  if (!id) return null;
+  const lodRatios = lodRatiosOption(options.lodRatios);
+  const lodTriangles = lodTrianglesOption(
+    options.lodTriangles,
+    options.targetTriangles,
+    lodRatios,
+  );
+  return {
+    archetype: String(options.archetype ?? '').trim(),
+    catalogVersion: positiveInteger(options.catalogVersion, 1),
+    family: String(options.family ?? '').trim(),
+    id,
+    lodRatios: lodTriangles.length > 0
+      ? lodTriangles.map((triangles) => triangles / lodTriangles[0])
+      : lodRatios,
+    lodTriangles,
+    role: String(options.role ?? '').trim(),
+    series: String(options.series ?? '').trim(),
+    sourceMode: 'mesh-template',
+    targetTriangles: positiveInteger(options.targetTriangles, lodTriangles[0] ?? 0),
+    variation: Math.min(Math.max(Number(options.variation) || 0, 0), 1),
+    variationSeed: Math.round(Number(options.variationSeed) || 0) >>> 0,
+  };
+}
 
 function vector3Option(value, fallback) {
   if (Array.isArray(value) && value.length >= 3) {
@@ -110,7 +182,8 @@ export function createRockPiece(optionsOrPresetName = null) {
 
 /**
  * Creates a rock document. `options` may be a preset name string or
- * `{ seed, preset, style, name, pieces, sculptEdits, surface, meshing }`.
+ * `{ seed, preset, style, reference, name, pieces, sculptEdits, surface,
+ * meshing }`.
  * With no explicit pieces, one piece is built from the preset (default
  * 'boulder').
  */
@@ -130,6 +203,7 @@ export function createRockDocument(options = null) {
     name: String(source.name ?? preset.label ?? 'Untitled Rock'),
     pieces: [],
     preset: presetId,
+    reference: createRockReferenceIdentity(source.reference),
     revision: 0,
     schemaVersion: ROCKGEN_PROJECT_SCHEMA_VERSION,
     sculptEdits: [],
@@ -222,6 +296,7 @@ export function rebaseRockDocumentStyle(document, style = 'default') {
   const normalized = createRockDocument({
     ...rebased,
     preset: current.preset,
+    reference: current.reference,
     style: nextStyle,
   });
   normalized.revision = Math.max(Number(document?.revision) || 0, 0) + 1;
@@ -293,12 +368,21 @@ export function serializeRockDocument(document, { pretty = false } = {}) {
 // v2 moves the selected asset preset and IP-wide style into the portable
 // project itself. Old projects had those values only in browser-local entry
 // metadata, so standalone v1 JSON safely falls back to custom/default.
+// v3 adds optional descriptor-only reference identity and its LOD contract.
+// Existing preset/custom projects remain reference-free.
 const MIGRATIONS = Object.freeze([
   (document) => ({
     ...document,
     preset: typeof document.preset === 'string' ? document.preset : null,
     schemaVersion: 2,
     style: typeof document.style === 'string' ? document.style : 'default',
+  }),
+  (document) => ({
+    ...document,
+    reference: document.reference && typeof document.reference === 'object'
+      ? document.reference
+      : null,
+    schemaVersion: 3,
   }),
 ]);
 
@@ -342,6 +426,7 @@ export function deserializeRockDocument(jsonOrObject) {
     name: migrated.name,
     pieces: migrated.pieces,
     preset: migrated.preset,
+    reference: migrated.reference,
     sculptEdits: migrated.sculptEdits,
     seed: migrated.seed,
     style: migrated.style,

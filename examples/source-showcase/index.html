@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ToonLab — Source Environment Showcase</title>
+  <style>
+    :root { --comparison: 50%; color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #08111f; }
+    canvas { display: block; }
+    #native-reference { position: fixed; inset: 0; z-index: 2; width: 100%; height: 100%; object-fit: contain; background: #08111f; display: none; }
+    body[data-material-mode="native"] #native-reference { display: block; }
+    body[data-material-mode="compare"] #native-reference { display: block; clip-path: inset(0 calc(100% - var(--comparison)) 0 0); }
+    #hud { position: fixed; z-index: 10; top: 14px; left: 14px; display: flex; gap: 8px; align-items: center; }
+    button, select { border: 1px solid rgba(255,255,255,.28); border-radius: 999px; padding: 7px 13px; background: rgba(12,25,43,.7); color: #f6f9ff; font: inherit; }
+    button { cursor: pointer; }
+    button[data-active="true"] { background: #2f9f61; border-color: #76e3a7; }
+    #badge { position: fixed; top: 14px; right: 14px; z-index: 10; border-radius: 9px; padding: 7px 11px; background: rgba(12,25,43,.7); color: #eef5ff; font: 12px/1.4 ui-monospace, monospace; }
+    #port-status { position: fixed; top: 53px; right: 14px; z-index: 11; width: min(430px, calc(100vw - 28px)); border: 1px solid rgba(255,255,255,.2); border-radius: 10px; background: rgba(8,17,31,.9); color: #eef5ff; font: 11px/1.45 ui-monospace, monospace; box-shadow: 0 10px 32px rgba(0,0,0,.32); }
+    #port-status summary { cursor: pointer; padding: 8px 11px; list-style: none; color: #d8e9f8; }
+    #port-status summary::-webkit-details-marker { display: none; }
+    #port-status summary::before { content: '\25B8'; display: inline-block; margin-right: 7px; color: #71c8ff; }
+    #port-status[open] summary::before { content: '\25BE'; }
+    #port-status-body { max-height: min(66vh, 650px); overflow: auto; border-top: 1px solid rgba(255,255,255,.13); padding: 9px 11px 11px; }
+    .port-status-heading { margin: 8px 0 5px; color: #8fb5d3; text-transform: uppercase; letter-spacing: .08em; }
+    .port-status-heading:first-child { margin-top: 0; }
+    .port-status-row { display: grid; grid-template-columns: minmax(115px, 1fr) auto; gap: 10px; padding: 2px 0; }
+    .port-status-value[data-status="complete"] { color: #76e3a7; }
+    .port-status-value[data-status="partial"] { color: #ffd479; }
+    .port-status-value[data-status="not-started"] { color: #ff9d9d; }
+    #hint { position: fixed; left: 14px; bottom: 14px; z-index: 10; border-radius: 9px; padding: 7px 11px; background: rgba(12,25,43,.62); color: #eef5ff; font-size: 12px; }
+    #camera-name { position: fixed; right: 14px; bottom: 14px; z-index: 10; border-radius: 9px; padding: 7px 11px; background: rgba(12,25,43,.62); color: #eef5ff; font: 12px/1.4 ui-monospace, monospace; }
+    #loading { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: #1686cf; color: white; font-size: 15px; }
+    #comparison { position: fixed; z-index: 12; left: 50%; bottom: 48px; width: min(460px, calc(100vw - 32px)); transform: translateX(-50%); border-radius: 12px; padding: 9px 12px; background: rgba(8,17,31,.82); box-shadow: 0 8px 30px rgba(0,0,0,.32); color: #eef5ff; }
+    #comparison[hidden] { display: none; }
+    #comparison-row { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; font: 11px/1.2 ui-monospace, monospace; }
+    #comparison-slider { width: 100%; accent-color: #5db9ff; }
+    #comparison-value { margin-top: 5px; text-align: center; color: #bcd7ef; font: 10px/1.2 ui-monospace, monospace; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <button id="camera-prev" aria-label="Previous source camera">←</button>
+    <select id="camera-select" aria-label="Authored source camera"></select>
+    <button id="camera-next" aria-label="Next source camera">→</button>
+    <select id="material-select" aria-label="Source material view">
+      <option value="native">Unreal Native Reference</option>
+      <option value="compare">Unreal ↔ ToonLab A/B</option>
+      <option value="baked">Source Authored Hybrid</option>
+      <option value="live">Live Source Port</option>
+    </select>
+    <select id="authority-select" aria-label="Renderer logic authority">
+      <option value="toonlab">ToonLab Source Baseline</option>
+    </select>
+    <button id="open-source-mega">Source Mega A/B</button>
+    <button id="open-catalog">Source Catalog</button>
+  </div>
+  <div id="badge">SOURCE AUTHORED · loading</div>
+  <details id="port-status">
+    <summary id="port-status-summary">PORTS · loading ledger</summary>
+    <div id="port-status-body"></div>
+  </details>
+  <div id="hint">Loading the authored renderer reference…</div>
+  <div id="camera-name">Source Camera</div>
+  <div id="loading">Loading the authored SnowPines demonstration level…</div>
+  <div id="comparison" hidden>
+    <div id="comparison-row">
+      <span>UNREAL</span>
+      <input id="comparison-slider" type="range" min="0" max="100" value="50" aria-label="Unreal and ToonLab comparison wipe" />
+      <span id="toonlab-comparison-label">TOONLAB · SOURCE</span>
+    </div>
+    <div id="comparison-value">50% Unreal</div>
+  </div>
+  <img id="native-reference" alt="Unreal-native So Stylized reference render" />
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

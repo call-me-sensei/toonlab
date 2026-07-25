@@ -33,9 +33,10 @@ export function createCatalogEntry({
   spawn = null,
   tags = [],
   budget = null,
+  runtime = null,
 } = {}) {
   const { ok, errors } = validateCatalogEntry({
-    budget, cluster, description, id, kind, label, recipe, spawn, tags, thumbnail,
+    budget, cluster, description, id, kind, label, recipe, runtime, spawn, tags, thumbnail,
   });
   if (!ok) throw new Error(`Invalid catalog entry: ${errors.join(' ')}`);
   const entry = {
@@ -51,6 +52,7 @@ export function createCatalogEntry({
   if (recipe) entry.recipe = recipe;
   if (thumbnail) entry.thumbnail = thumbnail;
   if (budget) entry.budget = { ...budget };
+  if (runtime) entry.runtime = { ...runtime };
   return entry;
 }
 
@@ -79,6 +81,14 @@ export function validateCatalogEntry(input) {
   }
   if (input.budget && (typeof input.budget !== 'object' || Array.isArray(input.budget))) {
     errors.push('budget must be an object when present.');
+  }
+  if (input.runtime !== undefined && input.runtime !== null) {
+    if (typeof input.runtime !== 'object' || Array.isArray(input.runtime)) {
+      errors.push('runtime must be an object when present.');
+    } else if (input.runtime.format !== 'toonlab/compiled-tree'
+      || typeof input.runtime.manifest !== 'string' || !input.runtime.manifest.trim()) {
+      errors.push('compiled-tree runtime needs format "toonlab/compiled-tree" and a manifest URL.');
+    }
   }
   return { errors, ok: errors.length === 0 };
 }

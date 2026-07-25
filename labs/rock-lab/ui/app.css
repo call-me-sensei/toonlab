@@ -478,3 +478,78 @@
   color: var(--text-tertiary);
   font: var(--type-value);
 }
+
+.rk-reference-count {
+  margin: var(--space-1) var(--space-1) 0;
+  overflow: hidden;
+  color: var(--text-tertiary);
+  font: var(--type-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rk-reference-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin: var(--space-2) var(--space-1) 0;
+}
+
+.rk-reference-local-note {
+  margin: var(--space-2) var(--space-1) 0;
+  padding: var(--space-2);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+  font: var(--type-caption);
+  overflow-wrap: anywhere;
+}
+
+.rk-reference-material-note {
+  margin-top: var(--space-1);
+}
+
+.rk-reference-control .tk-segmented {
+  min-width: 0;
+}
+
+/* Four material names cannot remain legible in the inspector's single
+   narrow field column. Give each mode a stable half-row instead of
+   ellipsizing the labels to two letters. */
+.rk-reference-material-control .tk-segmented {
+  grid-auto-flow: row;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rk-lod-report {
+  display: grid;
+  gap: 2px;
+  margin: 0 var(--space-1);
+  color: var(--text-secondary);
+  font: var(--type-value);
+  font-variant-numeric: tabular-nums;
+}
+
+.rk-lod-row {
+  display: grid;
+  grid-template-columns: 38px minmax(56px, 0.7fr) minmax(88px, 1.3fr);
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 26px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-1);
+  background: var(--surface-2);
+}
+
+.rk-lod-heading {
+  min-height: 20px;
+  background: none;
+  color: var(--text-tertiary);
+  font: var(--type-caption);
+  text-transform: uppercase;
+}
+
+.rk-lod-row[data-out-of-range='true'] {
+  color: var(--warning);
+}

@@ -1,6 +1,6 @@
 ---
 name: asset-sourcing
-description: Help agents find, generate, and import assets — package-first procedural generation, the ToonLab MCP for external CC0 discovery/import and shared workspace state, and licensing provenance.
+description: Help agents find, generate, import, and prepare assets — package-first procedural generation, the ToonLab MCP for external CC0 discovery/import and shared workspace state, licensing provenance, and portable urban-prop surface-role metadata for GLB materials.
 ---
 
 # Asset Sourcing
@@ -10,6 +10,9 @@ prop, tree, rock, building, material, or a saved look/behavior preset.
 
 Read first:
 - `docs/mcp.md` (only the MCP-routed steps need a connected server)
+- `docs/urban-prop-surface-roles.md` when generating, importing, or preparing
+  an urban prop GLB, or when building a reusable prop shader. If the repo copy
+  is unavailable, use `https://toonlab.io/docs/urban-prop-roles.md`.
 
 **The boundary:** the npm package is the default worker — anything it can do
 (procedural generation, style presets, texture baking) happens as code in the
@@ -54,6 +57,30 @@ Work down this list; stop at the first hit.
 Persist anything worth keeping with `save_creation` (or write the JSON into
 the repo); `.toonlab/creations/` is the shared surface labs and later
 sessions read.
+
+## Urban prop material contract
+
+For generated or imported urban props, classify each material once with glTF
+extras / Three.js `userData.urbanSurface`. Use only:
+`paintedMetal`, `paintedTrim`, `bareMetal`, `rubber`, `lid`,
+`graphicPanel`, or `technicalSurface`.
+
+- Preserve source color and PBR maps. A role describes what the surface is; it
+  does not replace its albedo, roughness, metalness, normal, AO, or emissive
+  data.
+- Put the role on the material when a mesh has multiple materials. A node role
+  is a default for every material below it.
+- Split materials or provide a mask when readable graphics and reconstructed
+  paint occupy the same material.
+- Use a canonical role token in the material name only as a fallback, such as
+  `MAT_solar_technicalSurface`; explicit metadata is the production contract.
+- Never encode pastel amount, palette overrides, cel thresholds, reflection
+  strength, or time-of-day values in the model. Those belong to shader and
+  scene settings.
+- Never reclassify the model to suit a new shader. Custom shaders consume the
+  stable role and define global settings plus sparse per-role profiles.
+- Reload the exported GLB and inspect the resolved roles before judging only a
+  beauty render.
 
 ## Sample and compare (vision-capable agents)
 

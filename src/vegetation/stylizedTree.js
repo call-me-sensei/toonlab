@@ -286,6 +286,7 @@ export function createTreeSkeleton({
     direction: new THREE.Vector3(0, 1, 0),
     parent: -1,
     childCount: 0,
+    depth: 0,
   }];
   const centroid = new THREE.Vector3();
   const accumulator = nodes.map(() => new THREE.Vector3());
@@ -302,6 +303,7 @@ export function createTreeSkeleton({
       direction: grown,
       parent: parentIndex,
       childCount: 0,
+      depth: parent.depth + 1,
     });
     parent.childCount += 1;
     accumulator.push(new THREE.Vector3());
@@ -494,7 +496,16 @@ export function createTreeSkeleton({
       const spacing = leafPlacement === 'tips' ? 0.85 : 0.4;
       const near = attachments.find((a) => a.position.distanceTo(local) < spacing);
       if (!near) {
-        attachments.push({ position: local, direction, merged: 1 });
+        attachments.push({
+          position: local,
+          direction,
+          tangent: direction.clone(),
+          depth: node.depth,
+          normalizedHeight: THREE.MathUtils.clamp(node.position.y / Math.max(anchorY, 1e-4), 0, 1),
+          branchRadius: radii[n] / Math.max(canopyScale, 1e-4),
+          azimuth: Math.atan2(direction.z, direction.x),
+          merged: 1,
+        });
       } else if (leafPlacement === 'tips' && !hasWoodenChild[n]) {
         // A crowded tip must still end inside foliage — dropping it leaves
         // its bark stub floating bare past the neighbor's cloud. Merge it
@@ -509,7 +520,15 @@ export function createTreeSkeleton({
   }
   // Degenerate seeds can theoretically end twigless; keep the contract.
   if (!attachments.length) {
-    attachments.push({ position: new THREE.Vector3(0, 0, 0), direction: up.clone() });
+    attachments.push({
+      position: new THREE.Vector3(0, 0, 0),
+      direction: up.clone(),
+      tangent: up.clone(),
+      depth: 0,
+      normalizedHeight: 1,
+      branchRadius: tipRadius,
+      azimuth: 0,
+    });
   }
 
   return { geometry, canopyAnchor: anchor, attachments };
@@ -747,8 +766,14 @@ export function createBranchingTreeSkeleton({
     gnarliness * 1.2, gnarliness * 0.7];
   const tapers = conifer ? [1, 1, 1, 1] : [0.72, 0.68, 0.78, 0.88];
   const sectionCounts = [10, 7, 5, 4];
-  const segmentCounts = [Math.max(6, radialSegments),
-    Math.max(5, radialSegments - 2), 4, 4];
+  // Radial detail must remain authored per LOD all the way into the twig
+  // hierarchy. Historic hard minimums of 6/5/4/4 meant compiler requests
+  // for 5- or 3-sided branch tubes changed only the trunk and barely reduced
+  // triangles. Three sides is the safe volumetric floor; LOD0 still uses the
+  // supplied 8-sided profile while LOD1/2 can halve branch cost without
+  // moving a single centerline or foliage attachment.
+  const segmentCounts = [Math.max(3, radialSegments),
+    Math.max(3, radialSegments - 2), Math.max(3, radialSegments - 4), 3];
 
   // Shared tube builder state (one merged geometry for all branches).
   const positions = [];
@@ -901,16 +926,28 @@ export function createBranchingTreeSkeleton({
         if (rawAttachments.length >= maxAttachments) break;
         const fraction = leafStart + ((i + next()) / leafCount) * (1 - leafStart);
         const ring = ringAt(Math.min(fraction, 1));
+        const direction = UP.clone().applyQuaternion(ring.quaternion);
         rawAttachments.push({
           position: ring.origin,
-          direction: UP.clone().applyQuaternion(ring.quaternion),
+          direction,
+          tangent: direction.clone(),
+          depth: level,
+          normalizedHeight: THREE.MathUtils.clamp(ring.origin.y / Math.max(trunkLength, 1e-4), 0, 1),
+          branchRadius: ring.radius,
+          azimuth: Math.atan2(direction.z, direction.x),
         });
       }
       if (rawAttachments.length < maxAttachments) {
         const tip = rings[rings.length - 1];
+        const direction = UP.clone().applyQuaternion(tip.quaternion);
         rawAttachments.push({
           position: tip.origin.clone(),
-          direction: UP.clone().applyQuaternion(tip.quaternion),
+          direction,
+          tangent: direction.clone(),
+          depth: level,
+          normalizedHeight: THREE.MathUtils.clamp(tip.origin.y / Math.max(trunkLength, 1e-4), 0, 1),
+          branchRadius: tip.radius,
+          azimuth: Math.atan2(direction.z, direction.x),
         });
       }
       return;
@@ -1000,9 +1037,22 @@ export function createBranchingTreeSkeleton({
   const attachments = rawAttachments.map((attachment) => ({
     position: attachment.position.clone().sub(anchor).divideScalar(canopyScale),
     direction: attachment.direction,
+    tangent: attachment.tangent,
+    depth: attachment.depth,
+    normalizedHeight: attachment.normalizedHeight,
+    branchRadius: attachment.branchRadius / Math.max(canopyScale, 1e-4),
+    azimuth: attachment.azimuth,
   }));
   if (!attachments.length) {
-    attachments.push({ position: new THREE.Vector3(), direction: new THREE.Vector3(0, 1, 0) });
+    attachments.push({
+      position: new THREE.Vector3(),
+      direction: new THREE.Vector3(0, 1, 0),
+      tangent: new THREE.Vector3(0, 1, 0),
+      depth: 0,
+      normalizedHeight: 1,
+      branchRadius: tipRadius,
+      azimuth: 0,
+    });
   }
   return { geometry, canopyAnchor: anchor, attachments };
 }
@@ -1109,7 +1159,7 @@ export function layoutTreeRow(configs, { margin = 1.6 } = {}) {
 // the identical plant (generation is deterministic per seed). Defined here —
 // not in treeRecipe.js — so toJSON() below has no circular import.
 export const TREE_RECIPE_SCHEMA = 'treeRecipe';
-export const TREE_RECIPE_VERSION = 1;
+export const TREE_RECIPE_VERSION = 2;
 
 // Recursively convert constructor options to plain JSON data: THREE.Color →
 // '#hex' string (resolveCanopyColor accepts it back), vectors → arrays,
@@ -1278,11 +1328,19 @@ export const DEFAULT_STYLIZED_TREE_SETTINGS = Object.freeze({
     tipRadius: 0.03,
   }),
   canopy: Object.freeze({
+    architecture: 'cloud-cards',
     cardCount: 170,
     cardSizeRange: Object.freeze([1.0, 1.6]),
     cardsPerCluster: 5,
     clusterRadius: 0.48,
+    frondCount: 7,
+    frondLength: 1.25,
     shellFill: true,
+    sprayLayers: 3,
+    spraySpread: 0.8,
+    sprayThickness: 0.18,
+    whorlArms: 6,
+    whorlRadius: 0.48,
   }),
   foliage: Object.freeze({
     alphaCutoff: 0.3,
@@ -1462,11 +1520,21 @@ export function createStylizedTreeSettings(options = {}) {
     },
     canopy: {
       ...canopySource,
+      architecture: ['layered-sprays', 'needle-whorls', 'radial-fronds']
+        .includes(canopySource.architecture)
+        ? canopySource.architecture : base.canopy.architecture,
       cardCount: integerNumber(canopySource.cardCount, base.canopy.cardCount, { min: 0 }),
       cardSizeRange: vectorArray(canopySource.cardSizeRange, base.canopy.cardSizeRange, 2),
       cardsPerCluster: integerNumber(canopySource.cardsPerCluster, base.canopy.cardsPerCluster, { min: 1 }),
       clusterRadius: finiteNumber(canopySource.clusterRadius, base.canopy.clusterRadius, { min: 0.01 }),
+      frondCount: integerNumber(canopySource.frondCount, base.canopy.frondCount, { min: 3, max: 24 }),
+      frondLength: finiteNumber(canopySource.frondLength, base.canopy.frondLength, { min: 0.1, max: 4 }),
       shellFill: booleanOption(canopySource.shellFill, base.canopy.shellFill),
+      sprayLayers: integerNumber(canopySource.sprayLayers, base.canopy.sprayLayers, { min: 1, max: 12 }),
+      spraySpread: finiteNumber(canopySource.spraySpread, base.canopy.spraySpread, { min: 0.05, max: 4 }),
+      sprayThickness: finiteNumber(canopySource.sprayThickness, base.canopy.sprayThickness, { min: 0, max: 2 }),
+      whorlArms: integerNumber(canopySource.whorlArms, base.canopy.whorlArms, { min: 3, max: 24 }),
+      whorlRadius: finiteNumber(canopySource.whorlRadius, base.canopy.whorlRadius, { min: 0.05, max: 3 }),
     },
     foliage: {
       ...foliageSource,
@@ -1829,6 +1897,18 @@ const STYLIZED_TREE_FIELD_DEFINITIONS = Object.freeze({
     },
   },
   canopy: {
+    architecture: {
+      description: 'Branch-attached foliage layout: historical round clouds, stacked sprays, conifer whorls, or palm-like radial fronds. Construction-only.',
+      label: 'Architecture',
+      optionLabels: Object.freeze({
+        'cloud-cards': 'Cloud Cards',
+        'layered-sprays': 'Layered Sprays',
+        'needle-whorls': 'Needle Whorls',
+        'radial-fronds': 'Radial Fronds',
+      }),
+      options: Object.freeze(['cloud-cards', 'layered-sprays', 'needle-whorls', 'radial-fronds']),
+      type: 'select',
+    },
     cardCount: {
       description: 'Base leaf-card count before density and coverage scaling; few LARGE overlapping cards keep the crown one fluffy mass. Construction-only.',
       label: 'Card Count',
@@ -1850,6 +1930,48 @@ const STYLIZED_TREE_FIELD_DEFINITIONS = Object.freeze({
       description: 'Radius in meters of each leaf tuft around its branch end. Construction-only. (In tips placement the built-in default becomes 0.62.)',
       label: 'Cluster Radius',
       range: { max: 1.5, min: 0.1, step: 0.01 },
+      type: 'number',
+    },
+    sprayLayers: {
+      description: 'Number of stacked foliage planes at each layered-spray attachment. Construction-only.',
+      label: 'Spray Layers',
+      range: { max: 12, min: 1, step: 1 },
+      type: 'number',
+    },
+    spraySpread: {
+      description: 'Branch-local radius of each layered spray in meters. Construction-only.',
+      label: 'Spray Spread',
+      range: { max: 4, min: 0.05, step: 0.01 },
+      type: 'number',
+    },
+    sprayThickness: {
+      description: 'Separation between the stacked spray planes in meters. Construction-only.',
+      label: 'Spray Thickness',
+      range: { max: 2, min: 0, step: 0.01 },
+      type: 'number',
+    },
+    whorlArms: {
+      description: 'Radial arm count around a conifer foliage attachment. Construction-only.',
+      label: 'Whorl Arms',
+      range: { max: 24, min: 3, step: 1 },
+      type: 'number',
+    },
+    whorlRadius: {
+      description: 'Radius of each conifer foliage whorl in meters. Construction-only.',
+      label: 'Whorl Radius',
+      range: { max: 3, min: 0.05, step: 0.01 },
+      type: 'number',
+    },
+    frondCount: {
+      description: 'Number of radial frond directions at each attachment. Construction-only.',
+      label: 'Frond Count',
+      range: { max: 24, min: 3, step: 1 },
+      type: 'number',
+    },
+    frondLength: {
+      description: 'Maximum radial frond reach in meters. Construction-only.',
+      label: 'Frond Length',
+      range: { max: 4, min: 0.1, step: 0.01 },
       type: 'number',
     },
     shellFill: {
@@ -2155,9 +2277,15 @@ export class StylizedTree extends THREE.Group {
     const attachments = [...trunkResult.attachments];
     for (const { spine, tube } of spineTubes) {
       if (spine.leafTip !== false) {
+        const direction = tube.tipTangent.clone().normalize();
         attachments.push({
           position: tube.tip.clone().sub(canopyAnchor).divideScalar(canopyScale),
-          direction: tube.tipTangent,
+          direction,
+          tangent: direction.clone(),
+          depth: 1,
+          normalizedHeight: THREE.MathUtils.clamp(tube.tip.y / Math.max(settings.trunk.height, 1e-4), 0, 1),
+          branchRadius: Math.max(spine.radiusEnd ?? settings.skeleton.tipRadius, 0),
+          azimuth: Math.atan2(direction.z, direction.x),
         });
       }
     }
@@ -2167,15 +2295,26 @@ export class StylizedTree extends THREE.Group {
           position: attachment.position.clone().add(grown.canopyAnchor)
             .sub(canopyAnchor).divideScalar(canopyScale),
           direction: attachment.direction,
+          tangent: attachment.tangent ?? attachment.direction,
+          depth: attachment.depth,
+          normalizedHeight: attachment.normalizedHeight,
+          branchRadius: attachment.branchRadius / Math.max(canopyScale, 1e-4),
+          azimuth: attachment.azimuth,
         });
       }
     }
     for (const extra of extraAttachments) {
+      const direction = extra.direction
+        ? new THREE.Vector3(...extra.direction).normalize()
+        : new THREE.Vector3(0, 1, 0);
       attachments.push({
         position: new THREE.Vector3(...extra.position),
-        direction: extra.direction
-          ? new THREE.Vector3(...extra.direction).normalize()
-          : new THREE.Vector3(0, 1, 0),
+        direction,
+        tangent: direction.clone(),
+        depth: Number.isFinite(extra.depth) ? extra.depth : 0,
+        normalizedHeight: Number.isFinite(extra.normalizedHeight) ? extra.normalizedHeight : 1,
+        branchRadius: Number.isFinite(extra.branchRadius) ? extra.branchRadius : settings.skeleton.tipRadius,
+        azimuth: Number.isFinite(extra.azimuth) ? extra.azimuth : Math.atan2(direction.z, direction.x),
       });
     }
 

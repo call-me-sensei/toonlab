@@ -15,12 +15,26 @@ import {
   fetchSmithsonianAsset,
   isSmithsonianGalleryReady,
 } from '../../src/assetlib/smithsonian.js';
+import { fetchPlateauBuildingIndex } from '../../src/assetlib/plateau.js';
+import { findPlateauLandmark } from '../../src/assetlib/plateauLandmarks.js';
+import { mountPlateauViewer } from '../../src/assetlib/plateauViewer.js';
 
 const params = new URLSearchParams(window.location.search);
 const assetId = (params.get('id') ?? '').replace(/[^a-z0-9_-]/gi, '');
-const assetSource = params.get('src') === 'smithsonian' ? 'smithsonian' : 'polyhaven';
-let sourceLabel = assetSource === 'smithsonian' ? 'Smithsonian 3D Open Access' : 'Poly Haven';
-let sourcePage = assetSource === 'smithsonian' ? 'https://3d.si.edu' : `https://polyhaven.com/a/${assetId}`;
+const requestedSource = params.get('src');
+const assetSource = ['plateau', 'smithsonian'].includes(requestedSource)
+  ? requestedSource
+  : 'polyhaven';
+let sourceLabel = assetSource === 'smithsonian'
+  ? 'Smithsonian 3D Open Access'
+  : assetSource === 'plateau'
+    ? 'Project PLATEAU'
+    : 'Poly Haven';
+let sourcePage = assetSource === 'smithsonian'
+  ? 'https://3d.si.edu'
+  : assetSource === 'plateau'
+    ? 'https://www.mlit.go.jp/plateau/opendata/'
+    : `https://polyhaven.com/a/${assetId}`;
 const KIND_BY_TYPE = { 0: 'hdri', 1: 'texture', 2: 'model' };
 
 const els = {
@@ -73,6 +87,10 @@ if (!assetId) {
 }
 
 async function boot() {
+  if (assetSource === 'plateau') {
+    await bootPlateau();
+    return;
+  }
   if (assetSource === 'smithsonian') {
     await bootSmithsonian();
     return;
@@ -152,6 +170,167 @@ async function bootSmithsonian() {
   }
   setupDownload('model', ref.download);
   setupStage('model', ref);
+}
+
+async function bootPlateau() {
+  const landmark = findPlateauLandmark(assetId);
+  if (landmark) {
+    bootPlateauLandmark(landmark);
+    return;
+  }
+  const refs = await fetchPlateauBuildingIndex();
+  const ref = refs.find((candidate) => candidate.id === assetId);
+  if (!ref) {
+    fail('City model not found', `Project PLATEAU has no current building dataset “${assetId}”.`);
+    return;
+  }
+
+  sourcePage = ref.pageUrl;
+  document.title = `${ref.name} — ToonLab`;
+  els.crumbSource.textContent = sourceLabel;
+  els.name.textContent = ref.name;
+
+  const sourceLink = el('a', null, `${sourceLabel} ↗`);
+  sourceLink.href = sourcePage;
+  sourceLink.target = '_blank';
+  sourceLink.rel = 'noreferrer';
+  const place = [
+    ref.metadata.prefecture,
+    ref.metadata.city,
+    ref.metadata.ward,
+  ].filter(Boolean).join(' · ');
+  els.stats.append(
+    stat('Source', sourceLink),
+    stat('License', `${ref.attribution.license} — attribution required`),
+    stat('Type', '3D city model'),
+    stat('Location', place),
+    stat('Detail', `LOD${ref.metadata.lod}${ref.metadata.textured ? ' · textured' : ''}`),
+    stat('Survey year', ref.metadata.dataYear ?? 'latest'),
+    stat('Format', `3D Tiles ${ref.metadata.formatVersion ?? ''}`.trim()),
+  );
+
+  els.desc.textContent =
+    `${ref.attribution.text}. The official Japanese building model streams live here in ToonLab; ` +
+    'the CityGML source and government provenance remain attached.';
+  for (const tag of [...ref.tags, ...ref.categories].slice(0, 10)) {
+    const a = el('a', null, tag);
+    a.href = `/gallery/?src=plateau&q=${encodeURIComponent(tag)}`;
+    els.tags.appendChild(a);
+  }
+
+  if (ref.citygml?.url) {
+    const citygml = el('a', 'pill', 'Download source CityGML');
+    citygml.href = ref.citygml.url;
+    citygml.target = '_blank';
+    citygml.rel = 'noreferrer';
+    els.actions.appendChild(citygml);
+  }
+
+  els.download.textContent = 'Open official 3D Tiles ↗';
+  els.download.href = ref.download.url;
+  els.download.target = '_blank';
+  els.download.rel = 'noreferrer';
+  els.download.hidden = false;
+  setupPlateauStage(ref);
+}
+
+function bootPlateauLandmark(ref) {
+  sourcePage = ref.pageUrl;
+  document.title = `${ref.name} — ToonLab`;
+  els.crumbSource.textContent = sourceLabel;
+  els.name.textContent = ref.name;
+
+  const sourceLink = el('a', null, `${sourceLabel} ↗`);
+  sourceLink.href = sourcePage;
+  sourceLink.target = '_blank';
+  sourceLink.rel = 'noreferrer';
+  const featureLink = el('a', null, ref.metadata.buildingId);
+  featureLink.href = ref.citygml.url;
+  featureLink.target = '_blank';
+  featureLink.rel = 'noreferrer';
+  els.stats.append(
+    stat('Source', sourceLink),
+    stat('License', `${ref.attribution.license} — attribution required`),
+    stat('Type', 'Isolated landmark mesh'),
+    stat('Location', `${ref.metadata.prefecture} · ${ref.metadata.city}`),
+    stat('Height', `${ref.metadata.measuredHeight.toLocaleString()} m`),
+    stat('Format', 'GLB · local Y-up metres'),
+    stat('PLATEAU feature', featureLink),
+  );
+
+  els.desc.textContent =
+    `${ref.attribution.text}. ToonLab extracted only ${ref.metadata.nameJa} from its official ` +
+    'LOD3 building tile, removed every neighboring feature, and re-centered the result for normal 3D tools.';
+  for (const tag of [...ref.tags, ...ref.categories].slice(0, 10)) {
+    const a = el('a', null, tag);
+    a.href = `/gallery/?src=plateau&q=${encodeURIComponent(tag)}`;
+    els.tags.appendChild(a);
+  }
+
+  const citygml = el('a', 'pill', 'Open source CityGML feature');
+  citygml.href = ref.citygml.url;
+  citygml.target = '_blank';
+  citygml.rel = 'noreferrer';
+  els.actions.appendChild(citygml);
+
+  els.download.textContent = 'Download Tokyo Tower GLB ↓';
+  els.download.href = ref.download.url;
+  els.download.download = `${ref.id}.glb`;
+  els.download.hidden = false;
+  setupStage('model', ref);
+}
+
+function setupPlateauStage(ref) {
+  els.stage.classList.add('asset-stage--plateau');
+  els.stageLabel.hidden = false;
+  els.stageLabel.innerHTML =
+    'Live official Japanese city model · <b>drag to orbit</b> · scroll to zoom · PDL attribution retained';
+
+  let viewer = null;
+  const loading = el('div', 'asset-loading');
+  const spinner = el('span', 'gal-spinner');
+  const loadingText = el('span', null, 'Streaming official PLATEAU building tiles…');
+  spinner.setAttribute('aria-hidden', 'true');
+  loading.append(spinner, loadingText);
+
+  const errorBox = el('div', 'asset-loading asset-loading--error');
+  const errorText = el('span');
+  const sourceOut = el('a', null, 'open the official tileset ↗');
+  sourceOut.href = ref.download.url;
+  sourceOut.target = '_blank';
+  sourceOut.rel = 'noreferrer';
+  const retry = el('button', null, 'Retry viewer');
+  retry.type = 'button';
+  errorBox.append(errorText, sourceOut, retry);
+
+  function start() {
+    viewer?.dispose();
+    els.stage.querySelectorAll('.plateau-viewer-canvas').forEach((node) => node.remove());
+    errorBox.remove();
+    els.stage.appendChild(loading);
+    document.body.dataset.plateauReady = 'loading';
+    viewer = mountPlateauViewer(els.stage, {
+      tilesetUrl: ref.download.url,
+      onProgress(progress) {
+        if (progress > 0 && progress < 1) {
+          loadingText.textContent = `Streaming official PLATEAU building tiles… ${Math.round(progress * 100)}%`;
+        }
+      },
+      onReady() {
+        loading.remove();
+        document.body.dataset.plateauReady = 'true';
+      },
+      onError(error) {
+        loading.remove();
+        document.body.dataset.plateauReady = 'error';
+        errorText.textContent = `The live city tiles could not load (${error.message.slice(0, 140)}) — `;
+        if (!errorBox.isConnected) els.stage.appendChild(errorBox);
+      },
+    });
+  }
+  retry.addEventListener('click', start);
+  window.addEventListener('pagehide', () => viewer?.dispose(), { once: true });
+  start();
 }
 
 // ----- live stage (texture/model): same embed contract as the Pro page -----

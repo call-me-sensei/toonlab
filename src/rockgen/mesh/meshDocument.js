@@ -47,6 +47,12 @@ export function meshDocument(document, {
   pieceId = null,
   resolution = null,
 } = {}) {
+  if (document?.reference?.sourceMode === 'mesh-template') {
+    throw new Error(
+      'Source-mesh rock references cannot be SDF-meshed. Load their local authored LODs '
+      + 'with loadRockReferenceAsset() and use createRockReferenceLodObject().',
+    );
+  }
   const program = compileDocument(document, { includeHelpers, pieceId });
   const gridResolution = Math.min(
     Math.max(Math.round(resolution ?? document.meshing.previewResolution), 8),

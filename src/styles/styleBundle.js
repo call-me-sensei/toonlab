@@ -73,6 +73,10 @@ import {
   resolveLightingStylePreset,
 } from '../lighting/lightingStyle.js';
 import { normalizeRockgenStyleName } from '../rockgen/rockgenPresets.js';
+import {
+  LANDSCAPE_MATERIAL_PRESET_DOCUMENT_TYPE,
+  parseLandscapeMaterialPresetDocument,
+} from '../landscape/landscapeMaterialPreset.js';
 import { resolveDebrisStyleName } from '../debrisgen/debrisPresets.js';
 import { resolveVfxStyleName } from '../vfxgen/vfxPresets.js';
 
@@ -273,6 +277,27 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
     resolve: (payload) => {
       const style = selectedStyleId(payload);
       return withStyleIdentity(createPostProcessingSettings({ preset: style }), style);
+    },
+  }),
+  landscapeMaterial: Object.freeze({
+    documentType: LANDSCAPE_MATERIAL_PRESET_DOCUMENT_TYPE,
+    label: 'Landscape material',
+    // The style slice of a landscape: layer tints/textures + macro
+    // variation. Heights, splat weights, and foliage instances are PROJECT
+    // data (style-first contract) and never travel in a bundle. Apply
+    // settings over createLandscapeSettings and materialLayers to the
+    // material via resolveLayerTexture.
+    parseDocument: parseLandscapeMaterialPresetDocument,
+    selectionKind: 'document',
+    resolve: (payload) => {
+      if (payload.document) {
+        const result = parseLandscapeMaterialPresetDocument(payload.document);
+        if (!result.ok) throw new Error(result.errors.join(' '));
+        return result.value;
+      }
+      throw new Error(
+        'Style bundle slot "landscapeMaterial" has no built-in presets — inline a landscape-material-preset document.',
+      );
     },
   }),
 });

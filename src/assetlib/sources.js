@@ -8,8 +8,9 @@
 //              APIs, or platform terms that forbid automated downloads)
 //   reference  adjacent media (images/audio), listed for completeness only
 //
-// SAFEGUARD (product decision 2026-07-16): CC0 clears copyright but NOT
-// trademarks, personality rights, or logos visible in scans — so moderation
+// SAFEGUARD (product decision 2026-07-16): an open license clears only the
+// rights it names, not trademarks, personality rights, or logos visible in
+// scans — so moderation
 // is a config flip, not a code edit, at both levels:
 //   source `enabled: false`  hides the whole catalog (listAssetSources; same
 //                            flag name as public/props/cc0/manifest.json uses
@@ -59,6 +60,19 @@ export const ASSET_SOURCES = Object.freeze([
     notes: 'Keyless API, zip downloads via the backend/dev-proxy route — see ambientcg.js.',
     qualityTier: 'reference',
     url: 'https://ambientcg.com',
+  },
+  {
+    enabled: true,
+    goodFor: 'georeferenced Japanese buildings and city architecture (3D Tiles + CityGML)',
+    id: 'plateau',
+    integration: 'api',
+    keyed: false,
+    kinds: ['model'],
+    label: 'Project PLATEAU',
+    license: 'PDL 1.0 / CC BY 4.0 compatible',
+    notes: 'Official MLIT catalog with browser CORS. The client indexes one highest-LOD building dataset per municipality/ward and preserves mandatory source attribution.',
+    qualityTier: 'reference',
+    url: 'https://www.mlit.go.jp/plateau/opendata/',
   },
   {
     // Community corpus is mixed-quality → unreviewed under the 2026-07-16

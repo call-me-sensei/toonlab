@@ -1,9 +1,10 @@
 // Gallery — the same UI as toonlab.io/gallery (toolbar, showcase grid,
 // sticky pager), but backed exclusively by THIRD-PARTY public APIs queried
 // live from the browser. That is the OSS/Pro split: Pro searches ToonLab's
-// own index (community creations + curated CC0 mirror, downloads behind an
-// account); this page never talks to ToonLab at all — every card comes
-// straight from the source's own API and links to the source's site.
+// own index (community creations + curated open-data mirror, downloads behind an
+// account); this page never talks to a ToonLab backend. Remote indexes come
+// from source APIs, while processed PLATEAU landmark GLBs are bundled with
+// their source feature IDs and attribution.
 //
 // A source qualifies only if it has a keyless public API and downloadable
 // open assets. Smithsonian 3D allows browser requests directly; Poly Haven
@@ -17,6 +18,9 @@ import {
   fetchSmithsonianIndex,
   isSmithsonianGalleryReady,
 } from '../../src/assetlib/smithsonian.js';
+import { fetchPlateauBuildingIndex } from '../../src/assetlib/plateau.js';
+import { listPlateauLandmarks } from '../../src/assetlib/plateauLandmarks.js';
+import { hydratePlateauThumbnail } from '../../src/assetlib/plateauViewer.js';
 
 const PAGE_SIZE = 36;
 
@@ -77,6 +81,65 @@ const SOURCES = Object.freeze({
             popularity: 0,
             haystack: [ref.name, ref.id, ...ref.tags, ...ref.categories].join(' ').toLowerCase(),
           })));
+        this.cache.catch(() => { this.cache = null; });
+      }
+      return this.cache;
+    },
+  },
+  plateau: {
+    label: 'Project PLATEAU',
+    kinds: ['model'],
+    cache: null,
+    list() {
+      if (!this.cache) {
+        this.cache = fetchPlateauBuildingIndex()
+          .catch((error) => {
+            console.warn('PLATEAU city catalog unavailable; bundled landmarks remain searchable.', error);
+            return [];
+          })
+          .then((cityRefs) => [
+            ...listPlateauLandmarks().map((ref) => ({
+              actionLabel: 'Download GLB ↓',
+              badge: `PLATEAU · ${ref.attribution.license}`,
+              directOpen: false,
+              downloadHref: ref.download.url,
+              downloadName: `${ref.metadata.nameJa ? `${ref.metadata.nameJa}-` : ''}${ref.id}.glb`,
+              haystack: [
+                ref.name,
+                ref.id,
+                ref.metadata.address,
+                ...ref.tags,
+                ...ref.categories,
+              ].join(' ').toLowerCase(),
+              href: `/asset/?src=plateau&id=${encodeURIComponent(ref.id)}&kind=model`,
+              id: `plateau:${ref.id}`,
+              kind: ref.kind,
+              label: ref.name,
+              popularity: 1_000_000,
+              source: 'plateau-landmark',
+              sourceHref: ref.pageUrl,
+              sourceId: ref.id,
+              thumbUrl: ref.thumbnailUrl,
+            })),
+            ...cityRefs.map((ref) => ({
+              actionLabel: 'Source tiles ↗',
+              badge: `PLATEAU · ${ref.attribution.license}`,
+              directOpen: true,
+              downloadHref: ref.download.url,
+              haystack: [ref.name, ref.id, ...ref.tags, ...ref.categories].join(' ').toLowerCase(),
+              href: `/asset/?src=plateau&id=${encodeURIComponent(ref.id)}&kind=model`,
+              id: `plateau:${ref.id}`,
+              kind: ref.kind,
+              label: ref.name,
+              lod: ref.metadata.lod,
+              popularity: 0,
+              source: 'plateau',
+              sourceHref: ref.pageUrl,
+              sourceId: ref.id,
+              textured: ref.metadata.textured,
+              thumbUrl: null,
+            })),
+          ]);
         this.cache.catch(() => { this.cache = null; });
       }
       return this.cache;
@@ -150,8 +213,8 @@ async function collect() {
 }
 
 function card(item) {
-  // Poly Haven has an OSS detail page; Smithsonian cards open the official
-  // object page. The explicit download affordance always resolves the asset.
+  // Every supported source has an OSS detail page. The explicit source-file
+  // affordance still resolves the upstream asset directly.
   const el = document.createElement('a');
   el.className = 'gal-card';
   el.href = item.href;
@@ -166,7 +229,20 @@ function card(item) {
   if (item.thumbUrl) media.style.backgroundImage = `url("${item.thumbUrl.replace(/"/g, '%22')}")`;
   else {
     media.classList.add('gal-card-media--empty');
-    media.textContent = '🧱';
+    if (item.source === 'plateau') {
+      media.classList.add('gal-card-media--plateau');
+      const brand = document.createElement('strong');
+      brand.textContent = 'PLATEAU';
+      const detail = document.createElement('span');
+      detail.textContent = `3D TILES · LOD${item.lod}${item.textured ? ' · TEXTURED' : ''}`;
+      media.append(brand, detail);
+      hydratePlateauThumbnail(media, {
+        id: item.sourceId,
+        tilesetUrl: item.downloadHref,
+      });
+    } else {
+      media.textContent = '🧱';
+    }
   }
 
   const overlay = document.createElement('div');
@@ -183,7 +259,8 @@ function card(item) {
   download.className = 'author';
   download.style.textDecoration = 'underline';
   download.style.cursor = 'pointer';
-  download.textContent = 'Download ↓';
+  const actionLabel = item.actionLabel ?? 'Download ↓';
+  download.textContent = actionLabel;
   download.setAttribute('role', 'link');
   download.tabIndex = 0;
   let busy = false;
@@ -192,6 +269,10 @@ function card(item) {
     e.preventDefault();
     e.stopPropagation();
     if (busy) return;
+    if (item.directOpen && item.downloadHref) {
+      window.open(item.downloadHref, '_blank', 'noopener');
+      return;
+    }
     if (item.downloadHref) {
       busy = true;
       download.textContent = 'Downloading…';
@@ -211,7 +292,7 @@ function card(item) {
         console.error('Direct download failed:', error);
         window.open(item.sourceHref, '_blank', 'noopener');
       }
-      download.textContent = 'Download ↓';
+      download.textContent = actionLabel;
       busy = false;
       return;
     }
@@ -228,7 +309,7 @@ function card(item) {
       console.error('Direct download failed:', error);
       window.open(item.sourceHref, '_blank', 'noopener'); // fallback: source page
     }
-    download.textContent = 'Download ↓';
+    download.textContent = actionLabel;
     busy = false;
   };
   download.addEventListener('click', startDownload);

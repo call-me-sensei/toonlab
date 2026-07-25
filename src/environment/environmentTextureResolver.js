@@ -154,6 +154,13 @@ export async function resolveEnvironmentTextureSet(mat) {
     normalScale: mat?.normalScale?.isVector2 ? mat.normalScale.clone() : new THREE.Vector2(1, 1),
     packedMap,
     resolvedDiffuseMap: Boolean(resolvedDiffuseMap),
+    // Opt-in world-XZ macro colormap (userData.envColormapMap): low-frequency
+    // biome tint over flat ground, mapped by envColormapRegion
+    // (offsetX, offsetZ, 1/sizeX, 1/sizeZ) where colormapStrength > 0.
+    colormapMap: userData.envColormapMap ?? null,
+    colormapRegion: userData.envColormapRegion?.isVector4
+      ? userData.envColormapRegion.clone()
+      : null,
     // Opt-in world-projected material for steep faces (cliffs, rock walls):
     // sampled triplanar and blended by slope where triplanarDetail > 0.
     triplanarMap: userData.envTriplanarMap ?? null,

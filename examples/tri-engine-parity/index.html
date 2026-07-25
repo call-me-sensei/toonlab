@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ToonLab — Three-engine parity + UE Visual Target</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar" data-hud>
+      <div>
+        <p class="eyebrow">Deterministic checkpoint</p>
+        <h1 id="page-title">Single-rock parity + Visual Target</h1>
+      </div>
+      <nav aria-label="Parity controls">
+        <label class="profile-control">
+          <span>Profile</span>
+          <select id="profile-select" aria-label="Parity profile"></select>
+        </label>
+        <label class="profile-control">
+          <span>Shared light</span>
+          <select id="shared-light-select" aria-label="Shared light direction"></select>
+        </label>
+        <label class="profile-control">
+          <span>Time of day</span>
+          <select
+            id="time-of-day-select"
+            data-time-of-day-select
+            aria-label="Shared time of day"
+          >
+            <option value="sunrise">Sunrise</option>
+            <option value="day">Day</option>
+            <option value="sunset">Sunset</option>
+            <option value="night">Night</option>
+          </select>
+        </label>
+        <label class="profile-control">
+          <span>Content</span>
+          <select id="content-select" aria-label="Parity scene content">
+            <option value="rock">Single rock</option>
+            <option value="environment">Rock + ground + grass + tree + flowers</option>
+          </select>
+        </label>
+        <label class="profile-control">
+          <span>Camera view</span>
+          <select id="rock-view-select" aria-label="Deterministic camera view">
+            <option value="front">Front</option>
+            <option value="back">Back shadow</option>
+            <option value="bench">Bench &amp; lamp</option>
+            <option value="mountain">Mountain overview</option>
+            <option value="mountain-surface">Mountain surface</option>
+            <option value="cliff">Cliff detail</option>
+          </select>
+        </label>
+        <label class="profile-control">
+          <span>Test stone</span>
+          <select id="test-rock-select" aria-label="Authored test stone"></select>
+        </label>
+        <a data-shadow-link="off" href="?shadow=off">Unshadowed diagnostic</a>
+        <a data-shadow-link="hard" href="?shadow=hard">Cast + self shadow</a>
+        <a data-view-link="compare" href="?view=compare">Compare</a>
+        <a data-view-link="live" href="?view=live">ToonLab live</a>
+        <output id="shadow-state-note" class="state-note" aria-live="polite"></output>
+      </nav>
+    </header>
+
+    <main id="comparison" class="comparison" aria-live="polite">
+      <article class="engine-panel" data-panel="unity">
+        <div class="panel-heading">
+          <div class="panel-title-actions">
+            <strong>Unity 6 / URP 17.5</strong>
+          </div>
+          <div class="panel-heading-meta">
+            <span id="unity-state">capture pending</span>
+            <button
+              class="panel-maximize"
+              type="button"
+              data-panel-maximize
+              aria-label="Maximize Unity panel"
+              aria-pressed="false"
+            >Maximize</button>
+          </div>
+        </div>
+        <div class="frame">
+          <img id="unity-frame" alt="Unity parity render" />
+          <p id="unity-placeholder" class="placeholder">The native Unity capture for this profile is pending.</p>
+        </div>
+      </article>
+
+      <article class="engine-panel" data-panel="unreal">
+        <div class="panel-heading">
+          <div class="panel-title-actions">
+            <strong>Unreal Engine 5.8</strong>
+          </div>
+          <div class="panel-heading-meta">
+            <span id="unreal-state">capture pending</span>
+            <button
+              class="panel-maximize"
+              type="button"
+              data-panel-maximize
+              aria-label="Maximize Unreal Engine panel"
+              aria-pressed="false"
+            >Maximize</button>
+          </div>
+        </div>
+        <div class="frame">
+          <img id="unreal-frame" alt="Unreal parity render" />
+          <p id="unreal-placeholder" class="placeholder">The Unreal automation scene is rendering this contract now.</p>
+        </div>
+      </article>
+
+      <article class="engine-panel" data-panel="toonlab">
+        <div class="panel-heading">
+          <div class="panel-title-actions">
+            <strong>ToonLab / WebGPU</strong>
+            <a
+              class="panel-live-preview"
+              data-view-link="live"
+              href="?view=live"
+              aria-label="Open ToonLab Live Preview"
+            >Live Preview</a>
+          </div>
+          <div class="panel-heading-meta">
+            <span id="toonlab-state">loading contract</span>
+            <button
+              class="panel-maximize"
+              type="button"
+              data-panel-maximize
+              aria-label="Maximize ToonLab panel"
+              aria-pressed="false"
+            >Maximize</button>
+          </div>
+        </div>
+        <div id="toonlab-frame" class="frame canvas-frame">
+          <div class="live-camera-toolbar" aria-label="ToonLab live camera controls">
+            <span>Drag: rotate · Right-drag: pan · Wheel/pinch: zoom</span>
+            <label class="live-time-of-day-control">
+              <span>Time of day</span>
+              <select data-time-of-day-select aria-label="Live preview time of day">
+                <option value="sunrise">Sunrise</option>
+                <option value="day">Day</option>
+                <option value="sunset">Sunset</option>
+                <option value="night">Night</option>
+              </select>
+            </label>
+            <button
+              id="toggle-shader-swipe"
+              type="button"
+              aria-pressed="false"
+              aria-controls="shader-swipe"
+            >Shader swipe</button>
+            <button
+              id="toggle-raw-swipe"
+              type="button"
+              aria-pressed="false"
+              aria-controls="shader-swipe"
+            >Models + textures swipe</button>
+            <button id="reset-live-camera" type="button">Reset camera</button>
+          </div>
+          <div id="shader-swipe" class="shader-swipe" hidden>
+            <span class="shader-swipe-label shader-swipe-label-before">Neutral lit</span>
+            <span class="shader-swipe-label shader-swipe-label-after">ToonLab shaders</span>
+            <div class="shader-swipe-divider" aria-hidden="true">
+              <span></span>
+            </div>
+            <input
+              id="shader-swipe-range"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value="20"
+              aria-label="Before and after shader divider"
+              aria-valuetext="20% before shader"
+            />
+          </div>
+        </div>
+      </article>
+
+      <article class="engine-panel visual-target" data-panel="visual-target-unreal">
+        <div class="panel-heading">
+          <div class="panel-title-actions">
+            <strong>Unreal Engine 5.8 · Visual Target</strong>
+          </div>
+          <div class="panel-heading-meta">
+            <span id="visual-target-state">capture pending</span>
+            <button
+              class="panel-maximize"
+              type="button"
+              data-panel-maximize
+              aria-label="Maximize Unreal Visual Target panel"
+              aria-pressed="false"
+            >Maximize</button>
+          </div>
+        </div>
+        <div class="frame">
+          <img id="visual-target-frame" alt="Unreal Visual Target single-rock render" />
+          <p id="visual-target-placeholder" class="placeholder">The stripped author demo is being captured through Unreal's native editor viewport.</p>
+        </div>
+      </article>
+    </main>
+
+    <aside class="diagnostics" data-hud>
+      <div><span>Profile</span><strong id="profile-id">—</strong></div>
+      <div><span>Contract</span><strong id="checkpoint">—</strong></div>
+      <div><span>Mode</span><strong id="shadow-mode">—</strong></div>
+      <div><span>Time of day</span><strong id="time-of-day">—</strong></div>
+      <div><span>Standard captures</span><strong id="capture-matrix">12 · 4 times × front/back/bench</strong></div>
+      <div><span>Test stone</span><strong id="test-rock-id">—</strong></div>
+      <div><span>Scene setup</span><strong id="setup-gate">checking</strong></div>
+      <div><span>Projection max error</span><strong id="projection-error">—</strong></div>
+      <div><span>Transform max error</span><strong id="transform-error">—</strong></div>
+      <div><span>Geometry ID gate</span><strong id="geometry-gate">loading measurement</strong></div>
+      <div><span>Blue cast/self shadow</span><strong id="blue-shadow-gate">loading measurement</strong></div>
+      <div><span id="toonlab-rock-mae-label">ToonLab rock MAE</span><strong id="toonlab-rock-mae">—</strong></div>
+      <div><span>ToonLab shadow IoU</span><strong id="toonlab-shadow-iou">—</strong></div>
+      <div><span id="unreal-rock-mae-label">Unreal rock MAE</span><strong id="unreal-rock-mae">—</strong></div>
+      <div><span>UE Visual Target</span><strong id="visual-target-config">checking</strong></div>
+      <div><span>Render parity</span><strong id="render-gate">OPEN</strong></div>
+    </aside>
+
+    <p id="fatal" class="fatal" hidden></p>
+    <img id="toonlab-capture" alt="" hidden />
+    <img id="toonlab-mask-capture" alt="" hidden />
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

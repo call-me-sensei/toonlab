@@ -11,4 +11,6 @@ export * from './heightfield/stylizedErosionSim.js';
 export * from './sdf/fieldCompiler.js';
 export * from './sdf/sculptEdits.js';
 export * from './mesh/meshDocument.js';
+export * from './lod/index.js';
+export * from './reference/index.js';
 export * from './export/glbExport.js';

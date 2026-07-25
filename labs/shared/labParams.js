@@ -26,10 +26,16 @@ export const PERSISTED_LAB_PARAMS = Object.freeze([
   'envPreset',
   'toonDebug',
   'envDebug',
+  'rockFamily',
+  'rockGeometry',
+  'rockMaterial',
   'rockPreset',
   'rockSeed',
   'rockRes',
+  'rockStyle',
   'rockTime',
+  'rockType',
+  'rockVariation',
 ]);
 
 function storageAvailable() {

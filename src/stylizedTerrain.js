@@ -239,6 +239,45 @@ function createGroundDetailTexture(kit, repeatX, repeatZ) {
   return texture;
 }
 
+// World-covering macro colormap: the seeded stand-in for a hand-painted
+// biome color map. Very low-frequency warm (dry gold) and cool (lush teal)
+// patches drift across the meadow so big vistas never read as one flat
+// green. Texels encode a MULTIPLIER around mid-gray (shader decodes ×2), in
+// linear space — this is math data, not a diffuse image.
+function createMacroColormapTexture(kit) {
+  if (typeof document === 'undefined') return null;
+  const size = 512;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  const image = ctx.createImageData(size, size);
+  const WARM = [1.16, 1.05, 0.66];
+  const COOL = [0.82, 0.98, 1.04];
+  for (let py = 0; py < size; py += 1) {
+    for (let px = 0; px < size; px += 1) {
+      const u = px / size;
+      const v = py / size;
+      const warm = smoothstep(0.48, 0.72, kit.fbm(u * 5.2 + 11.7, v * 5.2 + 3.9, 3));
+      const cool = smoothstep(0.5, 0.74, kit.fbm(u * 4.1 + 47.3, v * 4.1 + 29.1, 3));
+      const drift = (kit.fbm(u * 9.7 + 71.1, v * 9.7 + 5.7, 2) - 0.5) * 0.14;
+      const i = (py * size + px) * 4;
+      for (let ch = 0; ch < 3; ch += 1) {
+        const tint = 1 + warm * (WARM[ch] - 1) + cool * (COOL[ch] - 1) + drift;
+        image.data[i + ch] = Math.round(THREE.MathUtils.clamp(tint * 127.5, 0, 255));
+      }
+      image.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.anisotropy = 4;
+  texture.wrapS = THREE.ClampToEdgeWrapping;
+  texture.wrapT = THREE.ClampToEdgeWrapping;
+  texture.name = 'ToonLabTerrainMacroColormap';
+  return texture;
+}
+
 // Seamless painterly limestone used automatically on steep generated-terrain
 // faces. Integer-frequency waves make the tile periodic; the vertical V axis
 // carries unmistakable horizontal sediment bands, with thin dark crevices and
@@ -479,18 +518,26 @@ export function createStylizedTerrain({
   const { fbm } = kit;
   const goldenField = (x, z) => smoothstep(0.54, 0.68, fbm(x * 0.003 + 91, z * 0.003 + 43, 3));
 
+  // World-space band jitter (the reference pack's per-layer height noise):
+  // grass↔rock and height-band boundaries wander organically instead of
+  // tracing the smooth analytic contour of the classifier. ~50 m wavelength
+  // stays far above vertex spacing, so no sawtooth aliasing.
+  const bandNoise = spec.paint?.bandNoise ?? 1;
   const paintVertex = (color, x, y, z, grade) => {
+    const wander = (fbm(x * 0.02 + 131, z * 0.02 + 67, 3) - 0.5) * bandNoise;
+    const jitteredGrade = grade + wander * 0.22;
+    const jitteredY = y + wander * landPeak * 0.1;
     const rockiness = Math.max(
-      smoothstep(rockSlopeBand[0], rockSlopeBand[1], grade),
-      smoothstep(rockBand[0], rockBand[1], y),
+      smoothstep(rockSlopeBand[0], rockSlopeBand[1], jitteredGrade),
+      smoothstep(rockBand[0], rockBand[1], jitteredY),
     );
     color.copy(colors.meadow)
       // Golden fields on flat lowlands only: loose gates leak gold up cliff
       // triangles as sawtooth wedges.
       .lerp(colors.golden, goldenField(x, z) * 0.85
-        * (1 - smoothstep(goldTop * 0.72, goldTop, y)) * (1 - smoothstep(0.16, 0.32, grade)))
+        * (1 - smoothstep(goldTop * 0.72, goldTop, jitteredY)) * (1 - smoothstep(0.16, 0.32, grade)))
       .lerp(colors.rock, rockiness)
-      .lerp(colors.snow, smoothstep(snowBand[0], snowBand[1], y));
+      .lerp(colors.snow, smoothstep(snowBand[0], snowBand[1], jitteredY));
     // Low-frequency strata + drift: frequencies stay above the vertex
     // spacing (finer bands alias into zigzag triangles on walls); fine
     // rock detail belongs to the triplanar stone texture.
@@ -560,6 +607,13 @@ export function createStylizedTerrain({
     vertexColors: true,
   });
   if (cliffDetailMap) material.userData.envTriplanarMap = cliffDetailMap;
+  const macroColormap = detailTexture ? createMacroColormapTexture(kit) : null;
+  if (macroColormap) {
+    material.userData.envColormapMap = macroColormap;
+    material.userData.envColormapRegion = new THREE.Vector4(
+      -meshExtent.x / 2, -meshExtent.z / 2, 1 / meshExtent.x, 1 / meshExtent.z,
+    );
+  }
   const mesh = new THREE.Mesh(geometry, material);
   mesh.castShadow = true; // cliff walls shadow their own valleys
   mesh.receiveShadow = true;

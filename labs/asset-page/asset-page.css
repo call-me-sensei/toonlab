@@ -36,6 +36,16 @@
   height: 100%;
   border: 0;
 }
+.asset-stage--plateau {
+  background: #9fc6d9;
+}
+.asset-stage--plateau .plateau-viewer-canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
 
 /* Stage loading overlay — visible until the engine reports modelReady. */
 .asset-loading {

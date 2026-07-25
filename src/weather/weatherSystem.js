@@ -509,6 +509,23 @@ export class WeatherSystem extends THREE.EventDispatcher {
     return this;
   }
 
+  /**
+   * Updates the pre-weather scene baseline that conditions modulate — the
+   * seam a time-of-day driver writes through. Weather owns scene.fog at
+   * runtime, so day/night fog color must land here, not on scene.fog.
+   */
+  setSceneBaseline({ fogColor } = {}) {
+    if (this._disposed) return this;
+    if (fogColor !== undefined && this._baseFog?.color) {
+      if (fogColor?.isColor) this._baseFog.color.copy(fogColor);
+      else if (Array.isArray(fogColor)) this._baseFog.color.setRGB(...fogColor);
+      if (this._originalFog?.isFog) this._originalFog.color.copy(this._baseFog.color);
+      this._dirty = true;
+      this._applyFrame(this.settings);
+    }
+    return this;
+  }
+
   setPreset(name, overrides = {}) {
     if (this._disposed) return this;
     this.currentPreset = name;

@@ -1,4 +1,4 @@
-// Normalized third-party asset references — the one shape every CC0 source
+// Normalized third-party asset references — the one shape every open source
 // client (Poly Haven, ambientCG, …) produces, so the lab UI, catalog entries,
 // and the MCP tools filter and display them identically:
 //

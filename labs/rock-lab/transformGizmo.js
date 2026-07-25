@@ -22,7 +22,8 @@ export function createTransformGizmo({
   const controls = new TransformControls(camera, domElement);
   controls.setSize(0.85);
   controls.setMode(GIZMO_MODES.includes(mode) ? mode : 'translate');
-  scene.add(controls.getHelper());
+  const helper = controls.getHelper();
+  scene.add(helper);
 
   let attachedPieceId = null;
 
@@ -50,20 +51,33 @@ export function createTransformGizmo({
     attach(group, pieceId) {
       attachedPieceId = pieceId;
       controls.attach(group);
-      controls.getHelper().visible = controls.enabled;
+      helper.visible = controls.enabled;
     },
     controls,
     detach() {
       attachedPieceId = null;
       controls.detach();
-      controls.getHelper().visible = false;
+      helper.visible = false;
     },
+    helper,
     isTransformActive() {
       return Boolean(controls.dragging || controls.axis);
     },
     setEnabled(enabled) {
       controls.enabled = enabled;
-      controls.getHelper().visible = enabled && Boolean(controls.object);
+      helper.visible = enabled && Boolean(controls.object);
+    },
+    // TransformControlsRoot has a back-reference to its controls instance.
+    // Three's WebGPU shadow/post passes clone scene nodes but not that private
+    // back-reference, so a mounted helper crashes updateMatrixWorld even while
+    // hidden. Reference rendering never needs the authoring gizmo; physically
+    // remove it from render passes and remount it for editable ToonLab rocks.
+    setSceneMounted(mounted) {
+      if (mounted) {
+        if (helper.parent !== scene) scene.add(helper);
+      } else {
+        helper.removeFromParent();
+      }
     },
     setMode(nextMode) {
       if (GIZMO_MODES.includes(nextMode)) controls.setMode(nextMode);

@@ -8,6 +8,8 @@ export * from './stylizedBush.js';
 export * from './stylizedFlower.js';
 export * from './treeRecipe.js';
 export * from './treeExport.js';
+export * from './compiledTree.js';
+export * from './treeLodCompiler.js';
 export * from './scatter.js';
 export * from './stylizedForest.js';
 export * from './stylizedUnderstory.js';

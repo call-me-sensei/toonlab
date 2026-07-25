@@ -19,6 +19,7 @@ import { builtinCatalogEntries } from './builtinEntries.js';
 import { createPropAssetFromRecipe, propAssetFromObject } from '../propgen/index.js';
 import { buildingAsset } from '../buildinggen/buildingAsset.js';
 import { createPlantFromRecipe } from '../vegetation/treeRecipe.js';
+import { loadCompiledTreeAsset } from '../vegetation/compiledTree.js';
 import { createRockDocument } from '../rockgen/rockDocument.js';
 import { meshDocument } from '../rockgen/index.js';
 import { createDebrisAsset } from '../debrisgen/debrisGenerator.js';
@@ -141,9 +142,18 @@ function createRegistry() {
       let added = 0;
       for (const entry of manifest.entries ?? []) {
         try {
-          const resolved = entry.thumbnail
-            ? { ...entry, thumbnail: new URL(entry.thumbnail, base).href }
-            : entry;
+          const resolved = {
+            ...entry,
+            ...(entry.thumbnail ? { thumbnail: new URL(entry.thumbnail, base).href } : {}),
+            ...(entry.runtime?.format === 'toonlab/compiled-tree'
+              ? {
+                runtime: {
+                  ...entry.runtime,
+                  manifest: new URL(entry.runtime.manifest, base).href,
+                },
+              }
+              : {}),
+          };
           register(resolved, { source: name });
           added += 1;
         } catch {
@@ -176,6 +186,39 @@ function createRegistry() {
     },
     register,
     sources,
+    /**
+     * Async counterpart of spawn(). Entries with a compiled-tree runtime load
+     * their prebuilt four-LOD bundle; every other entry resolves to the
+     * historical synchronous PropAsset unchanged.
+     */
+    async load(id, options = {}) {
+      const entry = entries.get(id);
+      if (!entry) throw new Error(`catalog.load: unknown entry "${id}".`);
+      if (entry.runtime?.format !== 'toonlab/compiled-tree') {
+        return this.spawn(id, options);
+      }
+      const compiled = await loadCompiledTreeAsset(entry.runtime.manifest, options);
+      const size = Number(entry.recipe?.options?.size) || 1.7;
+      return {
+        build() {
+          const instance = compiled.createInstance({
+            quality: options.quality,
+            surfaceLook: options.surfaceLook,
+          });
+          return {
+            anchor: 0,
+            footprint: { radius: Math.max(0.13 * size, 0.2) },
+            lod: null,
+            object3D: instance,
+            compiledTree: instance,
+          };
+        },
+        compiled,
+        linear: false,
+        type: 'tree',
+        variant: entry.id,
+      };
+    },
     /**
      * The download button: any asset entry id → a PropAsset ready for
      * placeProps / scatterProps / placeAlongSpline. Settings-preset entries

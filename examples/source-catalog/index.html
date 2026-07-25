@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ToonLab — Source Environment Catalog</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #6e7b93; }
+    canvas { display: block; }
+    #hud { position: fixed; inset: 14px 14px auto 14px; z-index: 10; display: flex; gap: 8px; align-items: center; pointer-events: none; }
+    #hud > * { pointer-events: auto; }
+    button, select { border: 1px solid rgba(255,255,255,.26); border-radius: 999px; padding: 7px 13px; background: rgba(23,29,42,.76); color: #f4f7fb; font: inherit; }
+    button { cursor: pointer; }
+    button[data-active="true"] { background: #2f9f61; border-color: #63d595; }
+    #status { margin-left: auto; border-radius: 9px; padding: 7px 11px; background: rgba(23,29,42,.76); color: #e7edf7; font: 12px/1.4 ui-monospace, monospace; }
+    #info { position: fixed; z-index: 10; left: 14px; bottom: 14px; max-width: min(620px, calc(100vw - 28px)); border-radius: 10px; padding: 9px 12px; background: rgba(23,29,42,.72); color: #e7edf7; font: 12px/1.5 ui-monospace, monospace; }
+    #loading { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: #6e7b93; color: white; font-size: 15px; }
+  </style>
+</head>
+<body>
+  <div id="hud">
+    <button id="mode-baked">Native Unreal Bake</button>
+    <button id="mode-source">Live Source Port</button>
+    <button id="mode-neutral">Neutral Geometry</button>
+    <select id="category" aria-label="Catalog category">
+      <option value="all">All render assets</option>
+      <option value="Mountains">Mountains</option>
+      <option value="Rocks">Rocks</option>
+      <option value="Trees">Trees</option>
+      <option value="Foliage">Foliage</option>
+      <option value="Water">Water</option>
+      <option value="Misc">Misc / Sky</option>
+      <option value="Utility">Collision / utility</option>
+    </select>
+    <button id="showcase">Open Showcase</button>
+    <span id="status">loading manifests…</span>
+  </div>
+  <div id="info">Drag to orbit · wheel to zoom · click an asset to inspect its exact source assignment.</div>
+  <div id="loading">Preparing the complete source catalog…</div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

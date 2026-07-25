@@ -1,7 +1,54 @@
-import { resolve } from 'node:path';
+import { createReadStream, existsSync, statSync } from 'node:fs';
+import { extname, resolve, sep } from 'node:path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { toonlabWorkspacePlugin } from './mcp/vite-plugin.mjs';
+
+// Licensed/private reference assets live outside public/ so production builds
+// can never copy them by accident. Serve that gitignored tree in dev only.
+function localAssetsDevPlugin(rootDirectory) {
+  const localRoot = resolve(rootDirectory, 'assets-local');
+  const mimeTypes = {
+    '.bin': 'application/octet-stream',
+    '.fbx': 'application/octet-stream',
+    '.glb': 'model/gltf-binary',
+    '.gltf': 'model/gltf+json',
+    '.jpeg': 'image/jpeg',
+    '.jpg': 'image/jpeg',
+    '.json': 'application/json',
+    '.ktx2': 'image/ktx2',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+  };
+
+  return {
+    name: 'toonlab-local-assets-dev',
+    apply: 'serve',
+    configureServer(server) {
+      server.middlewares.use('/assets-local', (request, response, next) => {
+        const requestPath = decodeURIComponent((request.url ?? '/').split('?')[0])
+          .replace(/^\/+/, '');
+        const absolutePath = resolve(localRoot, requestPath);
+        if (absolutePath !== localRoot && !absolutePath.startsWith(`${localRoot}${sep}`)) {
+          response.statusCode = 403;
+          response.end('Forbidden');
+          return;
+        }
+        if (!existsSync(absolutePath) || !statSync(absolutePath).isFile()) {
+          next();
+          return;
+        }
+        const stats = statSync(absolutePath);
+        response.statusCode = 200;
+        response.setHeader('Content-Length', stats.size);
+        response.setHeader('Content-Type', mimeTypes[extname(absolutePath).toLowerCase()]
+          ?? 'application/octet-stream');
+        response.setHeader('Cache-Control', 'no-store');
+        createReadStream(absolutePath).pipe(response);
+      });
+    },
+  };
+}
 
 // examples/ import ToonLab by its published package name so they read
 // exactly like consumer code; these aliases resolve those specifiers to the
@@ -31,7 +78,11 @@ export default defineConfig(({ mode }) => {
   return {
   // Fast Refresh for the React HUD (labs/**/ui). Vanilla .js modules —
   // engines, generators, shaders — pass through untouched.
-  plugins: [toonlabWorkspacePlugin({ rootDirectory: __dirname }), react()],
+  plugins: [
+    localAssetsDevPlugin(__dirname),
+    toonlabWorkspacePlugin({ rootDirectory: __dirname }),
+    react(),
+  ],
   resolve: {
     alias: packageAliases,
   },
@@ -110,6 +161,7 @@ export default defineConfig(({ mode }) => {
         assetLab: resolve(__dirname, 'asset-lab/index.html'),
         skyLab: resolve(__dirname, 'sky-lab/index.html'),
         waterLab: resolve(__dirname, 'water-lab/index.html'),
+        landscapeLab: resolve(__dirname, 'landscape-lab/index.html'),
         lightingLab: resolve(__dirname, 'lighting-lab/index.html'),
         weatherLab: resolve(__dirname, 'weather-lab/index.html'),
         settings: resolve(__dirname, 'settings/index.html'),
@@ -122,6 +174,11 @@ export default defineConfig(({ mode }) => {
         // production builds.
         faunaDemo: resolve(__dirname, 'examples/fauna-demo/index.html'),
         ambientFxDemo: resolve(__dirname, 'examples/ambientfx-demo/index.html'),
+        sourceCatalog: resolve(__dirname, 'examples/source-catalog/index.html'),
+        sourceShowcase: resolve(__dirname, 'examples/source-showcase/index.html'),
+        unityShowcase: resolve(__dirname, 'examples/unity-showcase/index.html'),
+        triEngineParity: resolve(__dirname, 'examples/tri-engine-parity/index.html'),
+        urbanPropShader: resolve(__dirname, 'examples/urban-prop-shader/index.html'),
       },
     },
   },

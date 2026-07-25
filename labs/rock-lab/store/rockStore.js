@@ -15,15 +15,23 @@ import {
   bumpDocumentRevision,
   compileDocument,
   createRockDocument,
+  createRockDocumentFromReference,
   createRockPiece,
   deserializeRockDocument,
+  getRockReferenceEntry,
   normalizeRockgenPresetName,
+  normalizeRockReferenceId,
   rebaseRockDocumentStyle,
   removePieceFromDocument,
+  ROCK_REFERENCE_CATALOG,
+  ROCK_REFERENCE_FAMILIES,
+  ROCK_REFERENCE_GEOMETRY_MODES,
+  ROCK_REFERENCE_MATERIAL_MODES,
   ROCK_SURFACE_TEXTURE_PRESETS,
   getRockgenPresetOptions,
   getRockgenStyleOptions,
   isRockHelperPiece,
+  listRockReferenceEntries,
   serializeRockDocument,
   normalizeRockgenStyleName,
 } from '../../../src/rockgen/index.js';
@@ -69,11 +77,54 @@ const PROCEDURAL_START_PRESETS = Object.freeze([
 ]);
 
 const CUSTOM_ROCK_PRESET = 'custom';
+const ALL_REFERENCE_FAMILIES = 'all';
+const DEFAULT_REFERENCE_VARIATION = 0.65;
 
 function rockPresetStateName(value) {
   return value === null || value === CUSTOM_ROCK_PRESET
     ? CUSTOM_ROCK_PRESET
     : normalizeRockgenPresetName(value);
+}
+
+function normalizeReferenceFamily(value, fallback = ALL_REFERENCE_FAMILIES) {
+  const requested = String(value ?? '').trim().toLowerCase();
+  if (requested === ALL_REFERENCE_FAMILIES || ROCK_REFERENCE_FAMILIES.includes(requested)) {
+    return requested;
+  }
+  return fallback;
+}
+
+function normalizeReferenceGeometryMode(value, fallback = 'original') {
+  return ROCK_REFERENCE_GEOMETRY_MODES.includes(value) ? value : fallback;
+}
+
+function normalizeReferenceMaterialMode(value, fallback = 'toonlab') {
+  // `unity` was the temporary name of ToonLab's source-faithful S_Rock port.
+  // Canonicalize old URLs/projects so users select the ToonLab product path,
+  // not an implementation-provenance mode.
+  const normalized = value === 'unity' ? 'toonlab' : value;
+  return ROCK_REFERENCE_MATERIAL_MODES.includes(normalized) ? normalized : fallback;
+}
+
+function normalizeReferenceVariation(value, fallback = DEFAULT_REFERENCE_VARIATION) {
+  if (value === null || value === undefined || value === '') return fallback;
+  const next = Number(value);
+  return Number.isFinite(next) ? Math.min(Math.max(next, 0), 1) : fallback;
+}
+
+function referenceIdForDocument(doc) {
+  const id = normalizeRockReferenceId(doc?.reference?.id);
+  return id || null;
+}
+
+function referenceEntryForDocument(doc) {
+  return getRockReferenceEntry(referenceIdForDocument(doc));
+}
+
+function firstReferenceEntry(family = ALL_REFERENCE_FAMILIES) {
+  return listRockReferenceEntries({
+    family: family === ALL_REFERENCE_FAMILIES ? null : family,
+  })[0] ?? ROCK_REFERENCE_CATALOG[0] ?? null;
 }
 const SCRATCH_OUTLINE = Object.freeze([
   [-0.82, -0.42],
@@ -392,7 +443,7 @@ function createGroundSupportPiece(doc, placement) {
 }
 
 function hasExplicitRockStart(urlParams) {
-  return ['rockProject', 'rockPreset', 'rockStyle', 'rockSeed', 'rockRes']
+  return ['rockProject', 'rockPreset', 'rockStyle', 'rockSeed', 'rockRes', 'rockType']
     .some((key) => urlParams.has(key));
 }
 
@@ -444,6 +495,7 @@ export function createRockStore({ urlParams }) {
   const requestedProjectId = urlParams.get('rockProject');
   const linkedProject = requestedProjectId ? loadRockProject(requestedProjectId) : null;
   const requestedPreset = urlParams.get('rockPreset');
+  const requestedReference = getRockReferenceEntry(urlParams.get('rockType'));
   const explicitStart = hasExplicitRockStart(urlParams);
   const legacyStyle = getRockgenStyleOptions().some((option) => option.value === requestedPreset)
     ? requestedPreset
@@ -452,7 +504,11 @@ export function createRockStore({ urlParams }) {
   let styleName = normalizeRockgenStyleName(
     urlParams.get('rockStyle') ?? legacyStyle ?? (explicitStart ? 'default' : 'call_me_sensei'),
   );
-  let seed = Math.max(Math.round(Number(urlParams.get('rockSeed'))) || 0, 0);
+  const hasRequestedSeed = urlParams.has('rockSeed');
+  let seed = hasRequestedSeed
+    ? Math.max(Math.round(Number(urlParams.get('rockSeed'))) || 0, 0)
+    : requestedReference?.seed ?? 0;
+  const requestedVariation = normalizeReferenceVariation(urlParams.get('rockVariation'));
 
   // Boot document priority: explicit URL starts fresh; otherwise restore an
   // autosaved working copy only while it matches the current preset + seed.
@@ -473,7 +529,29 @@ export function createRockStore({ urlParams }) {
       bootSource = 'persisted';
     }
   }
-  if (!document) document = createRockDocument({ preset: presetName, seed, style: styleName });
+  if (!document) {
+    document = requestedReference
+      ? createRockDocumentFromReference(requestedReference.id, {
+        seed, style: styleName, variation: requestedVariation,
+      })
+      : createRockDocument({ preset: presetName, seed, style: styleName });
+  }
+  presetName = rockPresetStateName(document.preset);
+  styleName = normalizeRockgenStyleName(document.style);
+  seed = document.seed;
+
+  const documentReference = referenceEntryForDocument(document) ?? requestedReference;
+  let referenceFamily = normalizeReferenceFamily(
+    urlParams.get('rockFamily'),
+    documentReference?.family ?? ALL_REFERENCE_FAMILIES,
+  );
+  if (documentReference && referenceFamily !== ALL_REFERENCE_FAMILIES
+    && documentReference.family !== referenceFamily) {
+    referenceFamily = documentReference.family;
+  }
+  const referenceTypeId = documentReference?.id
+    ?? firstReferenceEntry(referenceFamily)?.id
+    ?? '';
 
   const store = createStore({
     brush: { ...DEFAULT_BRUSH_STATE },
@@ -494,6 +572,16 @@ export function createRockStore({ urlParams }) {
     moveMode: 'rotate',
     presetName,
     previewResolution: Math.round(Number(urlParams.get('rockRes'))) || document.meshing.previewResolution,
+    referenceFamily,
+    referenceAssetStatus: documentReference ? 'loading' : 'idle',
+    referenceGeometryMode: normalizeReferenceGeometryMode(urlParams.get('rockGeometry')),
+    referenceLodReport: null,
+    referenceMaterialMode: normalizeReferenceMaterialMode(urlParams.get('rockMaterial')),
+    referenceTypeId,
+    referenceVariation: normalizeReferenceVariation(
+      urlParams.get('rockVariation'),
+      document.reference?.variation ?? DEFAULT_REFERENCE_VARIATION,
+    ),
     seed,
     selectedPieceId: document.pieces[0].id,
     selectedPieceIds: [document.pieces[0].id],
@@ -517,12 +605,46 @@ export function createRockStore({ urlParams }) {
     return store.getState().document;
   }
 
+  function documentLabParams(doc, {
+    family = store.getState().referenceFamily,
+    geometryMode = store.getState().referenceGeometryMode,
+    materialMode = store.getState().referenceMaterialMode,
+    mergePreview = store.getState().mergePreview,
+    previewResolution = doc.meshing.previewResolution,
+    variation = store.getState().referenceVariation,
+  } = {}) {
+    const referenceId = referenceIdForDocument(doc);
+    const preset = rockPresetStateName(doc.preset);
+    return {
+      rockFamily: normalizeReferenceFamily(family),
+      rockGeometry: referenceId ? normalizeReferenceGeometryMode(geometryMode) : null,
+      rockMaterial: referenceId ? normalizeReferenceMaterialMode(materialMode) : null,
+      rockMerge: mergePreview ? null : '0',
+      rockPreset: referenceId || preset === CUSTOM_ROCK_PRESET ? null : preset,
+      rockRes: String(previewResolution),
+      rockSeed: String(doc.seed),
+      rockStyle: normalizeRockgenStyleName(doc.style),
+      rockType: referenceId,
+      rockVariation: referenceId ? String(normalizeReferenceVariation(variation)) : null,
+    };
+  }
+
+  function syncDocumentLabParams(doc, options = {}) {
+    setLabParams(documentLabParams(doc, options), { navigate: false });
+  }
+
   function autosaveSoon() {
     clearTimeout(autosaveTimer);
     autosaveTimer = setTimeout(() => {
       const state = store.getState();
       saveRockProject(state.document, {
-        meta: { preset: state.presetName, seed: state.seed, style: state.styleName },
+        meta: {
+          preset: state.presetName,
+          referenceFamily: state.referenceFamily,
+          referenceId: referenceIdForDocument(state.document),
+          seed: state.seed,
+          style: state.styleName,
+        },
       });
     }, 1000);
   }
@@ -542,6 +664,10 @@ export function createRockStore({ urlParams }) {
     stage = 'shape',
     tool = 'orbit',
   } = {}) {
+    const previousState = store.getState();
+    const referenceEntry = referenceEntryForDocument(doc);
+    const nextReferenceFamily = referenceEntry?.family ?? previousState.referenceFamily;
+    const nextReferenceTypeId = referenceEntry?.id ?? previousState.referenceTypeId;
     removeRockProject();
     clearHistory();
     store.setState({
@@ -558,6 +684,15 @@ export function createRockStore({ urlParams }) {
       moveMode: 'rotate',
       presetName: rockPresetStateName(preset),
       previewResolution: doc.meshing.previewResolution,
+      referenceAssetStatus: referenceEntry ? 'loading' : 'idle',
+      referenceFamily: nextReferenceFamily,
+      referenceGeometryMode: referenceEntry ? 'original' : previousState.referenceGeometryMode,
+      referenceLodReport: null,
+      referenceMaterialMode: referenceEntry ? 'toonlab' : previousState.referenceMaterialMode,
+      referenceTypeId: nextReferenceTypeId,
+      referenceVariation: referenceEntry
+        ? normalizeReferenceVariation(doc.reference?.variation)
+        : previousState.referenceVariation,
       seed: nextSeed,
       selectedPieceId: doc.pieces[0].id,
       selectedPieceIds: [doc.pieces[0].id],
@@ -569,14 +704,12 @@ export function createRockStore({ urlParams }) {
       view: { drawer: false, export: false, gallery: false },
       walkPreview: false,
     });
-    setLabParams({
-      envDebug: null,
-      rockMerge: mergePreview ? null : '0',
-      rockPreset: rockPresetStateName(preset) === CUSTOM_ROCK_PRESET ? null : preset,
-      rockRes: String(doc.meshing.previewResolution),
-      rockSeed: String(nextSeed),
-      rockStyle: normalizeRockgenStyleName(style),
-    }, { navigate: false });
+    setLabParams({ envDebug: null }, { navigate: false });
+    syncDocumentLabParams(doc, {
+      family: nextReferenceFamily,
+      mergePreview,
+      previewResolution: doc.meshing.previewResolution,
+    });
     commit({ immediate: true, reframe: true });
   }
 
@@ -613,19 +746,25 @@ export function createRockStore({ urlParams }) {
       lastChange: {
         immediate: false, pieceLevel: false, reframe: false, ...change,
       },
+      referenceLodReport: null,
     });
     autosaveSoon();
   }
 
   function restore(entry, counterpartStack) {
+    const state = store.getState();
     resetSnapshotBurst();
     counterpartStack.push({
       json: serializeRockDocument(currentDocument()),
-      selectedPieceId: store.getState().selectedPieceId,
-      selectedPieceIds: [...(store.getState().selectedPieceIds ?? [])],
+      selectedPieceId: state.selectedPieceId,
+      selectedPieceIds: [...(state.selectedPieceIds ?? [])],
     });
     const restored = deserializeRockDocument(entry.json);
     bumpDocumentRevision(restored);
+    const restoredReferenceId = referenceIdForDocument(restored);
+    const restoredReferenceFamily = restoredReferenceId
+      ? normalizeReferenceFamily(restored.reference?.family, state.referenceFamily)
+      : state.referenceFamily;
     const selectedPieceId = restored.pieces.some((piece) => piece.id === entry.selectedPieceId)
       ? entry.selectedPieceId
       : restored.pieces[0].id;
@@ -634,8 +773,22 @@ export function createRockStore({ urlParams }) {
       : [selectedPieceId];
     store.setState({
       document: restored,
+      presetName: rockPresetStateName(restored.preset),
+      previewResolution: restored.meshing.previewResolution,
+      referenceAssetStatus: restoredReferenceId ? 'loading' : 'idle',
+      referenceFamily: restoredReferenceFamily,
+      referenceTypeId: restoredReferenceId ?? state.referenceTypeId,
+      referenceVariation: restoredReferenceId
+        ? normalizeReferenceVariation(restored.reference?.variation)
+        : state.referenceVariation,
+      seed: restored.seed,
       selectedPieceId,
       selectedPieceIds: selectedPieceIds.length ? selectedPieceIds : [selectedPieceId],
+      styleName: normalizeRockgenStyleName(restored.style),
+    });
+    syncDocumentLabParams(restored, {
+      family: restoredReferenceFamily,
+      previewResolution: restored.meshing.previewResolution,
     });
     commit({ immediate: true });
   }
@@ -841,21 +994,131 @@ export function createRockStore({ urlParams }) {
       snapshot();
       const restored = deserializeRockDocument(jsonText);
       bumpDocumentRevision(restored);
+      const state = store.getState();
+      const restoredReferenceId = referenceIdForDocument(restored);
+      const restoredReferenceFamily = restoredReferenceId
+        ? normalizeReferenceFamily(restored.reference?.family, state.referenceFamily)
+        : state.referenceFamily;
       store.setState({
         document: restored,
         presetName: rockPresetStateName(restored.preset),
         previewResolution: restored.meshing.previewResolution,
+        referenceAssetStatus: restoredReferenceId ? 'loading' : 'idle',
+        referenceFamily: restoredReferenceFamily,
+        referenceGeometryMode: restoredReferenceId ? 'original' : state.referenceGeometryMode,
+        referenceLodReport: null,
+        referenceMaterialMode: restoredReferenceId ? 'toonlab' : state.referenceMaterialMode,
+        referenceTypeId: restoredReferenceId ?? state.referenceTypeId,
+        referenceVariation: restoredReferenceId
+          ? normalizeReferenceVariation(restored.reference?.variation)
+          : state.referenceVariation,
         seed: restored.seed,
         selectedPieceId: restored.pieces[0].id,
         selectedPieceIds: [restored.pieces[0].id],
         styleName: normalizeRockgenStyleName(restored.style),
       });
+      syncDocumentLabParams(restored, {
+        family: restoredReferenceFamily,
+        previewResolution: restored.meshing.previewResolution,
+      });
       commit({ immediate: true, reframe: true });
       this.setStatus(`Loaded ${label}.`);
     },
 
+    generateReferenceType(referenceId = store.getState().referenceTypeId, {
+      geometryMode = 'original',
+      seed: requestedSeed,
+      variation: requestedVariation,
+    } = {}) {
+      const entry = getRockReferenceEntry(referenceId);
+      if (!entry) {
+        this.setStatus(`Unknown rock reference "${String(referenceId)}".`);
+        return;
+      }
+      const state = store.getState();
+      const nextSeed = Math.max(Math.round(Number(requestedSeed ?? state.seed)) || 0, 0) >>> 0;
+      const currentReferenceId = referenceIdForDocument(state.document);
+      const variation = normalizeReferenceVariation(requestedVariation, (
+        currentReferenceId === entry.id
+          ? state.document.reference?.variation
+          : DEFAULT_REFERENCE_VARIATION
+      ));
+      const doc = createRockDocumentFromReference(entry.id, {
+        seed: nextSeed,
+        style: state.styleName,
+        variation,
+      });
+      const mergePreview = false;
+      const nextFamily = state.referenceFamily === ALL_REFERENCE_FAMILIES
+        ? ALL_REFERENCE_FAMILIES
+        : entry.family;
+      snapshot();
+      store.setState({
+        document: doc,
+        mergePreview,
+        presetName: rockPresetStateName(doc.preset),
+        previewResolution: doc.meshing.previewResolution,
+        referenceAssetStatus: 'loading',
+        referenceFamily: nextFamily,
+        referenceGeometryMode: normalizeReferenceGeometryMode(geometryMode),
+        referenceLodReport: null,
+        referenceMaterialMode: state.referenceMaterialMode,
+        referenceTypeId: entry.id,
+        referenceVariation: variation,
+        seed: doc.seed,
+        selectedPieceId: doc.pieces[0].id,
+        selectedPieceIds: [doc.pieces[0].id],
+        status: `Loading exact source mesh ${entry.sourceAssetName}…`,
+        styleName: normalizeRockgenStyleName(doc.style),
+      });
+      setLabParams({
+        ...documentLabParams(doc, {
+          family: nextFamily,
+          mergePreview,
+          previewResolution: doc.meshing.previewResolution,
+        }),
+        rockPreset: null,
+        rockType: entry.id,
+      }, { navigate: false });
+      commit({ immediate: true, reframe: true });
+    },
+
+    rerollReference() {
+      const state = store.getState();
+      const referenceId = referenceIdForDocument(state.document) ?? state.referenceTypeId;
+      this.generateReferenceType(referenceId, {
+        geometryMode: 'variation',
+        seed: randomSeed(),
+        variation: state.referenceVariation,
+      });
+    },
+
+    setReferenceFamily(value) {
+      const state = store.getState();
+      const family = normalizeReferenceFamily(value);
+      const entries = listRockReferenceEntries({
+        family: family === ALL_REFERENCE_FAMILIES ? null : family,
+      });
+      const selected = entries.find((entry) => entry.id === state.referenceTypeId);
+      store.setState({ referenceFamily: family });
+      setLabParams({ rockFamily: family }, { navigate: false });
+      if (!selected && entries[0]) {
+        this.generateReferenceType(entries[0].id, { seed: state.seed });
+      }
+    },
+
+    setReferenceType(value) {
+      const referenceId = normalizeRockReferenceId(value);
+      if (!getRockReferenceEntry(referenceId)) return;
+      this.generateReferenceType(referenceId, { seed: store.getState().seed });
+    },
+
     randomizeSeed() {
-      this.setSeed(Math.floor(Math.random() * 100000));
+      if (referenceIdForDocument(currentDocument())) {
+        this.rerollReference();
+      } else {
+        this.setSeed(randomSeed());
+      }
     },
 
     startFromPreset(preset) {
@@ -923,17 +1186,22 @@ export function createRockStore({ urlParams }) {
     resetLab() {
       removeRockProject();
       const state = store.getState();
-      setLabParams({
-        envDebug: null, rockMerge: null, rockPreset: null, rockRes: null, rockSeed: null,
-        rockStyle: null,
-      }, { navigate: false });
-      const fresh = state.presetName === CUSTOM_ROCK_PRESET
-        ? createScratchRockDocument({ seed: state.seed })
-        : createRockDocument({
-          preset: state.presetName,
+      const referenceEntry = referenceEntryForDocument(state.document);
+      const fresh = referenceEntry
+        ? createRockDocumentFromReference(referenceEntry.id, {
           seed: state.seed,
           style: state.styleName,
-        });
+          variation: state.document.reference?.variation,
+        })
+        : state.presetName === CUSTOM_ROCK_PRESET
+          ? createScratchRockDocument({ seed: state.seed })
+          : createRockDocument({
+            preset: state.presetName,
+            seed: state.seed,
+            style: state.styleName,
+          });
+      const mergePreview = referenceEntry ? false : shouldStartMerged(fresh);
+      const referenceFamily = referenceEntry?.family ?? state.referenceFamily;
       snapshot();
       store.setState({
         brush: { ...DEFAULT_BRUSH_STATE },
@@ -942,9 +1210,19 @@ export function createRockStore({ urlParams }) {
         grassBlades: DEFAULT_GRASS_BLADES,
         gizmoMode: 'translate',
         mannequin: false,
+        mergePreview,
         moveMode: 'rotate',
         presetName: rockPresetStateName(fresh.preset),
         previewResolution: fresh.meshing.previewResolution,
+        referenceAssetStatus: referenceEntry ? 'loading' : 'idle',
+        referenceFamily,
+        referenceGeometryMode: referenceEntry ? 'original' : state.referenceGeometryMode,
+        referenceLodReport: null,
+        referenceMaterialMode: referenceEntry ? 'toonlab' : state.referenceMaterialMode,
+        referenceTypeId: referenceEntry?.id ?? state.referenceTypeId,
+        referenceVariation: referenceEntry
+          ? normalizeReferenceVariation(fresh.reference?.variation)
+          : state.referenceVariation,
         seed: fresh.seed,
         selectedPieceId: fresh.pieces[0].id,
         selectedPieceIds: [fresh.pieces[0].id],
@@ -955,8 +1233,32 @@ export function createRockStore({ urlParams }) {
         view: { drawer: false, export: false, gallery: false },
         walkPreview: false,
       });
+      if (referenceEntry) {
+        setLabParams({ envDebug: null }, { navigate: false });
+        syncDocumentLabParams(fresh, {
+          family: referenceFamily,
+          mergePreview,
+          previewResolution: fresh.meshing.previewResolution,
+        });
+      } else {
+        setLabParams({
+          envDebug: null,
+          rockFamily: referenceFamily,
+          rockGeometry: null,
+          rockMaterial: null,
+          rockMerge: null,
+          rockPreset: null,
+          rockRes: null,
+          rockSeed: null,
+          rockStyle: null,
+          rockType: null,
+          rockVariation: null,
+        }, { navigate: false });
+      }
       commit({ immediate: true, reframe: true });
-      this.setStatus('Lab reset to the preset document.');
+      this.setStatus(referenceEntry
+        ? `Lab reset to ${referenceEntry.label}.`
+        : 'Lab reset to the preset document.');
     },
 
     selectPiece(pieceId, { additive = false, preserveMulti = false } = {}) {
@@ -1112,6 +1414,8 @@ export function createRockStore({ urlParams }) {
         // Resolution is part of a preset's look (low-poly presets mesh
         // coarse), so preset changes drive the resolution, not the reverse.
         previewResolution: doc.meshing.previewResolution,
+        referenceAssetStatus: 'idle',
+        referenceLodReport: null,
         selectedPieceId: doc.pieces[0].id,
         selectedPieceIds: [doc.pieces[0].id],
       });
@@ -1120,6 +1424,10 @@ export function createRockStore({ urlParams }) {
           rockMerge: mergePreview ? null : '0',
           rockPreset: nextPreset,
           rockRes: String(doc.meshing.previewResolution),
+          rockGeometry: null,
+          rockMaterial: null,
+          rockType: null,
+          rockVariation: null,
         },
         { navigate: false },
       );
@@ -1157,6 +1465,16 @@ export function createRockStore({ urlParams }) {
     },
 
     setSeed(value) {
+      const state = store.getState();
+      const referenceId = referenceIdForDocument(state.document);
+      if (referenceId) {
+        this.generateReferenceType(referenceId, {
+          geometryMode: state.referenceGeometryMode,
+          seed: value,
+          variation: state.referenceVariation,
+        });
+        return;
+      }
       snapshot();
       const doc = currentDocument();
       const next = Math.max(Math.round(Number(value)) || 0, 0);
@@ -1165,6 +1483,45 @@ export function createRockStore({ urlParams }) {
       bumpDocumentRevision(doc);
       setLabParams({ rockSeed: String(next) }, { navigate: false });
       commit();
+    },
+
+    setReferenceLodReport(report) {
+      store.setState({ referenceLodReport: report ?? null });
+    },
+
+    setReferenceAssetStatus(status) {
+      if (!['idle', 'loading', 'ready', 'missing', 'error'].includes(status)) return;
+      store.setState({ referenceAssetStatus: status });
+    },
+
+    setReferenceGeometryMode(value) {
+      const mode = normalizeReferenceGeometryMode(value);
+      store.setState({ referenceGeometryMode: mode, referenceLodReport: null });
+      setLabParams({ rockGeometry: mode }, { navigate: false });
+    },
+
+    setReferenceMaterialMode(value) {
+      const mode = normalizeReferenceMaterialMode(value);
+      store.setState({ referenceMaterialMode: mode });
+      setLabParams({ rockMaterial: mode }, { navigate: false });
+    },
+
+    setReferenceVariation(value) {
+      const doc = currentDocument();
+      if (!referenceIdForDocument(doc)) return;
+      const variation = normalizeReferenceVariation(value);
+      snapshot({ coalesce: true, key: 'referenceVariation' });
+      doc.reference = { ...doc.reference, variation };
+      bumpDocumentRevision(doc);
+      store.setState({
+        referenceGeometryMode: 'variation',
+        referenceVariation: variation,
+      });
+      setLabParams({
+        rockGeometry: 'variation',
+        rockVariation: String(variation),
+      }, { navigate: false });
+      commit({ immediate: true });
     },
 
     setSurfaceTexturePreset(presetId) {
@@ -1191,7 +1548,8 @@ export function createRockStore({ urlParams }) {
 
     setStage(stage) {
       const patch = { stage };
-      if (stage === 'pieces' && store.getState().stage !== 'pieces') {
+      if (stage === 'pieces' && store.getState().stage !== 'pieces'
+        && !referenceIdForDocument(currentDocument())) {
         patch.tool = 'adjacentTile';
       }
       store.setState(patch);
@@ -1203,6 +1561,7 @@ export function createRockStore({ urlParams }) {
 
     setTool(tool) {
       if (!ROCK_TOOLS.includes(tool)) return;
+      if (referenceIdForDocument(currentDocument()) && tool !== 'orbit') return;
       const patch = { tool };
       // Sculpt edits apply to the folded field, which only the merged
       // preview shows — flip it on rather than sculpting blind.

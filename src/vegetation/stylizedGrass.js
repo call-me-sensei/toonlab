@@ -76,6 +76,9 @@ export const DEFAULT_GRASS_SETTINGS = Object.freeze({
   cloudShadowScale: 0.012,
   cloudShadowStrength: 0,
   cloudShadowVelocity: Object.freeze([0.02, 0.006]),
+  groundAdoptHeight: 0.85,
+  groundAdoptStrength: 0,
+  groundAdoptTint: Object.freeze([1, 1, 1]),
   gustFrequency: 0.35,
   gustResponse: 1,
   gustSpeed: 1.6,
@@ -194,6 +197,9 @@ export function createGrassSettings(options = {}) {
     cloudShadowScale: finiteNumber(source.cloudShadowScale, base.cloudShadowScale, { min: 0.0001 }),
     cloudShadowStrength: finiteNumber(source.cloudShadowStrength, base.cloudShadowStrength, { min: 0, max: 1 }),
     cloudShadowVelocity: vectorArray(source.cloudShadowVelocity, base.cloudShadowVelocity, 2),
+    groundAdoptHeight: finiteNumber(source.groundAdoptHeight, base.groundAdoptHeight, { min: 0.01, max: 1 }),
+    groundAdoptStrength: finiteNumber(source.groundAdoptStrength, base.groundAdoptStrength, { min: 0, max: 1 }),
+    groundAdoptTint: colorArray(source.groundAdoptTint, base.groundAdoptTint),
     gustFrequency: finiteNumber(source.gustFrequency, base.gustFrequency, { min: 0 }),
     gustResponse: finiteNumber(source.gustResponse, base.gustResponse, { min: 0 }),
     gustSpeed: finiteNumber(source.gustSpeed, base.gustSpeed, { min: 0 }),
@@ -347,6 +353,23 @@ const GRASS_FIELD_DEFINITIONS = Object.freeze({
     tipColor: {
       description: 'Blade color at the tip; blades gradient from base to tip.',
       label: 'Tip Color',
+      type: 'color',
+    },
+    groundAdoptStrength: {
+      description: 'How strongly blades adopt the terrain color under them from the scene ground field (0 keeps the authored palette). Needs a world running the ground-field pass.',
+      label: 'Ground Adoption',
+      range: { max: 1, min: 0, step: 0.01 },
+      type: 'number',
+    },
+    groundAdoptHeight: {
+      description: 'Blade fraction the adopted ground color reaches before fading back to the palette tips.',
+      label: 'Ground Adopt Height',
+      range: { max: 1, min: 0.01, step: 0.01 },
+      type: 'number',
+    },
+    groundAdoptTint: {
+      description: 'Multiplier applied to the adopted ground color — lift or warm the sampled terrain albedo before it colors the blades.',
+      label: 'Ground Adopt Tint',
       type: 'color',
     },
   },
@@ -696,6 +719,10 @@ export class StylizedGrassField extends THREE.Mesh {
     uniforms.uGustSpeed.value = settings.gustSpeed;
     uniforms.uWindResponse.value = settings.windResponse;
     uniforms.uPushRadius.value = settings.pushRadius;
+    uniforms.uGroundAdoptStrength.value = settings.groundAdoptStrength;
+    uniforms.uGroundAdoptHeight.value = settings.groundAdoptHeight;
+    // Multiplier data, not an sRGB color — no colorspace conversion.
+    uniforms.uGroundAdoptTint.value.setRGB(...settings.groundAdoptTint);
     uniforms.uBacklitStrength.value = settings.backlitStrength;
     uniforms.uCloudShadowStrength.value = settings.cloudShadowStrength;
     uniforms.uCloudShadowCoverage.value = settings.cloudShadowCoverage;

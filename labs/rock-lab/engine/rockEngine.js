@@ -16,7 +16,23 @@ import {
   resetEnvironmentShaderTime,
   setEnvironmentDebugOutput,
 } from '../../../src/environment/environmentMaterialAdapter.js';
-import { isRockHelperPiece, meshDocument } from '../../../src/rockgen/index.js';
+import {
+  createRockReferenceLodObject,
+  exportRockReferenceAssetToGLB,
+  isRockHelperPiece,
+  loadRockReferenceAsset,
+  loadRockReferenceAssetManifest,
+  loadRockReferenceSourceMaterial,
+  loadUnityRockMaterial,
+  meshDocument,
+} from '../../../src/rockgen/index.js';
+import {
+  loadSoStylizedUnityRockMaterialIndex,
+  resolveSoStylizedUnityRockMaterial,
+} from '../../../src/environment/soStylizedUnityRockMaterialResolver.js';
+import { SO_STYLIZED_UNITY_RENDER_CONTRACT } from '../../../src/environment/soStylizedUnityRendering.js';
+import { installSoStylizedUnityShadowCasterBias } from '../../../src/environment/soStylizedUnityShadows.js';
+import { createSoStylizedUnityStagePostPipeline } from '../../../src/environment/soStylizedUnityStage.js';
 import {
   convertRockMesh,
   createAoScheduler,
@@ -36,6 +52,9 @@ const MOVE_MODE_BUTTONS = Object.freeze({
   zoom: THREE.MOUSE.DOLLY,
 });
 const SELECTION_PIVOT_ID = '__rock_selection_pivot__';
+const UNITY_DIRECTION_TO_LIGHT = Object.freeze(
+  SO_STYLIZED_UNITY_RENDER_CONTRACT.sun.rayDirection.map((value) => -value),
+);
 
 function isHelperPiece(piece) {
   return isRockHelperPiece(piece);
@@ -45,15 +64,22 @@ export function createRockEngine({ mount, store, urlParams }) {
   const hudHidden = urlParams.get('hud') === '0';
   const captureView = (urlParams.get('captureView') || '').toLowerCase();
   const deterministic = hudHidden || Boolean(captureView);
+  const inspectEnabled = urlParams.get('inspect') === '1';
+  const unityCasterBiasEnabled = urlParams.get('unityCasterBias') !== '0';
+  const unityPostEnabled = urlParams.get('unityPost') !== '0';
+  const unityShadowsEnabled = urlParams.get('unityShadows') !== '0';
 
   document.body.dataset.scene = 'rock';
   document.body.dataset.modelReady = 'false';
   if (captureView) document.body.dataset.captureView = captureView;
 
-  const sceneContext = createRockScene({ container: mount });
+  const sceneContext = createRockScene({
+    container: mount,
+    unityShadowsEnabled,
+  });
   const {
     ambient, camera, controls, environmentBox, frameComposition, renderer, rockRoot, scene,
-    setSunState,
+    getRenderAuthority, registerLabGroundMaterial, setFogScale, setRenderAuthority, setSunState,
   } = sceneContext;
   if (deterministic) controls.enabled = false;
 
@@ -85,14 +111,122 @@ export function createRockEngine({ mount, store, urlParams }) {
   const pieceViews = new Map(); // pieceId -> { group, mesh, converted, isCutter }
   let mergedMesh = null;
   let mergedConverted = false;
+  let referenceAsset = null;
+  let referenceBuild = null;
+  let referenceLoadToken = 0;
+  let referenceManifestPromise = null;
+  let unityRockMaterialIndexPromise = null;
   let regenerateTimer = 0;
   let rebuilding = false;
   const rebuiltListeners = new Set();
   const frameListeners = new Set();
   const dynamicShadowCasters = new Set();
   let sunShadowRefreshFrames = 1;
+  let unityPost = null;
+  let unityPostDirty = true;
+  let gizmo = null;
 
   const doc = () => store.getState().document;
+
+  function reportUnityInspector() {
+    if (!inspectEnabled) return;
+    const rockMeshes = visibleRockMeshes();
+    const rockBox = new THREE.Box3();
+    for (const mesh of rockMeshes) {
+      rockBox.union(mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld));
+    }
+    const { ground, unityStageLights } = sceneContext;
+    const csm = unityStageLights.cascadedShadows[0];
+    const casters = [];
+    scene.traverse((object) => {
+      if (!object.isMesh || !object.castShadow) return;
+      let hierarchyVisible = object.visible;
+      for (let parent = object.parent; hierarchyVisible && parent; parent = parent.parent) {
+        hierarchyVisible = parent.visible;
+      }
+      const bounds = object.geometry?.boundingBox
+        ? object.geometry.boundingBox.clone().applyMatrix4(object.matrixWorld)
+        : null;
+      casters.push({
+        hierarchyVisible,
+        max: bounds?.max.toArray() ?? null,
+        min: bounds?.min.toArray() ?? null,
+        name: object.name,
+        parent: object.parent?.name ?? null,
+      });
+    });
+    document.body.dataset.rockInspectState = JSON.stringify({
+      camera: {
+        far: camera.far,
+        fov: camera.fov,
+        near: camera.near,
+        position: camera.position.toArray(),
+        target: controls.target.toArray(),
+      },
+      cascades: csm.lights.map((light) => ({
+        camera: {
+          bottom: light.shadow.camera.bottom,
+          far: light.shadow.camera.far,
+          left: light.shadow.camera.left,
+          near: light.shadow.camera.near,
+          right: light.shadow.camera.right,
+          top: light.shadow.camera.top,
+        },
+        mapAllocated: Boolean(light.shadow.map),
+        mapSize: light.shadow.mapSize.toArray(),
+        matrix: light.shadow.matrix.toArray(),
+        parent: light.parent?.name ?? null,
+        position: light.position.toArray(),
+        target: light.target.position.toArray(),
+      })),
+      casters,
+      ground: {
+        material: ground.material.name,
+        position: ground.position.toArray(),
+        receiveShadow: ground.receiveShadow,
+        scale: ground.scale.toArray(),
+      },
+      rock: {
+        castShadow: rockMeshes.every((mesh) => mesh.castShadow),
+        max: rockBox.isEmpty() ? null : rockBox.max.toArray(),
+        min: rockBox.isEmpty() ? null : rockBox.min.toArray(),
+        receiveShadow: rockMeshes.every((mesh) => mesh.receiveShadow),
+      },
+      sun: {
+        castShadow: unityStageLights.light.castShadow,
+        position: unityStageLights.light.position.toArray(),
+        shadowNode: unityStageLights.light.shadow.shadowNode?.constructor?.name ?? null,
+        target: unityStageLights.light.target.position.toArray(),
+        visible: unityStageLights.light.visible,
+      },
+    });
+  }
+
+  function activeReferenceId(state = store.getState()) {
+    return state.document.reference?.sourceMode === 'mesh-template'
+      ? state.document.reference.id
+      : null;
+  }
+
+  function isReferenceMode(state = store.getState()) {
+    return Boolean(activeReferenceId(state));
+  }
+
+  function desiredRenderAuthority(state = store.getState()) {
+    return isReferenceMode(state) && state.referenceMaterialMode === 'toonlab'
+      ? 'source'
+      : 'legacy';
+  }
+
+  function syncRenderAuthority(state = store.getState()) {
+    const next = desiredRenderAuthority(state);
+    if (getRenderAuthority() !== next) {
+      setRenderAuthority(next);
+      unityPostDirty = true;
+    }
+    gizmo?.setSceneMounted(next !== 'source');
+    return next;
+  }
 
   function selectedPieceIds(state = store.getState()) {
     const available = new Set(state.document.pieces
@@ -152,6 +286,11 @@ export function createRockEngine({ mount, store, urlParams }) {
   }
 
   function visibleRockMeshes() {
+    if (isReferenceMode()) {
+      return referenceBuild?.levels
+        .filter((level) => level.mesh.visible)
+        .map((level) => level.mesh) ?? [];
+    }
     if (store.getState().mergePreview) {
       return mergedMesh && mergedMesh.visible ? [mergedMesh] : [];
     }
@@ -161,6 +300,7 @@ export function createRockEngine({ mount, store, urlParams }) {
   }
 
   function authoredFloorY() {
+    if (isReferenceMode()) return 0;
     let minY = Infinity;
     for (const piece of store.getState().document.pieces) {
       const op = piece.combine?.op;
@@ -172,7 +312,9 @@ export function createRockEngine({ mount, store, urlParams }) {
   }
 
   function shouldBakePreviewAo() {
-    return store.getState().tool === 'orbit';
+    const state = store.getState();
+    return state.tool === 'orbit'
+      && (!isReferenceMode(state) || state.referenceMaterialMode === 'legacy');
   }
 
   const aoScheduler = createAoScheduler({
@@ -218,9 +360,20 @@ export function createRockEngine({ mount, store, urlParams }) {
       vertexCount += mesh.geometry.getAttribute('position').count;
     }
     document.body.dataset.rockVertexCount = String(vertexCount);
-    document.body.dataset.rockResolution = String(store.getState().previewResolution);
-    document.body.dataset.rockPieceCount = String(doc().pieces.length);
+    document.body.dataset.rockResolution = isReferenceMode()
+      ? 'source'
+      : String(store.getState().previewResolution);
+    document.body.dataset.rockPieceCount = isReferenceMode() ? '1' : String(doc().pieces.length);
     document.body.dataset.rockAoState = 'pending';
+    const unity = getRenderAuthority() === 'source';
+    const rockMeshes = visibleRockMeshes();
+    document.body.dataset.rockUnityCaster = String(
+      unity && rockMeshes.length > 0 && rockMeshes.every((mesh) => mesh.castShadow),
+    );
+    document.body.dataset.rockUnitySelfShadow = String(
+      unity && rockMeshes.length > 0 && rockMeshes.every((mesh) => mesh.receiveShadow),
+    );
+    unityPostDirty = true;
     aoScheduler.schedule();
     for (const listener of rebuiltListeners) listener();
     if (!deterministic) attachGizmoToSelection();
@@ -290,7 +443,188 @@ export function createRockEngine({ mount, store, urlParams }) {
     mergedMesh.visible = true;
   }
 
+  function disposeReferenceBuild() {
+    if (!referenceBuild) return;
+    referenceBuild.dispose();
+    referenceBuild = null;
+  }
+
+  function disposeReferenceAsset() {
+    disposeReferenceBuild();
+    referenceAsset?.dispose();
+    referenceAsset = null;
+  }
+
+  function hideProceduralViews() {
+    if (mergedMesh) mergedMesh.visible = false;
+    for (const view of pieceViews.values()) view.group.visible = false;
+  }
+
+  async function ensureReferenceAsset(referenceId, token) {
+    if (referenceAsset?.entry.id === referenceId) return referenceAsset;
+    if (!referenceManifestPromise) {
+      referenceManifestPromise = loadRockReferenceAssetManifest().catch((error) => {
+        referenceManifestPromise = null;
+        throw error;
+      });
+    }
+    const manifest = await referenceManifestPromise;
+    let loaded;
+    try {
+      loaded = await loadRockReferenceAsset(referenceId, { manifest });
+    } catch (error) {
+      // The local exporter writes its manifest incrementally. If Rock Lab is
+      // open during that process, let the next selection/retry fetch the
+      // newly advanced inventory rather than pinning the early snapshot.
+      if (/missing from the local reference manifest/i.test(error.message)) {
+        referenceManifestPromise = null;
+      }
+      throw error;
+    }
+    if (token !== referenceLoadToken) {
+      loaded.dispose();
+      return null;
+    }
+    referenceAsset?.dispose();
+    referenceAsset = loaded;
+    return loaded;
+  }
+
+  async function rebuildReference({ reframe = false } = {}) {
+    const state = store.getState();
+    const referenceId = activeReferenceId(state);
+    if (!referenceId) return false;
+    const token = ++referenceLoadToken;
+    hideProceduralViews();
+    store.actions.setReferenceAssetStatus('loading');
+    document.body.dataset.rockReferenceStatus = 'loading';
+    try {
+      const asset = await ensureReferenceAsset(referenceId, token);
+      if (!asset || token !== referenceLoadToken) return true;
+      if (state.referenceMaterialMode === 'source' && !asset.sourceMaterial) {
+        const sourceMaterial = await loadRockReferenceSourceMaterial(asset.entry.sourceAssetName);
+        if (token !== referenceLoadToken) {
+          sourceMaterial.dispose();
+          return true;
+        }
+        asset.sourceMaterial = sourceMaterial;
+      }
+      if (state.referenceMaterialMode === 'toonlab' && !asset.unityMaterial) {
+        unityRockMaterialIndexPromise ??= loadSoStylizedUnityRockMaterialIndex();
+        const index = await unityRockMaterialIndexPromise;
+        const materialReference = asset.localEntry.materials?.find(Boolean);
+        const resolution = resolveSoStylizedUnityRockMaterial(materialReference, {
+          allowFallback: true,
+          index,
+          sourceAssetName: asset.entry.sourceAssetName,
+        });
+        if (!resolution?.materialRecord) {
+          throw new Error(`No Unity S_Rock material matches ${asset.entry.sourceAssetName}.`);
+        }
+        const unityMaterial = await loadUnityRockMaterial({
+          manifest: index.manifest,
+          material: resolution.materialRecord,
+          coordinates: {
+            zSign: 1,
+            // Unity's authored thresholds and the glTF reference geometry
+            // are both in metres after export.
+            distanceScale: 1,
+          },
+        });
+        if (token !== referenceLoadToken) {
+          unityMaterial.dispose();
+          return true;
+        }
+        if (unityCasterBiasEnabled) {
+          installSoStylizedUnityShadowCasterBias(unityMaterial, {
+            directionToLight: UNITY_DIRECTION_TO_LIGHT,
+          });
+        }
+        unityMaterial.userData.environmentShaderExclude = true;
+        unityMaterial.userData.toonlabRockSourceMaterial = {
+          materialPath: materialReference,
+          sourceAssetName: asset.entry.sourceAssetName,
+          unityMaterial: resolution.unityMaterialName,
+        };
+        asset.unityMaterial = unityMaterial;
+      }
+      disposeReferenceBuild();
+      const materialMode = ['source', 'toonlab', 'authored'].includes(state.referenceMaterialMode)
+        ? state.referenceMaterialMode
+        : 'neutral';
+      referenceBuild = createRockReferenceLodObject(asset, {
+        geometryMode: state.referenceGeometryMode,
+        materialMode,
+        seed: state.seed,
+        strength: state.referenceVariation,
+      });
+      // The visible LOD must be selected from the player's camera. Three's
+      // default automatic LOD update also runs for every shadow camera. With
+      // cascaded shadows that lets cascade 0 select one mesh, cascade 1 select
+      // another, and leaves the later shadow passes with mutated visibility.
+      // Unity chooses the renderer LOD for the view before shadow submission,
+      // so pin Three's automatic updates and make the same choice explicitly.
+      referenceBuild.lod.autoUpdate = false;
+      compositionGroup.add(referenceBuild.lod);
+      if (state.referenceMaterialMode === 'legacy') {
+        for (const level of referenceBuild.levels) {
+          if (!level.geometry.getAttribute('envVertexAo')) {
+            const count = level.geometry.getAttribute('position').count;
+            level.geometry.setAttribute(
+              'envVertexAo',
+              new THREE.BufferAttribute(new Float32Array(count).fill(1), 1),
+            );
+          }
+          const previousMaterial = level.mesh.material;
+          await convertRockMesh(level.mesh, environmentBox); // eslint-disable-line no-await-in-loop
+          level.material = level.mesh.material;
+          if (previousMaterial !== level.material) previousMaterial?.dispose?.();
+        }
+      }
+      if (token !== referenceLoadToken) {
+        disposeReferenceBuild();
+        return true;
+      }
+      referenceBuild.lod.update(camera);
+      store.actions.setReferenceLodReport(referenceBuild.report);
+      store.actions.setReferenceAssetStatus('ready');
+      document.body.dataset.rockReferenceStatus = 'ready';
+      afterGeometryChange({ reframe });
+      const counts = referenceBuild.levels
+        .map((level) => level.actualTriangles.toLocaleString())
+        .join(' / ');
+      const geometryLabel = state.referenceGeometryMode === 'original'
+        ? 'Original source'
+        : `Source-derived variation ${state.seed}`;
+      const materialLabel = state.referenceMaterialMode === 'authored'
+        ? 'Unreal material bake'
+        : state.referenceMaterialMode === 'source'
+          ? 'source material graph port'
+          : state.referenceMaterialMode === 'toonlab'
+            ? 'ToonLab S_Rock shader (Unity source port)'
+          : state.referenceMaterialMode === 'neutral' ? 'neutral material' : 'legacy ToonLab material';
+      store.actions.setStatus(
+        `${geometryLabel}: ${asset.entry.sourceAssetName} · ${counts} tris · ${materialLabel}`,
+      );
+      return true;
+    } catch (error) {
+      if (token !== referenceLoadToken) return true;
+      disposeReferenceBuild();
+      const missing = /manifest is unavailable|missing from the local reference manifest/i.test(error.message);
+      store.actions.setReferenceAssetStatus(missing ? 'missing' : 'error');
+      document.body.dataset.rockReferenceStatus = missing ? 'missing' : 'error';
+      store.actions.setStatus(`Reference load failed: ${error.message}`);
+      return true;
+    }
+  }
+
   function syncPreviewModeVisibility() {
+    if (isReferenceMode()) {
+      hideProceduralViews();
+      if (referenceBuild) referenceBuild.lod.visible = true;
+      return;
+    }
+    if (referenceBuild) referenceBuild.lod.visible = false;
     const { mergePreview } = store.getState();
     if (mergedMesh) mergedMesh.visible = mergePreview;
     for (const [pieceId, view] of pieceViews) {
@@ -304,6 +638,15 @@ export function createRockEngine({ mount, store, urlParams }) {
   async function rebuildAll({ reframe = false } = {}) {
     rebuilding = true;
     const started = performance.now();
+    if (isReferenceMode()) {
+      await rebuildReference({ reframe });
+      rebuilding = false;
+      return;
+    }
+    referenceLoadToken += 1;
+    disposeReferenceAsset();
+    store.actions.setReferenceAssetStatus('idle');
+    document.body.dataset.rockReferenceStatus = 'idle';
     for (const [pieceId, view] of [...pieceViews]) {
       const piece = doc().pieces.find((entry) => entry.id === pieceId);
       if (piece && !isHelperPiece(piece)) continue;
@@ -343,6 +686,12 @@ export function createRockEngine({ mount, store, urlParams }) {
   }
 
   async function regenerateSelected() {
+    if (isReferenceMode()) {
+      rebuilding = true;
+      await rebuildReference();
+      rebuilding = false;
+      return;
+    }
     if (store.getState().mergePreview) {
       await rebuildAll();
       return;
@@ -394,6 +743,9 @@ export function createRockEngine({ mount, store, urlParams }) {
   let seenEnvDebug = store.getState().envDebugMode;
   let seenGizmoMode = store.getState().gizmoMode;
   let seenMoveMode = store.getState().moveMode;
+  let seenReferenceGeometryMode = store.getState().referenceGeometryMode;
+  let seenReferenceMaterialMode = store.getState().referenceMaterialMode;
+  let seenReferenceVariation = store.getState().referenceVariation;
   let seenTool = store.getState().tool;
   let galleryVisible = !hudHidden && store.getState().view.gallery;
   if (galleryVisible) renderer.domElement.style.visibility = 'hidden';
@@ -436,6 +788,18 @@ export function createRockEngine({ mount, store, urlParams }) {
 
     if (state.mergePreview !== seenMerge) {
       seenMerge = state.mergePreview;
+      if (!isReferenceMode(state)) rebuildAll();
+    }
+
+    const documentChanged = state.document !== seenDocument || state.docRevision !== seenRevision;
+    const referenceViewChanged = state.referenceGeometryMode !== seenReferenceGeometryMode
+      || state.referenceMaterialMode !== seenReferenceMaterialMode
+      || state.referenceVariation !== seenReferenceVariation;
+    seenReferenceGeometryMode = state.referenceGeometryMode;
+    seenReferenceMaterialMode = state.referenceMaterialMode;
+    seenReferenceVariation = state.referenceVariation;
+    if (referenceViewChanged && isReferenceMode(state) && !documentChanged) {
+      syncRenderAuthority(state);
       rebuildAll();
     }
 
@@ -445,7 +809,8 @@ export function createRockEngine({ mount, store, urlParams }) {
       attachGizmoToSelection();
     }
 
-    if (state.document !== seenDocument || state.docRevision !== seenRevision) {
+    if (documentChanged) {
+      syncRenderAuthority(state);
       const documentSwapped = state.document !== seenDocument;
       seenDocument = state.document;
       seenRevision = state.docRevision;
@@ -464,7 +829,7 @@ export function createRockEngine({ mount, store, urlParams }) {
 
   // --- Gizmo ----------------------------------------------------------------
 
-  const gizmo = createTransformGizmo({
+  gizmo = createTransformGizmo({
     camera,
     domElement: renderer.domElement,
     mode: store.getState().gizmoMode,
@@ -500,8 +865,13 @@ export function createRockEngine({ mount, store, urlParams }) {
     scene,
   });
   gizmo.setEnabled(!deterministic && store.getState().tool === 'orbit');
+  syncRenderAuthority();
 
   function attachGizmoToSelection() {
+    if (isReferenceMode()) {
+      gizmo.detach();
+      return;
+    }
     const ids = selectedPieceIds();
     if (ids.length > 1) {
       selectionPivot.position.copy(selectionCenter(ids));
@@ -547,6 +917,7 @@ export function createRockEngine({ mount, store, urlParams }) {
     controls,
     deterministic,
     frameComposition,
+    getRenderAuthority,
     gizmo,
     onFrame(listener) {
       frameListeners.add(listener);
@@ -562,6 +933,23 @@ export function createRockEngine({ mount, store, urlParams }) {
     },
     isRebuilding() {
       return rebuilding;
+    },
+    async exportReferenceGLB() {
+      const state = store.getState();
+      const referenceId = activeReferenceId(state);
+      if (!referenceId) throw new Error('The current document is not a source-mesh reference.');
+      if (referenceAsset?.entry.id !== referenceId) await rebuildReference();
+      if (!referenceAsset || referenceAsset.entry.id !== referenceId) {
+        throw new Error(`The local source asset for ${referenceId} is not ready.`);
+      }
+      const result = await exportRockReferenceAssetToGLB(referenceAsset, {
+        geometryMode: state.referenceGeometryMode,
+        materialMode: state.referenceMaterialMode === 'neutral' ? 'neutral' : 'authored',
+        seed: state.seed,
+        strength: state.referenceVariation,
+      });
+      store.actions.setReferenceLodReport(result.report);
+      return result;
     },
     async rebuild(options) {
       await rebuildAll(options);
@@ -588,6 +976,12 @@ export function createRockEngine({ mount, store, urlParams }) {
       return raycaster;
     },
     scene,
+    setFogScale,
+    setRenderAuthority(authority) {
+      const next = sceneContext.setRenderAuthority(authority);
+      unityPostDirty = true;
+      return next;
+    },
     setSunState,
     /** World -> document space (undoes the ground-settle lift). */
     toDocumentSpace(point) {
@@ -601,8 +995,20 @@ export function createRockEngine({ mount, store, urlParams }) {
   engine.start = async () => {
     // WebGPU backends boot asynchronously; renders (incl. AO bakes) wait.
     await whenRendererReady(renderer);
-    // Ground converts once; generated meshes convert as their views appear.
+    // Prepare the normal lab ground once, then restore the requested
+    // authority. Unity mode swaps to its dedicated URP-lit receiver so native
+    // cascade shadows are not routed through ToonLab's custom shadow texture.
+    const requestedAuthority = desiredRenderAuthority();
+    setRenderAuthority('toonlab');
     await convertRockMesh(sceneContext.ground, environmentBox);
+    // `convertRockMesh()` makes normal environment meshes both casters and
+    // receivers. This validation floor must only receive; otherwise its
+    // coplanar shadow-map render self-occludes the distant half of the disc
+    // and disguises the rock's real footprint as a giant dark horizon band.
+    sceneContext.ground.castShadow = false;
+    sceneContext.ground.receiveShadow = true;
+    registerLabGroundMaterial(sceneContext.ground.material);
+    setRenderAuthority(requestedAuthority);
     await rebuildAll({ reframe: true });
     if (!deterministic) attachGizmoToSelection();
     if (deterministic) {
@@ -613,21 +1019,47 @@ export function createRockEngine({ mount, store, urlParams }) {
     document.body.dataset.modelReady = 'true';
 
     const sunShadowPass = createEnvironmentSunShadowPass({ renderer, scene });
-    const clock = new THREE.Clock();
-    renderer.setAnimationLoop(() => {
-      const delta = clock.getDelta();
+    const timer = new THREE.Timer();
+    timer.connect(document);
+    renderer.setAnimationLoop((timestamp) => {
+      timer.update(timestamp);
+      const delta = timer.getDelta();
       if (galleryVisible) return;
       if (!deterministic) {
         advanceEnvironmentShaderTime(delta);
         for (const listener of frameListeners) listener(delta);
       }
       controls.update();
+      // Keep the source rock's LOD tied to the view camera. Shadow cameras
+      // must render this already-selected level without changing it.
+      referenceBuild?.lod.update(camera);
+      const sourceAuthority = getRenderAuthority() === 'source';
+      if (sourceAuthority && unityPostEnabled && unityPostDirty) {
+        unityPost?.pipeline?.dispose?.();
+        unityPost = createSoStylizedUnityStagePostPipeline({
+          camera,
+          renderer,
+          scene,
+        });
+        unityPostDirty = false;
+        document.body.dataset.rockUnityPost = 'ready';
+        document.body.dataset.rockUnityCascadeCount = String(
+          SO_STYLIZED_UNITY_RENDER_CONTRACT.shadows.cascadeCount,
+        );
+      }
+      if (sourceAuthority && !unityPostEnabled) {
+        document.body.dataset.rockUnityPost = 'disabled';
+      }
       const refreshSunShadow = sunShadowRefreshFrames > 0;
-      sunShadowPass.update({
-        dynamic: refreshSunShadow || hasDynamicShadowCaster(),
-      });
+      if (!sourceAuthority) {
+        sunShadowPass.update({
+          dynamic: refreshSunShadow || hasDynamicShadowCaster(),
+        });
+      }
       if (refreshSunShadow) sunShadowRefreshFrames -= 1;
-      renderer.render(scene, camera);
+      if (sourceAuthority && unityPostEnabled) unityPost.pipeline.render();
+      else renderer.render(scene, camera);
+      reportUnityInspector();
     });
   };
 

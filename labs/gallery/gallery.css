@@ -211,6 +211,58 @@ select.tl-input {
   font-size: 44px;
   background: var(--tl-gradient-soft);
 }
+.gal-card-media--plateau {
+  align-content: center;
+  gap: 8px;
+  padding: 28px;
+  color: #fff;
+  background:
+    linear-gradient(155deg, transparent 38%, rgb(255 255 255 / 0.08) 38% 39%, transparent 39%),
+    linear-gradient(25deg, transparent 48%, rgb(255 255 255 / 0.06) 48% 49%, transparent 49%),
+    linear-gradient(135deg, #0084bd, #003a68 62%, #08182c);
+  font-size: inherit;
+}
+.gal-card-media--plateau::before {
+  content: "";
+  width: min(64%, 240px);
+  height: 84px;
+  border: 1px solid rgb(255 255 255 / 0.48);
+  clip-path: polygon(0 100%, 0 52%, 13% 52%, 13% 28%, 28% 28%, 28% 65%, 45% 65%, 45% 8%, 63% 8%, 63% 44%, 76% 44%, 76% 20%, 88% 20%, 88% 58%, 100% 58%, 100% 100%);
+  background: linear-gradient(to top, rgb(255 255 255 / 0.22), rgb(255 255 255 / 0.03));
+}
+.gal-card-media--plateau strong {
+  font-family: var(--tl-font-display);
+  font-size: 24px;
+  letter-spacing: 0.16em;
+}
+.gal-card-media--plateau span {
+  font-family: var(--tl-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: rgb(255 255 255 / 0.72);
+}
+.gal-card-media--plateau > strong,
+.gal-card-media--plateau > span {
+  position: relative;
+  z-index: 1;
+  transition: opacity 180ms ease;
+}
+.gal-card-media--plateau.plateau-thumb-ready > strong,
+.gal-card-media--plateau.plateau-thumb-ready > span,
+.gal-card-media--plateau.plateau-thumb-ready::before {
+  opacity: 0;
+}
+.plateau-thumbnail-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+.plateau-thumbnail-stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
 
 .gal-card-overlay {
   position: absolute;
@@ -253,7 +305,7 @@ select.tl-input {
   background: rgb(8 10 16 / 0.55);
   white-space: nowrap;
 }
-/* CC0 source badge — unmistakable through weight/contrast, not a loud color
+/* Open-data source badge — unmistakable through weight/contrast, not a loud color
    (stays inside the neutral badge system). */
 .gal-badge--src {
   color: #fff;

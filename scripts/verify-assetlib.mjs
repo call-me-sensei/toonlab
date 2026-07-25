@@ -7,7 +7,7 @@
 // catalog-entry contract are checked without touching the network.
 // Run: node scripts/verify-assetlib.mjs
 
-import { readdirSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -61,6 +61,14 @@ import {
   normalizeSmithsonianModels,
   normalizeSmithsonianThumbnails,
 } from '../src/assetlib/smithsonian.js';
+import {
+  fetchPlateauBuildingIndex,
+  normalizePlateauBuildingDatasets,
+} from '../src/assetlib/plateau.js';
+import {
+  findPlateauLandmark,
+  searchPlateauLandmarks,
+} from '../src/assetlib/plateauLandmarks.js';
 import {
   ASSET_SOURCES,
   ASSET_SOURCE_INTEGRATIONS,
@@ -172,6 +180,44 @@ const AMBIENTCG_PAYLOAD = {
   }],
 };
 
+const PLATEAU_PAYLOAD = {
+  datasets: [
+    { id: '13101_bldg_lod3_no_texture', format: '3D Tiles', year: 2025 },
+    { id: '01101_bldg_lod2', format: '3D Tiles', year: 2020 },
+  ],
+  latest_citygml: [{
+    city: '千代田区',
+    city_code: '13101',
+    feature_types: ['bldg', 'tran'],
+    file_size: 9000,
+    id: '13101',
+    url: 'https://api.plateauview.mlit.go.jp/datacatalog/citygml/13101-latest/citygml.zip',
+  }],
+  latest_datasets: [
+    {
+      city: '千代田区', city_code: '13101', file_size: 1000, format: '3D Tiles',
+      format_version: '1.0', id: '13101_bldg_lod2', lod: '2',
+      pref: '東京都', pref_code: '13', texture: true, type_en: 'bldg',
+      url: 'https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13101-bldg-lod2-texture-latest/tileset.json',
+      ward: null, ward_code: null,
+    },
+    {
+      city: '千代田区', city_code: '13101', file_size: 2000, format: '3D Tiles',
+      format_version: '1.0', id: '13101_bldg_lod3_no_texture', lod: '3',
+      pref: '東京都', pref_code: '13', texture: false, type_en: 'bldg',
+      url: 'https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13101-bldg-lod3-notexture-latest/tileset.json',
+      ward: null, ward_code: null,
+    },
+    {
+      city: '札幌市', city_code: '01100', file_size: 3000, format: '3D Tiles',
+      format_version: '1.0', id: '01101_bldg_lod2', lod: '2',
+      pref: '北海道', pref_code: '01', texture: true, type_en: 'bldg',
+      url: 'https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/01101-bldg-lod2-texture-latest/tileset.json',
+      ward: '中央区', ward_code: '01101',
+    },
+  ],
+};
+
 // --- normalization -----------------------------------------------------------------
 
 const refs = normalizePolyhavenIndex(POLYHAVEN_INDEX, { now: NOW, type: 'models' });
@@ -243,6 +289,54 @@ check('ambientcg: exact attribute download',
 check('ambientcg: smallest-zip fallback',
   resolveAmbientcgDownload(acgRefs[0], { format: 'EXR', resolution: '16K' }).fileName === 'Bricks097_1K-JPG.zip');
 
+// --- Project PLATEAU ---------------------------------------------------------------
+
+const plateauRefs = normalizePlateauBuildingDatasets(PLATEAU_PAYLOAD);
+check('plateau: one highest-LOD building dataset per municipality/ward',
+  plateauRefs.length === 2
+  && plateauRefs.find((ref) => ref.id === '13101-bldg')?.metadata.lod === 3
+  && plateauRefs.find((ref) => ref.id === '01101-bldg')?.metadata.lod === 2);
+check('plateau: stable latest 3D Tiles + CityGML links and data year survive',
+  plateauRefs.find((ref) => ref.id === '13101-bldg')?.download.url.includes('-latest/tileset.json')
+  && plateauRefs.find((ref) => ref.id === '13101-bldg')?.citygml.url.includes('citygml.zip')
+  && plateauRefs.find((ref) => ref.id === '13101-bldg')?.metadata.dataYear === 2025);
+check('plateau: open-data license requires attribution and is not mislabeled CC0',
+  plateauRefs.every((ref) => ref.attribution.requiresAttribution === true
+    && ref.attribution.license.includes('PDL 1.0')
+    && ref.attribution.text.startsWith('出典：国土交通省 Project PLATEAU')));
+
+let plateauRequest = null;
+const fetchedPlateau = await fetchPlateauBuildingIndex({
+  apiUrl: 'https://plateau-proxy.example/datacatalog/plateau-datasets',
+  fetchImpl: async (url, options) => {
+    plateauRequest = { options, url };
+    return { json: async () => PLATEAU_PAYLOAD, ok: true };
+  },
+});
+check('plateau: live client identifies Node requests and uses the catalog payload',
+  fetchedPlateau.length === 2
+  && plateauRequest.url.includes('plateau-datasets')
+  && plateauRequest.options.headers.get('user-agent') === ASSETLIB_USER_AGENT);
+
+const tokyoTower = findPlateauLandmark('landmark-tokyo-tower');
+const tokyoTowerGlb = readFileSync(resolve(
+  fileURLToPath(import.meta.url),
+  '../../public/plateau-landmarks/tokyo-tower.glb',
+));
+check('plateau landmarks: Tokyo Tower is searchable by English, Japanese, and building id',
+  searchPlateauLandmarks('Tokyo Tower')[0]?.id === 'landmark-tokyo-tower'
+  && searchPlateauLandmarks('東京タワー')[0]?.id === 'landmark-tokyo-tower'
+  && searchPlateauLandmarks('13103-bldg-6915')[0]?.id === 'landmark-tokyo-tower');
+check('plateau landmarks: metadata identifies one processed PLATEAU feature',
+  tokyoTower.metadata.payloadType === 'glb'
+  && tokyoTower.metadata.processed === true
+  && tokyoTower.metadata.sourceGmlId === 'bldg_7aff4a51-be8b-405b-abe4-ac489697cbc8'
+  && tokyoTower.metadata.measuredHeight === 332.1
+  && tokyoTower.metadata.triangleCount === 460);
+check('plateau landmarks: bundled artifact is a nonempty GLB matching the manifest',
+  tokyoTowerGlb.subarray(0, 4).toString('utf8') === 'glTF'
+  && tokyoTowerGlb.byteLength === tokyoTower.download.sizeBytes);
+
 // --- Poly Pizza ----------------------------------------------------------------------
 
 const POLYPIZZA_PAYLOAD = {
@@ -311,9 +405,9 @@ check('sources: ids unique + shapes complete', (() => {
     && source.notes
     && source.goodFor);
 })());
-check('sources: curation policy — only Poly Haven + ambientCG ship enabled',
+check('sources: curation policy — reviewed sources ship enabled',
   ASSET_SOURCES.filter((source) => source.enabled).map((source) => source.id).sort().join(',')
-    === 'ambientcg,polyhaven');
+    === 'ambientcg,plateau,polyhaven');
 check('sources: enabled ⇒ reviewed tier; unreviewed ⇒ disabled', ASSET_SOURCES.every((source) => (source.enabled
   ? source.qualityTier !== 'unreviewed'
   : source.qualityTier === 'unreviewed')));
@@ -338,6 +432,13 @@ check('sources: Smithsonian uses the dedicated keyless 3D API', (() => {
   return smithsonian.integration === 'api'
     && smithsonian.keyed === false
     && /3d-api\.si\.edu/.test(smithsonian.notes);
+})());
+check('sources: PLATEAU is an enabled keyless model API with attribution license', (() => {
+  const plateau = getAssetSource('plateau');
+  return plateau.enabled
+    && plateau.integration === 'api'
+    && plateau.kinds.includes('model')
+    && plateau.license.includes('PDL 1.0');
 })());
 check('listAssetSources: hides disabled by default, includeDisabled shows all, filters work',
   listAssetSources().every((source) => source.enabled)

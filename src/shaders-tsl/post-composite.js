@@ -56,6 +56,7 @@ import {
   distance,
   dot,
   float,
+  exp,
   floor,
   fract,
   Fn,
@@ -64,6 +65,7 @@ import {
   max,
   min,
   mix,
+  pow,
   positionLocal,
   screenCoordinate,
   sign,
@@ -78,6 +80,8 @@ import {
   perspectiveDepthToViewZ,
 } from 'three/tsl';
 import { NodeMaterial } from 'three/webgpu';
+
+import { environmentStateUniformNodes } from './chunks/environment-state.js';
 
 // Shared 1x1 placeholder so every optional texture uniform (tLut,
 // tCharacterMask, tBloom, and the not-yet-wired tDepth/tDiffuse at
@@ -245,6 +249,21 @@ export function createPostCompositeNodeMaterial() {
     depthCueFar: uniform(24.0),
     depthCueNear: uniform(1.0),
     depthCueStrength: uniform(0.0),
+    // Two-layer stylized atmosphere (the reference sky system's signature
+    // fog): a scene-color mix fog with height falloff + an additive glow fog
+    // centered on the sun/moon. Colors and glow parameters come from the
+    // shared environment state so the day cycle drives them scene-wide.
+    useAtmosphere: uniform(0.0),
+    atmosphereStrength: uniform(0.55),
+    atmosphereNear: uniform(60.0),
+    atmosphereFar: uniform(900.0),
+    atmosphereHeightFalloff: uniform(0.012),
+    atmosphereBaseHeight: uniform(0.0),
+    atmosphereGlowStrength: uniform(1.0),
+    atmosphereInverseViewProjection: uniform(new THREE.Matrix4()),
+    atmosphereViewProjection: uniform(new THREE.Matrix4()),
+    atmosphereCameraPosition: uniform(new THREE.Vector3()),
+    atmosphereAspect: uniform(16 / 9),
     exposure: uniform(1.0),
     tLut: texture(fallbackPostTexture()),
     lutSize: uniform(0.0),
@@ -296,6 +315,23 @@ export function createPostCompositeNodeMaterial() {
     const fragCoordZ = u.tDepth.sample(rtUv(sampleUv)).level(0).x;
     const viewZ = perspectiveDepthToViewZ(fragCoordZ, u.cameraNear, u.cameraFar);
     return viewZToOrthographicDepth(viewZ, u.cameraNear, u.cameraFar);
+  });
+
+  // View distance in METERS — depthCue/atmosphere parameters are authored in
+  // world units (depthCueFar: 1250 means 1250 m), so comparing them against
+  // the [0,1] normalized depth above silently disabled the whole stage.
+  const readViewDistance = Fn(([sampleUv]) => {
+    const fragCoordZ = u.tDepth.sample(rtUv(sampleUv)).level(0).x;
+    return perspectiveDepthToViewZ(fragCoordZ, u.cameraNear, u.cameraFar).negate();
+  });
+
+  // World-position reconstruction from the depth prepass (same NDC math the
+  // motion-blur stage uses).
+  const reconstructWorldPosition = Fn(([sampleUv]) => {
+    const fragDepth = u.tDepth.sample(rtUv(sampleUv)).level(0).x;
+    const ndc = vec4(sampleUv.mul(2.0).sub(1.0), fragDepth.mul(2.0).sub(1.0), 1.0);
+    const world = u.atmosphereInverseViewProjection.mul(ndc).toVar();
+    return world.xyz.div(world.w);
   });
 
   const sampleLutSlice = Fn(([color, slice]) => {
@@ -401,9 +437,54 @@ export function createPostCompositeNodeMaterial() {
     });
 
     If(u.useDepthCue.greaterThan(0.5), () => {
-      const depth = readLinearDepth(vUv);
-      const cue = smoothstep(u.depthCueNear, u.depthCueFar, depth).mul(u.depthCueStrength);
+      const viewDistance = readViewDistance(vUv);
+      const cue = smoothstep(u.depthCueNear, u.depthCueFar, viewDistance).mul(u.depthCueStrength);
       color.assign(mix(color, u.depthCueColor, cue));
+    });
+
+    If(u.useAtmosphere.greaterThan(0.5), () => {
+      const env = environmentStateUniformNodes;
+      const viewDistance = readViewDistance(vUv).toVar();
+      const worldPosition = reconstructWorldPosition(vUv).toVar();
+
+      // Layer 1 — atmospheric mix fog: fades the world toward the state fog
+      // color with distance, thinning with altitude so peaks stay clear.
+      const heightAbove = max(worldPosition.y.sub(u.atmosphereBaseHeight), 0.0);
+      const heightWeight = exp(heightAbove.mul(u.atmosphereHeightFalloff).negate());
+      const fogAmount = smoothstep(u.atmosphereNear, max(u.atmosphereFar, u.atmosphereNear.add(1.0)), viewDistance)
+        .mul(clamp(u.atmosphereStrength, 0.0, 1.0))
+        .mul(heightWeight)
+        .toVar();
+      color.assign(mix(color, env.atmosphereFogColor, clamp(fogAmount, 0.0, 0.97)));
+
+      // Layer 2 — additive celestial glow fog: a depth-aware halo around the
+      // screen-projected sun/moon. This is what builds the multi-colored
+      // sunrise/sunset gradients over the far landscape.
+      const glowTotal = env.atmosphereGlowIntensity.mul(u.atmosphereGlowStrength);
+      If(glowTotal.greaterThan(0.001), () => {
+        const addGlow = (direction, bodyColor, visibility) => {
+          const clip = u.atmosphereViewProjection.mul(
+            vec4(u.atmosphereCameraPosition.add(direction.mul(1000.0)), 1.0),
+          ).toVar();
+          If(clip.w.greaterThan(0.0), () => {
+            const bodyUv = clip.xy.div(clip.w).mul(0.5).add(0.5);
+            const offset = vUv.sub(bodyUv).mul(vec2(u.atmosphereAspect, 1.0));
+            const halo = pow(
+              clamp(length(offset).div(max(env.atmosphereGlowSpread, 0.01)).oneMinus(), 0.0, 1.0),
+              2.2,
+            );
+            // Far pixels only: the glow is fog lit by the body, not a lens
+            // flare — nearby geometry keeps its own color.
+            const depthWeight = smoothstep(u.atmosphereNear.mul(0.4), u.atmosphereFar.mul(0.8), viewDistance);
+            color.addAssign(
+              env.atmosphereGlowColor.mul(bodyColor)
+                .mul(halo).mul(depthWeight).mul(glowTotal).mul(visibility),
+            );
+          });
+        };
+        addGlow(env.sunDirection, vec3(1.0), env.sunVisibility);
+        addGlow(env.moonDirection, env.moonColor, env.moonVisibility.mul(env.moonIntensity));
+      });
     });
 
     If(u.useColorGrade.greaterThan(0.5), () => {

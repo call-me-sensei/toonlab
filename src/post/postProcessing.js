@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-import { createPassDepthColorMaterial } from '../shaders-tsl/chunks/pass-depth-color.js';
+import { createSceneDepthColorPass } from '../shaders-tsl/chunks/scene-depth-color-pass.js';
 import {
   createBloomDownsampleNodeMaterial,
   createBloomPrefilterNodeMaterial,
@@ -14,6 +14,9 @@ import {
 } from '../core/presetDocuments.js';
 
 export const DEFAULT_POST_PROCESSING_FEATURES = Object.freeze({
+  // Two-layer stylized atmosphere: distance/height mix fog + additive
+  // sun/moon glow fog. Colors come from the shared environment state.
+  atmosphere: false,
   bloom: false,
   colorGrade: false,
   depthCue: false,
@@ -43,6 +46,12 @@ export const DEFAULT_POST_PROCESSING_PARAMETERS = Object.freeze({
   bloomStrength: 0.0,
   bloomThreshold: 0.995,
   bottomDark: 0.0,
+  atmosphereBaseHeight: 0.0,
+  atmosphereFar: 900.0,
+  atmosphereGlowStrength: 1.0,
+  atmosphereHeightFalloff: 0.012,
+  atmosphereNear: 60.0,
+  atmosphereStrength: 0.55,
   contrast: 1.0,
   depthCueColor: new THREE.Color(0x9db7d8),
   depthCueFar: 24.0,
@@ -226,6 +235,10 @@ const POST_PROCESSING_FIELD_DEFINITIONS = Object.freeze({
       description: 'Applies exposure, contrast, saturation, and warmth grading.',
       label: 'Color Grade',
     },
+    atmosphere: {
+      description: 'Two-layer stylized atmosphere: distance/height mix fog plus an additive sun/moon glow halo, colored by the scene environment state.',
+      label: 'Atmosphere',
+    },
     depthCue: {
       description: 'Fades distant pixels toward the depth cue color for atmospheric depth.',
       label: 'Depth Cue',
@@ -297,6 +310,36 @@ const POST_PROCESSING_FIELD_DEFINITIONS = Object.freeze({
       description: 'Scales contrast around mid gray in the color grade.',
       label: 'Contrast',
       range: { max: 2, min: 0, step: 0.01 },
+    },
+    atmosphereBaseHeight: {
+      description: 'World height where atmosphere fog is densest; fog thins above it.',
+      label: 'Atmosphere Base Height',
+      range: { max: 500, min: -100, step: 1 },
+    },
+    atmosphereFar: {
+      description: 'View distance in meters where atmosphere fog reaches full strength.',
+      label: 'Atmosphere Far',
+      range: { max: 4000, min: 10, step: 10 },
+    },
+    atmosphereGlowStrength: {
+      description: 'Multiplier on the environment-state sun/moon glow fog.',
+      label: 'Atmosphere Glow',
+      range: { max: 3, min: 0, step: 0.05 },
+    },
+    atmosphereHeightFalloff: {
+      description: 'How quickly atmosphere fog thins with altitude above the base height.',
+      label: 'Atmosphere Height Falloff',
+      range: { max: 0.2, min: 0, step: 0.001 },
+    },
+    atmosphereNear: {
+      description: 'View distance in meters where atmosphere fog starts.',
+      label: 'Atmosphere Near',
+      range: { max: 1000, min: 0, step: 5 },
+    },
+    atmosphereStrength: {
+      description: 'Maximum blend of the atmospheric mix fog.',
+      label: 'Atmosphere Strength',
+      range: { max: 1, min: 0, step: 0.01 },
     },
     depthCueColor: {
       description: 'Sets the color distant pixels fade toward.',
@@ -813,6 +856,7 @@ function createScenePostDepthTarget(width, height) {
 function needsScenePostDepth(settings) {
   const { features, parameters } = settings;
   return Boolean(
+    features.atmosphere ||
     features.depthCue ||
     features.screenOutline ||
     (features.motionBlur && parameters.motionBlurStrength > 0),
@@ -869,6 +913,14 @@ function applyCompositeSettings(material, settings, camera, depthTexture, width,
   uniforms.tDiffuse.value = material.userData.sourceTexture || fallbackPostTexture();
   uniforms.topLight.value = parameters.topLight;
   uniforms.useColorGrade.value = features.colorGrade ? 1.0 : 0.0;
+  uniforms.useAtmosphere.value = features.atmosphere ? 1.0 : 0.0;
+  uniforms.atmosphereStrength.value = parameters.atmosphereStrength;
+  uniforms.atmosphereNear.value = parameters.atmosphereNear;
+  uniforms.atmosphereFar.value = parameters.atmosphereFar;
+  uniforms.atmosphereHeightFalloff.value = parameters.atmosphereHeightFalloff;
+  uniforms.atmosphereBaseHeight.value = parameters.atmosphereBaseHeight;
+  uniforms.atmosphereGlowStrength.value = parameters.atmosphereGlowStrength;
+  uniforms.atmosphereAspect.value = height > 0 ? width / height : 16 / 9;
   uniforms.useDepthCue.value = features.depthCue ? 1.0 : 0.0;
   uniforms.useScreenOutline.value = features.screenOutline ? 1.0 : 0.0;
   uniforms.useVignette.value = features.vignette ? 1.0 : 0.0;
@@ -898,7 +950,7 @@ export function createPostProcessingPipeline({
 
   // Allocated unconditionally, but only rendered into when a depth-consuming
   // feature is active.
-  const sceneDepthColorMaterial = createPassDepthColorMaterial();
+  const sceneDepthColorPass = createSceneDepthColorPass({ scene });
   const sceneDepthColorTarget = createScenePostDepthTarget(width * pixelRatio, height * pixelRatio);
   function compositeDepthTexture() {
     return sceneDepthColorTarget.texture;
@@ -1037,10 +1089,10 @@ export function createPostProcessingPipeline({
       disposed = true;
       target.dispose();
       sceneDepthColorTarget.dispose();
+      sceneDepthColorPass.dispose();
       disposeBloomChain();
       for (const material of [
         compositeMaterial,
-        sceneDepthColorMaterial,
         bloomPrefilterMaterial,
         bloomDownsampleMaterial,
         bloomUpsampleMaterial,
@@ -1063,12 +1115,7 @@ export function createPostProcessingPipeline({
       // this frame actually reads depth, exactly like characterRenderPasses'
       // "only renders when a registered material consumes its output".
       if (needsScenePostDepth(settings)) {
-        const previousOverrideMaterial = scene.overrideMaterial;
-        renderer.setRenderTarget(sceneDepthColorTarget);
-        renderer.clear();
-        scene.overrideMaterial = sceneDepthColorMaterial;
-        renderer.render(scene, camera);
-        scene.overrideMaterial = previousOverrideMaterial;
+        sceneDepthColorPass.render(renderer, camera, sceneDepthColorTarget);
       }
 
       renderer.setRenderTarget(target);
@@ -1076,6 +1123,13 @@ export function createPostProcessingPipeline({
       renderer.render(scene, camera);
 
       const uniforms = compositeMaterial.uniforms;
+
+      if (settings.features.atmosphere) {
+        currentViewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+        uniforms.atmosphereViewProjection.value.copy(currentViewProjection);
+        uniforms.atmosphereInverseViewProjection.value.copy(currentViewProjection).invert();
+        camera.getWorldPosition(uniforms.atmosphereCameraPosition.value);
+      }
 
       if (settings.features.motionBlur && settings.parameters.motionBlurStrength > 0) {
         currentViewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -1150,6 +1204,7 @@ export function createPostProcessingPipeline({
         currentPixelRatio,
       );
     },
+    sceneDepthReport: sceneDepthColorPass.report,
     stats,
     target,
   };

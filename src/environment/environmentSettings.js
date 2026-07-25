@@ -122,10 +122,21 @@ export const DEFAULT_ENVIRONMENT_PARAMETERS = Object.freeze({
   spotLightStrength: null,
   sunBoost: null,
   sunBoostColor: null,
+  cliffFade: null,
+  cliffNoiseScale: null,
+  cliffNoiseStrength: null,
+  cliffStart: null,
+  colormapDecode: null,
+  colormapMode: null,
+  colormapStrength: null,
+  dualDetailMix: null,
+  dualDetailScale: null,
   triplanarDetail: null,
   triplanarDetailScale: null,
   triplanarEdgeHighlight: null,
   untexturedGradientStrength: null,
+  vtBlendHeight: null,
+  vtBlendStrength: null,
   vertexAoStrength: null,
 });
 
@@ -224,9 +235,20 @@ const FIELD_LABEL_OVERRIDES = Object.freeze({
   spotLightStrength: 'Spot Light',
   sunBoost: 'Sun Boost',
   sunBoostColor: 'Sun Boost Color',
+  cliffFade: 'Cliff Fade',
+  cliffNoiseScale: 'Cliff Noise Scale',
+  cliffNoiseStrength: 'Cliff Noise Strength',
+  cliffStart: 'Cliff Start',
+  colormapDecode: 'Colormap Decode',
+  colormapMode: 'Colormap Mode',
+  colormapStrength: 'Macro Colormap',
+  dualDetailMix: 'Dual Detail Mix',
+  dualDetailScale: 'Dual Detail Scale',
   triplanarDetail: 'Triplanar Detail',
   triplanarDetailScale: 'Triplanar Detail Scale',
   triplanarEdgeHighlight: 'Rock Edge Highlight',
+  vtBlendHeight: 'Ground Melt Height',
+  vtBlendStrength: 'Ground Melt',
   windowCutout: 'Window Cutout',
 });
 
@@ -497,6 +519,17 @@ export function applyEnvironmentSettingsToMaterial(material, settingsInput = {})
   setNumberUniform(uniforms, 'triplanarDetail', parameters.triplanarDetail);
   setNumberUniform(uniforms, 'triplanarDetailScale', parameters.triplanarDetailScale);
   setNumberUniform(uniforms, 'triplanarEdgeHighlight', parameters.triplanarEdgeHighlight);
+  setNumberUniform(uniforms, 'cliffStart', parameters.cliffStart);
+  setNumberUniform(uniforms, 'cliffFade', parameters.cliffFade);
+  setNumberUniform(uniforms, 'cliffNoiseScale', parameters.cliffNoiseScale);
+  setNumberUniform(uniforms, 'cliffNoiseStrength', parameters.cliffNoiseStrength);
+  setNumberUniform(uniforms, 'dualDetailMix', parameters.dualDetailMix);
+  setNumberUniform(uniforms, 'dualDetailScale', parameters.dualDetailScale);
+  setNumberUniform(uniforms, 'colormapStrength', parameters.colormapStrength);
+  setNumberUniform(uniforms, 'colormapDecode', parameters.colormapDecode);
+  setNumberUniform(uniforms, 'colormapMode', parameters.colormapMode);
+  setNumberUniform(uniforms, 'vtBlendStrength', parameters.vtBlendStrength);
+  setNumberUniform(uniforms, 'vtBlendHeight', parameters.vtBlendHeight);
   setColorUniform(uniforms, 'heightFogColor', parameters.heightFogColor);
   setColorUniform(uniforms, 'interiorOcclusionColor', parameters.interiorOcclusionColor);
   setColorUniform(uniforms, 'leftSideShadowColor', parameters.leftSideShadowColor);

@@ -90,11 +90,15 @@ import {
   scatterGrassAround,
   scatterInRect,
   createSlopeMask,
+  createSurfaceWeightMask,
   createWaterMask,
   combineMasks,
 } from '@call-me-sensei/toonlab/vegetation';
 
 const mask = combineMasks(
+  // The terrain owns this weight field. A value of 1 means meadow/grass;
+  // rock, dirt, paths, and other painted layers drive it toward 0.
+  createSurfaceWeightMask({ weightAt: terrain.grassWeightAt, threshold: 0.4 }),
   createSlopeMask({ heightAt, maxSlope: 0.6 }),   // rise/run; 0.6 ≈ 31°
   createWaterMask({ heightAt, waterLevel: waterY, margin: 0.2 }),
 );
@@ -120,3 +124,9 @@ const rockSpots = scatterInRect({ min, max, count: 24, minSpacing: 6, seed: 2, h
 Same seed, same inputs → same world, so captures and multiplayer stay
 deterministic. The world presets carry recommended scatter parameters per
 scale (`world.trees.scatter`, `world.grass.scatter`).
+
+Surface ownership is data-driven rather than manual cleanup. Rebuild the
+scatter after terrain height or layer edits and the combined mask reattaches
+placements to the new height field while rejecting dirt, rock, cliffs, and
+water. `createSlopeMask` is a safety rule; `createSurfaceWeightMask` is the
+authoritative material/biome rule.

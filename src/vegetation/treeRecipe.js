@@ -91,6 +91,7 @@ export const TREE_SETTING_DEFAULTS = Object.freeze({
     coreRadius: 0.9,
   }),
   leaves: Object.freeze({
+    architecture: CANONICAL_DEFAULTS.canopy.architecture,
     placement: CANONICAL_DEFAULTS.tree.leafPlacement,
     density: CANONICAL_DEFAULTS.tree.leafDensity,
     cardCount: CANONICAL_DEFAULTS.canopy.cardCount,
@@ -98,7 +99,14 @@ export const TREE_SETTING_DEFAULTS = Object.freeze({
     cardSizeMax: CANONICAL_DEFAULTS.canopy.cardSizeRange[1],
     cardsPerCluster: CANONICAL_DEFAULTS.canopy.cardsPerCluster,
     clusterRadius: CANONICAL_DEFAULTS.canopy.clusterRadius,
+    frondCount: CANONICAL_DEFAULTS.canopy.frondCount,
+    frondLength: CANONICAL_DEFAULTS.canopy.frondLength,
     shellFill: CANONICAL_DEFAULTS.canopy.shellFill,
+    sprayLayers: CANONICAL_DEFAULTS.canopy.sprayLayers,
+    spraySpread: CANONICAL_DEFAULTS.canopy.spraySpread,
+    sprayThickness: CANONICAL_DEFAULTS.canopy.sprayThickness,
+    whorlArms: CANONICAL_DEFAULTS.canopy.whorlArms,
+    whorlRadius: CANONICAL_DEFAULTS.canopy.whorlRadius,
   }),
   color: Object.freeze({
     canopy: Object.freeze([...CANONICAL_DEFAULTS.tree.canopyColor]),
@@ -267,6 +275,7 @@ export const TREE_SETTING_FIELD_SCHEMA = Object.freeze({
     canopyScale: field('canopy', 'canopyScale', { from: 'tree.canopyScale' }),
   }),
   leaves: Object.freeze({
+    architecture: field('leaves', 'architecture', { from: 'canopy.architecture' }),
     placement: field('leaves', 'placement', { from: 'tree.leafPlacement' }),
     density: field('leaves', 'density', { from: 'tree.leafDensity' }),
     cardCount: field('leaves', 'cardCount', { from: 'canopy.cardCount' }),
@@ -282,6 +291,13 @@ export const TREE_SETTING_FIELD_SCHEMA = Object.freeze({
     }),
     cardsPerCluster: field('leaves', 'cardsPerCluster', { from: 'canopy.cardsPerCluster' }),
     clusterRadius: field('leaves', 'clusterRadius', { from: 'canopy.clusterRadius' }),
+    sprayLayers: field('leaves', 'sprayLayers', { from: 'canopy.sprayLayers' }),
+    spraySpread: field('leaves', 'spraySpread', { from: 'canopy.spraySpread' }),
+    sprayThickness: field('leaves', 'sprayThickness', { from: 'canopy.sprayThickness' }),
+    whorlArms: field('leaves', 'whorlArms', { from: 'canopy.whorlArms' }),
+    whorlRadius: field('leaves', 'whorlRadius', { from: 'canopy.whorlRadius' }),
+    frondCount: field('leaves', 'frondCount', { from: 'canopy.frondCount' }),
+    frondLength: field('leaves', 'frondLength', { from: 'canopy.frondLength' }),
     shellFill: field('leaves', 'shellFill', { from: 'canopy.shellFill' }),
   }),
   flower: Object.freeze({
@@ -382,11 +398,19 @@ export function treeOptionsFromSettings(settings) {
     canopyPalette: paletteFromSettings(color),
     leafDensity: leaves.density,
     canopy: {
+      architecture: leaves.architecture,
       cardCount: leaves.cardCount,
       cardSizeRange: [leaves.cardSizeMin, Math.max(leaves.cardSizeMax, leaves.cardSizeMin)],
       cardsPerCluster: leaves.cardsPerCluster,
       clusterRadius: leaves.clusterRadius,
+      frondCount: leaves.frondCount,
+      frondLength: leaves.frondLength,
       shellFill: leaves.shellFill,
+      sprayLayers: leaves.sprayLayers,
+      spraySpread: leaves.spraySpread,
+      sprayThickness: leaves.sprayThickness,
+      whorlArms: leaves.whorlArms,
+      whorlRadius: leaves.whorlRadius,
     },
     foliage: windOptionsFromSettings(settings),
   };
@@ -465,17 +489,26 @@ export function treeOptionsFromSettings(settings) {
 
 const PLANT_TYPES = new Set(['tree', 'bush', 'flower']);
 
+export const TREE_GROWTH_FORMS = Object.freeze([
+  'sapling', 'mature', 'ancient', 'windswept', 'asymmetric', 'dead-standing',
+]);
+
+export const TREE_AGE_CLASSES = Object.freeze(['young', 'mature', 'old', 'ancient', 'dead']);
+
 function normalizePlantType(type) {
   return PLANT_TYPES.has(type) ? type : 'tree';
 }
 
-export function recipeFromSettings(settings) {
-  return {
+export function recipeFromSettings(settings, { taxonomy = null, surfaceLooks = null } = {}) {
+  const recipe = {
     schema: TREE_RECIPE_SCHEMA,
     version: TREE_RECIPE_VERSION,
     type: normalizePlantType(settings.plant.type),
     options: serializableTreeOptions(treeOptionsFromSettings(settings)),
   };
+  if (taxonomy) recipe.taxonomy = JSON.parse(JSON.stringify(taxonomy));
+  if (surfaceLooks) recipe.surfaceLooks = JSON.parse(JSON.stringify(surfaceLooks));
+  return recipe;
 }
 
 // Which trunk style matches these explicit values? Best-effort for the UI.
@@ -521,6 +554,7 @@ export function settingsFromRecipe(recipe) {
 
   settings.leaves.density = options.leafDensity ?? defaults.leaves.density;
   const canopyOptions = options.canopy ?? {};
+  if (canopyOptions.architecture !== undefined) settings.leaves.architecture = canopyOptions.architecture;
   if (canopyOptions.cardCount !== undefined) settings.leaves.cardCount = canopyOptions.cardCount;
   if (canopyOptions.cardSizeRange) {
     settings.leaves.cardSizeMin = canopyOptions.cardSizeRange[0];
@@ -528,6 +562,10 @@ export function settingsFromRecipe(recipe) {
   }
   if (canopyOptions.cardsPerCluster !== undefined) settings.leaves.cardsPerCluster = canopyOptions.cardsPerCluster;
   if (canopyOptions.clusterRadius !== undefined) settings.leaves.clusterRadius = canopyOptions.clusterRadius;
+  for (const key of ['frondCount', 'frondLength', 'sprayLayers', 'spraySpread',
+    'sprayThickness', 'whorlArms', 'whorlRadius']) {
+    if (canopyOptions[key] !== undefined) settings.leaves[key] = canopyOptions[key];
+  }
   if (canopyOptions.shellFill !== undefined) settings.leaves.shellFill = canopyOptions.shellFill;
 
   const layout = options.canopyLayout ?? {};
@@ -589,6 +627,28 @@ export function settingsFromRecipe(recipe) {
 // Same contract as validateToonPresetDocument: { ok, value?, errors? }.
 // Structural checks only — options intentionally may exceed the panel's
 // slider ranges (recipes are a superset of what the UI edits).
+export function upgradeTreeRecipeDocument(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
+  if (input.schema !== TREE_RECIPE_SCHEMA || input.version !== 1) return input;
+  const options = serializableTreeOptions(input.options ?? {});
+  options.canopy = {
+    architecture: CANONICAL_DEFAULTS.canopy.architecture,
+    sprayLayers: CANONICAL_DEFAULTS.canopy.sprayLayers,
+    spraySpread: CANONICAL_DEFAULTS.canopy.spraySpread,
+    sprayThickness: CANONICAL_DEFAULTS.canopy.sprayThickness,
+    whorlArms: CANONICAL_DEFAULTS.canopy.whorlArms,
+    whorlRadius: CANONICAL_DEFAULTS.canopy.whorlRadius,
+    frondCount: CANONICAL_DEFAULTS.canopy.frondCount,
+    frondLength: CANONICAL_DEFAULTS.canopy.frondLength,
+    ...(options.canopy ?? {}),
+  };
+  return {
+    ...input,
+    version: TREE_RECIPE_VERSION,
+    options,
+  };
+}
+
 export function validateTreeRecipeDocument(input, { requireIdentity = false } = {}) {
   const errors = [];
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
@@ -613,18 +673,54 @@ export function validateTreeRecipeDocument(input, { requireIdentity = false } = 
   if (input.description !== undefined && typeof input.description !== 'string') {
     errors.push('description must be a string when present.');
   }
+  if (input.taxonomy !== undefined) {
+    if (!input.taxonomy || typeof input.taxonomy !== 'object' || Array.isArray(input.taxonomy)) {
+      errors.push('taxonomy must be an object when present.');
+    } else {
+      for (const key of ['family', 'growthForm', 'ageClass']) {
+        if (typeof input.taxonomy[key] !== 'string' || !input.taxonomy[key].trim()) {
+          errors.push(`taxonomy.${key} must be a non-empty string.`);
+        }
+      }
+    }
+  }
+  if (input.surfaceLooks !== undefined) {
+    if (!Array.isArray(input.surfaceLooks) || input.surfaceLooks.length === 0) {
+      errors.push('surfaceLooks must be a non-empty array when present.');
+    } else {
+      const ids = new Set();
+      for (const look of input.surfaceLooks) {
+        if (!look || typeof look !== 'object' || Array.isArray(look)
+          || typeof look.id !== 'string' || !/^[a-z0-9-]+$/.test(look.id)) {
+          errors.push('every surface look needs a lowercase path-safe id.');
+          break;
+        }
+        if (ids.has(look.id)) errors.push(`surface look id "${look.id}" is duplicated.`);
+        ids.add(look.id);
+      }
+    }
+  }
   if (errors.length) return { ok: false, errors };
 
+  const upgraded = upgradeTreeRecipeDocument(input);
   const value = {
     schema: TREE_RECIPE_SCHEMA,
-    version: input.version,
-    type: input.type,
-    options: input.options,
+    version: TREE_RECIPE_VERSION,
+    type: upgraded.type,
+    options: upgraded.options,
   };
   if (typeof input.id === 'string' && input.id.trim()) value.id = input.id.trim();
   if (typeof input.label === 'string' && input.label.trim()) value.label = input.label.trim();
   if (input.description) value.description = input.description;
+  if (input.taxonomy) value.taxonomy = JSON.parse(JSON.stringify(input.taxonomy));
+  if (input.surfaceLooks) value.surfaceLooks = JSON.parse(JSON.stringify(input.surfaceLooks));
   return { ok: true, value };
+}
+
+export function parseTreeRecipeDocument(input, options) {
+  const result = validateTreeRecipeDocument(input, options);
+  if (!result.ok) throw new Error(`Invalid tree recipe: ${result.errors.join(' ')}`);
+  return result.value;
 }
 
 // Rebuild a plant from a recipe (or bare constructor options). Deterministic:
@@ -632,7 +728,7 @@ export function validateTreeRecipeDocument(input, { requireIdentity = false } = 
 //   import { createPlantFromRecipe } from '@call-me-sensei/toonlab/vegetation';
 export function createPlantFromRecipe(recipe, { trunkMaterial = null } = {}) {
   const document = recipe?.options
-    ? recipe
+    ? parseTreeRecipeDocument(recipe)
     : { schema: TREE_RECIPE_SCHEMA, version: TREE_RECIPE_VERSION, type: 'tree', options: recipe ?? {} };
   if (document.type === 'bush') {
     return new StylizedBush(document.options);

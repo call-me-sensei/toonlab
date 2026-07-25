@@ -1,5 +1,10 @@
 # Environment shading
 
+The licensed So Stylized pack is maintained as a separate native reference
+before any Call Me Sensei treatment is applied. See the
+[So Stylized reference baseline](so-stylized-reference-baseline.md) for the
+documented Unreal renderer, lighting, RVT, post-process, and capture contract.
+
 A modern anime-style scene shader for rooms, props, and terrain. It targets three
 input classes with no shader edits: convention-named texture packs
 (Liyue-style `Diffuse/SMBE/LSAB/ESA/Normal` siblings), standard glTF scenes,

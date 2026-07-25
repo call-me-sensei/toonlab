@@ -1,4 +1,4 @@
-// Landscape Lab pointer tools — UE Landscape/Foliage interaction model over
+// Landscape Lab pointer tools — ToonLab Landscape/Foliage interaction model over
 // the rock-lab pointer plumbing:
 //
 //   Sculpt mode — raise (Shift lowers), smooth, flatten (target sampled at
@@ -12,7 +12,7 @@
 // The store owns mode/tool/brush settings; this module owns pointer state,
 // the ring cursor, live dirty-rect geometry updates during a stroke, and the
 // stroke→command commits into the hybrid history. While a brush is armed the
-// left mouse button paints and the right button still orbits (UE-style);
+// left mouse button paints and the right button still orbits (ToonLab-style);
 // the Orbit tool returns the left button to the camera.
 
 import * as THREE from 'three';
@@ -379,7 +379,7 @@ export function installLandscapeTools({ engine, store }) {
       );
       return;
     }
-    // Explicit placement ignores the paint rules (UE single-place): full
+    // Explicit placement ignores the paint rules (ToonLab single-place): full
     // surface alignment, so a downward normal hangs the asset from a
     // prop-built cave ceiling.
     const normal = new THREE.Vector3(hit.normal.x, hit.normal.y, hit.normal.z).normalize();

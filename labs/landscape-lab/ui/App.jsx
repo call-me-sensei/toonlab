@@ -1,4 +1,4 @@
-// Landscape Lab workspace — deliberately mirrors UE's Landscape/Foliage
+// Landscape Lab workspace — deliberately mirrors ToonLab's Landscape/Foliage
 // editors (mode rail: Sculpt / Paint / Foliage; the Brush Size / Falloff /
 // Strength triplet always on top; Paint target-layer list; Foliage palette
 // grid with checkbox activation and per-mesh settings) rendered with the
@@ -1035,7 +1035,7 @@ async function readImageAsDataUrl(file, maxSize = 512) {
   }
 }
 
-// The four paintable SURFACE TYPES of the terrain (UE calls these "target
+// The four paintable SURFACE TYPES of the terrain (ToonLab calls these "target
 // layers"): pick which surface the brush paints, edit its tint inline, and
 // assign its texture — the picker offers presets that fit the selected
 // surface (a Grass surface lists grasses/ground covers, not cliff rock),
@@ -1150,7 +1150,7 @@ function builtinGlyphName(entry) {
 
 // Full-screen palette manager: current palette on the left (toggle/remove),
 // a searchable asset browser on the right — Built-in always, My Library and
-// Gallery when signed in on Pro (UE's foliage-palette add/remove workflow).
+// Gallery when signed in on Pro (ToonLab's foliage-palette add/remove workflow).
 function PaletteManagerModal({ actions, library, onClose, state }) {
   // Every source is always listed — picking WHERE you search is the point.
   // Library/Gallery show a sign-in empty state when the Pro endpoints are
@@ -1338,7 +1338,7 @@ function PaletteManagerModal({ actions, library, onClose, state }) {
   );
 }
 
-// UE foliage palette: checkbox-activated asset tiles + per-mesh settings for
+// ToonLab foliage palette: checkbox-activated asset tiles + per-mesh settings for
 // the selected tile.
 function FoliagePalette({ actions, library, state }) {
   const [managerOpen, setManagerOpen] = useState(false);

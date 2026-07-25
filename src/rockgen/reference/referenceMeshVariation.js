@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 
-import { installSoStylizedUnityUrpLighting } from '../../environment/soStylizedUnityUrpLighting.js';
+import { installToonLabSurfaceLighting } from '../../environment/toonLabSurfaceLighting.js';
 import { rockReferenceSeedForId } from './referenceCatalog.js';
 
 export const ROCK_REFERENCE_GEOMETRY_MODES = Object.freeze(['original', 'variation']);
@@ -14,8 +14,8 @@ export const ROCK_REFERENCE_MATERIAL_MODES = Object.freeze([
   'source',
   'toonlab',
   // Kept as an input alias for links and callers created before the
-  // Unity-derived S_Rock implementation became ToonLab's baseline.
-  'unity',
+  // ToonLab-derived S_Rock implementation became ToonLab's baseline.
+  'toonlab',
   'authored',
   'neutral',
   'legacy',
@@ -200,15 +200,15 @@ function neutralMaterial() {
 
 /**
  * THREE.Material.clone() copies node slots and userData, but it does not copy
- * instance-owned setupLightingModel overrides. Reinstall the Unity URP bridge
+ * instance-owned setupLightingModel overrides. Reinstall the ToonLab bridge
  * on the clone so its closure reads the cloned material's authored nodes.
  */
 function cloneRockReferenceMaterial(material) {
   if (!material?.clone) throw new TypeError('A clonable THREE.Material is required.');
   const clone = material.clone();
-  const unityLighting = material.userData?.soStylizedUnityUrpLighting;
-  if (unityLighting && clone.isNodeMaterial) {
-    installSoStylizedUnityUrpLighting(clone, { workflow: unityLighting.workflow });
+  const toonLabLighting = material.userData?.toonLabSurfaceLighting;
+  if (toonLabLighting && clone.isNodeMaterial) {
+    installToonLabSurfaceLighting(clone, { workflow: toonLabLighting.workflow });
   }
   return clone;
 }
@@ -217,8 +217,8 @@ function cloneMaterial(asset, mode) {
   if (mode === 'source' && asset.sourceMaterial) {
     return cloneRockReferenceMaterial(asset.sourceMaterial);
   }
-  if ((mode === 'toonlab' || mode === 'unity') && asset.unityMaterial) {
-    return cloneRockReferenceMaterial(asset.unityMaterial);
+  if ((mode === 'toonlab' || mode === 'toonlab') && asset.toonLabMaterial) {
+    return cloneRockReferenceMaterial(asset.toonLabMaterial);
   }
   if (mode === 'authored' && asset.authoredMaterial) {
     return cloneRockReferenceMaterial(asset.authoredMaterial);

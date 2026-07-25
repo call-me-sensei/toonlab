@@ -7,46 +7,61 @@
 
 import { float } from 'three/tsl';
 
-import { installSoStylizedUnityUrpLighting } from './soStylizedUnityUrpLighting.js';
-import { installUeSourceDefaultLitLighting } from './ueSourceDefaultLit.js';
+import { installToonLabSurfaceLighting } from './toonLabSurfaceLighting.js';
+import { installToonLabSourceDefaultLitLighting } from './toonLabSourceDefaultLit.js';
 
 export const PARITY_ENVIRONMENT_INPUT_ADAPTERS = Object.freeze({
-  unityStage: 'unity-stage',
-  ueCapturedScene: 'ue-captured-scene-sh',
+  toonLabStage: 'toonlab-stage',
+  toonLabCapturedScene: 'toonlab-captured-scene-sh',
 });
 
+function canonicalizeEnvironmentInputAdapter(value) {
+  if (
+    typeof value === 'string'
+    && value !== PARITY_ENVIRONMENT_INPUT_ADAPTERS.toonLabStage
+    && value.endsWith('-captured-scene-sh')
+  ) {
+    return PARITY_ENVIRONMENT_INPUT_ADAPTERS.toonLabCapturedScene;
+  }
+
+  return value;
+}
+
 export function resolveParityEnvironmentInputAdapter(contract) {
-  const adapter = contract.sun?.toonlabInputAdapter
-    ?? PARITY_ENVIRONMENT_INPUT_ADAPTERS.unityStage;
+  const requestedAdapter = contract.sun?.toonlabInputAdapter
+    ?? PARITY_ENVIRONMENT_INPUT_ADAPTERS.toonLabStage;
+  const adapter = canonicalizeEnvironmentInputAdapter(requestedAdapter);
   if (!Object.values(PARITY_ENVIRONMENT_INPUT_ADAPTERS).includes(adapter)) {
-    throw new RangeError(`Unsupported parity lighting input adapter: ${adapter}`);
+    throw new RangeError(
+      `Unsupported parity lighting input adapter: ${requestedAdapter}`,
+    );
   }
   return adapter;
 }
 
 function sourceWorkflow(material) {
-  const sourceShader = material.userData?.soStylizedUnityMaterial?.sourceShader ?? '';
-  return material.userData?.soStylizedUnitySceneTree
+  const sourceShader = material.userData?.toonLabMaterial?.sourceShader ?? '';
+  return material.userData?.toonLabSceneTree
     || /Foliage|Leaves|Bark/.test(sourceShader)
     ? 'specular'
     : 'metallic';
 }
 
 function authoredLightingModel(material) {
-  if (material.userData?.ueSourceSubsurfaceLighting) {
-    return 'ue-5.8-legacy-subsurface';
+  if (material.userData?.toonLabSourceSubsurfaceLighting) {
+    return 'toonlab-legacy-subsurface';
   }
-  if (material.userData?.ueSourceDefaultLitLighting) {
-    return 'ue-5.8-legacy-default-lit';
+  if (material.userData?.toonLabSourceDefaultLitLighting) {
+    return 'toonlab-legacy-default-lit';
   }
-  if (material.userData?.soStylizedUnityUrpLighting) {
-    return 'unity-urp';
+  if (material.userData?.toonLabSurfaceLighting) {
+    return 'toonlab-surface';
   }
   return null;
 }
 
 export function bindParityEnvironmentToMaterial(material, contract, {
-  installUnityStage = true,
+  installToonLabStage = true,
 } = {}) {
   const inputAdapter = resolveParityEnvironmentInputAdapter(contract);
   const materialLightingModel = authoredLightingModel(material);
@@ -54,27 +69,27 @@ export function bindParityEnvironmentToMaterial(material, contract, {
   const workflow = sourceWorkflow(material);
 
   // Family-specific source materials already own the correct shading model.
-  // In particular, M_Leaves and M_Foliage use UE's subsurface model; replacing
+  // In particular, M_Leaves and M_Foliage use ToonLab's subsurface model; replacing
   // it with the rock contract's Default Lit model removes their transmitted
   // light and makes vegetation unnaturally dark. The shared boundary supplies
   // environment inputs without changing that authored material decision.
-  if (materialLightingModel === 'ue-5.8-legacy-subsurface') {
+  if (materialLightingModel === 'toonlab-legacy-subsurface') {
     // The source material builder has already installed and clone-rehydrated
-    // the UE subsurface adapter.
-  } else if (materialLightingModel === 'ue-5.8-legacy-default-lit') {
-    installUeSourceDefaultLitLighting(material, {
-      specularNode: material.ueSourceSpecularNode
+    // the ToonLab subsurface adapter.
+  } else if (materialLightingModel === 'toonlab-legacy-default-lit') {
+    installToonLabSourceDefaultLitLighting(material, {
+      specularNode: material.toonLabSourceSpecularNode
         ?? float(contract.engineAdapters.toonlab.specularInput),
     });
-  } else if (contractLightingModel === 'ue-5.8-legacy-default-lit') {
-    installUeSourceDefaultLitLighting(material, {
-      specularNode: material.ueSourceSpecularNode
+  } else if (contractLightingModel === 'toonlab-legacy-default-lit') {
+    installToonLabSourceDefaultLitLighting(material, {
+      specularNode: material.toonLabSourceSpecularNode
         ?? float(contract.engineAdapters.toonlab.specularInput),
     });
-  } else if (inputAdapter === PARITY_ENVIRONMENT_INPUT_ADAPTERS.ueCapturedScene) {
-    installSoStylizedUnityUrpLighting(material, { inputAdapter, workflow });
-  } else if (installUnityStage) {
-    installSoStylizedUnityUrpLighting(material, { workflow });
+  } else if (inputAdapter === PARITY_ENVIRONMENT_INPUT_ADAPTERS.toonLabCapturedScene) {
+    installToonLabSurfaceLighting(material, { inputAdapter, workflow });
+  } else if (installToonLabStage) {
+    installToonLabSurfaceLighting(material, { workflow });
   }
 
   material.userData.sharedParityEnvironment = {
@@ -83,7 +98,7 @@ export function bindParityEnvironmentToMaterial(material, contract, {
     profileId: contract.profileId,
     surfaceLightingModel: materialLightingModel
       ?? contractLightingModel
-      ?? 'unity-urp',
+      ?? 'toonlab-surface',
     workflow,
   };
   material.needsUpdate = true;

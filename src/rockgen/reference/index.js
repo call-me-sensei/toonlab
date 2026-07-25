@@ -21,5 +21,5 @@ export {
 } from './referenceTriangleTargets.js';
 export * from './referenceAssetLoader.js';
 export * from './referenceSourceMaterial.js';
-export * from './unityRockMaterial.js';
+export * from './toonRockMaterial.js';
 export * from './referenceMeshVariation.js';

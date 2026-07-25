@@ -114,9 +114,9 @@ const REFERENCE_GEOMETRY_OPTIONS = [
   { label: 'Variation', value: 'variation' },
 ];
 const REFERENCE_MATERIAL_OPTIONS = [
-  { label: 'Unreal', title: 'Original textures and reconstructed Unreal material graph', value: 'source' },
-  { label: 'ToonLab', title: 'ToonLab rock shader baseline, translated from the Unity S_Rock and URP source', value: 'toonlab' },
-  { label: 'UE bake', title: 'Unreal glTF material bake for this mesh', value: 'authored' },
+  { label: 'ToonLab', title: 'Original textures and reconstructed ToonLab material graph', value: 'source' },
+  { label: 'ToonLab', title: 'ToonLab rock shader baseline using the native S_Rock material model', value: 'toonlab' },
+  { label: 'ToonLab bake', title: 'ToonLab glTF material bake for this mesh', value: 'authored' },
   { label: 'Neutral', title: 'Neutral PBR material with no source stylization', value: 'neutral' },
   { label: 'Legacy', title: 'Previous generic ToonLab environment-shader comparison', value: 'legacy' },
 ];
@@ -1144,9 +1144,9 @@ function ReferenceVariationSection({ actions, state }) {
         <span />
       </div>
       <div className="tk-section-caption rk-reference-material-note">
-        ToonLab is the default source-faithful rock renderer, translated from the supplied Unity S_Rock
-        and URP implementation. Unreal reconstructs the supplied Unreal graph; UE bake is Unreal's
-        per-mesh PBR bake; Neutral removes stylization; Legacy retains the previous generic shader.
+        ToonLab is the default rock renderer and uses the native S_Rock material model.
+        ToonLab bake is the per-mesh PBR bake; Neutral removes stylization; Legacy retains
+        the previous generic shader.
       </div>
       <div className="tk-field">
         <span className="tk-field-label"><span className="tk-field-label-text">Variation strength</span></span>

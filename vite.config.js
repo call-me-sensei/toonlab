@@ -1,5 +1,5 @@
-import { createReadStream, existsSync, statSync } from 'node:fs';
-import { extname, resolve, sep } from 'node:path';
+import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
+import { basename, extname, relative, resolve, sep } from 'node:path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { toonlabWorkspacePlugin } from './mcp/vite-plugin.mjs';
@@ -21,6 +21,96 @@ function localAssetsDevPlugin(rootDirectory) {
     '.webp': 'image/webp',
   };
 
+  // These roots are ToonLab-owned asset collections, not producer namespaces.
+  // Keep them in the structural identity so an environment source manifest
+  // cannot collide with the separate rock-reference material manifest.
+  const canonicalAssetCollections = new Set([
+    'environments',
+    'imports',
+    'models',
+    'parity',
+    'props',
+    'rock-references',
+  ]);
+
+  const retainedAssetIdentity = (assetPath) => {
+    const segments = String(assetPath).replaceAll('\\', '/').split('/');
+    if (segments.length > 1 && !canonicalAssetCollections.has(segments[0])) {
+      segments[0] = '{source}';
+    }
+
+    const textureRoot = segments.findIndex((segment, index) =>
+      segment === 'textures' && segments[index - 1] === 'material-source');
+    if (textureRoot >= 0 && segments[textureRoot + 1]) {
+      segments[textureRoot + 1] = '{namespace}';
+    }
+
+    for (const collection of ['landscape-heightfields', 'landscape-weight-layers']) {
+      const collectionIndex = segments.indexOf(collection);
+      if (collectionIndex >= 0 && segments[collectionIndex + 1]) {
+        segments[collectionIndex + 1] = '{scene}';
+      }
+    }
+
+    for (let index = 0; index < segments.length; index += 1) {
+      if (segments[index].endsWith('temporal-dither')) {
+        segments[index] = '{temporal-dither}';
+      }
+    }
+
+    const fileIndex = segments.length - 1;
+    segments[fileIndex] = segments[fileIndex].replace(
+      /^(p\d+)-[^-]+-(.+-contract\.json)$/,
+      '$1-{source}-$2',
+    );
+    return segments.join('/');
+  };
+
+  const addUnique = (index, key, value) => {
+    if (!index.has(key)) {
+      index.set(key, value);
+    } else if (index.get(key) !== value) {
+      index.set(key, null);
+    }
+  };
+
+  const retainedAssetsByIdentity = new Map();
+  const retainedAssetsByBasename = new Map();
+  const indexRetainedAssets = (directory) => {
+    if (!existsSync(directory)) return;
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const absolutePath = resolve(directory, entry.name);
+      if (entry.isDirectory()) {
+        indexRetainedAssets(absolutePath);
+      } else if (entry.isFile()) {
+        const retainedPath = relative(localRoot, absolutePath).replaceAll('\\', '/');
+        addUnique(
+          retainedAssetsByIdentity,
+          retainedAssetIdentity(retainedPath),
+          retainedPath,
+        );
+        addUnique(retainedAssetsByBasename, basename(retainedPath), retainedPath);
+      }
+    }
+  };
+  indexRetainedAssets(localRoot);
+
+  // Product code addresses only canonical ToonLab URLs. The private dev bridge
+  // resolves a retained asset by structural identity, never by a producer,
+  // project, scene, or engine name.
+  const compatibilityCandidates = (requestPath) => {
+    const candidates = [requestPath];
+    const identityMatch = retainedAssetsByIdentity.get(
+      retainedAssetIdentity(requestPath),
+    );
+    const basenameMatch = retainedAssetsByBasename.get(basename(requestPath));
+    if (identityMatch) candidates.push(identityMatch);
+    if (basenameMatch && basenameMatch !== identityMatch) {
+      candidates.push(basenameMatch);
+    }
+    return candidates;
+  };
+
   return {
     name: 'toonlab-local-assets-dev',
     apply: 'serve',
@@ -28,13 +118,32 @@ function localAssetsDevPlugin(rootDirectory) {
       server.middlewares.use('/assets-local', (request, response, next) => {
         const requestPath = decodeURIComponent((request.url ?? '/').split('?')[0])
           .replace(/^\/+/, '');
-        const absolutePath = resolve(localRoot, requestPath);
-        if (absolutePath !== localRoot && !absolutePath.startsWith(`${localRoot}${sep}`)) {
+        const candidatePaths = compatibilityCandidates(requestPath);
+        const absolutePaths = candidatePaths.map((candidatePath) =>
+          resolve(localRoot, candidatePath));
+        if (absolutePaths.some((absolutePath) =>
+          absolutePath !== localRoot && !absolutePath.startsWith(`${localRoot}${sep}`))) {
           response.statusCode = 403;
           response.end('Forbidden');
           return;
         }
-        if (!existsSync(absolutePath) || !statSync(absolutePath).isFile()) {
+        const absolutePath = absolutePaths.find((candidatePath) =>
+          existsSync(candidatePath) && statSync(candidatePath).isFile());
+        if (!absolutePath) {
+          // Never let a missing JSON asset fall through to Vite's HTML SPA
+          // fallback. Besides being semantically correct, this preserves the
+          // requested URL in diagnostics instead of producing a misleading
+          // "Unexpected token '<'" parse error.
+          if (extname(requestPath).toLowerCase() === '.json') {
+            response.statusCode = 404;
+            response.setHeader('Content-Type', 'application/json');
+            response.setHeader('Cache-Control', 'no-store');
+            response.end(JSON.stringify({
+              error: 'ToonLab local asset is unavailable.',
+              path: `/assets-local/${requestPath}`,
+            }));
+            return;
+          }
           next();
           return;
         }
@@ -44,7 +153,58 @@ function localAssetsDevPlugin(rootDirectory) {
         response.setHeader('Content-Type', mimeTypes[extname(absolutePath).toLowerCase()]
           ?? 'application/octet-stream');
         response.setHeader('Cache-Control', 'no-store');
+        if (absolutePath !== absolutePaths[0]) {
+          response.setHeader('X-ToonLab-Asset-Compatibility', 'retained-source');
+        }
         createReadStream(absolutePath).pipe(response);
+      });
+    },
+  };
+}
+
+// Private comparison pages are intentionally kept in the gitignored
+// .local-reference tree, but their long-lived review URLs still live under
+// /examples. Rewrite only those dev requests so Vite continues to transform
+// their modules (including imports from the public src/ tree) without copying
+// private reference code into production inputs.
+function localReferenceExamplesDevPlugin() {
+  const mountedExamples = new Set(['tri-engine-parity']);
+
+  return {
+    name: 'toonlab-local-reference-examples-dev',
+    apply: 'serve',
+    enforce: 'pre',
+    transform(code, id) {
+      const normalizedId = id.replaceAll('\\', '/').split('?')[0];
+      if (!normalizedId.includes('/.local-reference/examples/tri-engine-parity/')) {
+        return null;
+      }
+
+      // The comparison page was moved one directory deeper when external
+      // authority code was isolated from the product. Keep its old, stable
+      // review URL without making that private page own a second copy of
+      // ToonLab: imports that previously resolved to ../../src must continue
+      // to resolve to the product's canonical source tree.
+      const transformed = code.replace(
+        /(['"])\.\.\/\.\.\/src\//g,
+        '$1/src/',
+      );
+      return transformed === code ? null : { code: transformed, map: null };
+    },
+    configureServer(server) {
+      server.middlewares.use((request, _response, next) => {
+        const requestUrl = request.url ?? '/';
+        const [pathname, query = ''] = requestUrl.split('?');
+        const match = pathname.match(/^\/examples\/([^/]+)(\/.*)?$/);
+        if (!match || !mountedExamples.has(match[1])) {
+          next();
+          return;
+        }
+
+        const suffix = match[2] || '/';
+        request.url =
+          `/.local-reference/examples/${match[1]}${suffix}${query ? `?${query}` : ''}`;
+        next();
       });
     },
   };
@@ -80,6 +240,7 @@ export default defineConfig(({ mode }) => {
   // engines, generators, shaders — pass through untouched.
   plugins: [
     localAssetsDevPlugin(__dirname),
+    localReferenceExamplesDevPlugin(),
     toonlabWorkspacePlugin({ rootDirectory: __dirname }),
     react(),
   ],
@@ -145,7 +306,7 @@ export default defineConfig(({ mode }) => {
         shaderLab: resolve(__dirname, 'shader-lab/index.html'),
         environmentLab: resolve(__dirname, 'environment-lab/index.html'),
         grassLab: resolve(__dirname, 'grass-lab/index.html'),
-        vegetationShaderLab: resolve(__dirname, 'vegetation-shader-lab/index.html'),
+        vegetationMaterialLab: resolve(__dirname, 'vegetation-shader-lab/index.html'),
         shaderLabLegacy: resolve(__dirname, 'shader-lab/legacy/index.html'),
         playground: resolve(__dirname, 'playground/index.html'),
         rockLab: resolve(__dirname, 'rock-lab/index.html'),
@@ -175,10 +336,8 @@ export default defineConfig(({ mode }) => {
         faunaDemo: resolve(__dirname, 'examples/fauna-demo/index.html'),
         ambientFxDemo: resolve(__dirname, 'examples/ambientfx-demo/index.html'),
         sourceCatalog: resolve(__dirname, 'examples/source-catalog/index.html'),
-        sourceShowcase: resolve(__dirname, 'examples/source-showcase/index.html'),
-        unityShowcase: resolve(__dirname, 'examples/unity-showcase/index.html'),
-        triEngineParity: resolve(__dirname, 'examples/tri-engine-parity/index.html'),
-        urbanPropShader: resolve(__dirname, 'examples/urban-prop-shader/index.html'),
+        manufacturedMaterialLab: resolve(__dirname, 'manufactured-material-lab/index.html'),
+        urbanPropShaderLegacy: resolve(__dirname, 'examples/urban-prop-shader/index.html'),
       },
     },
   },

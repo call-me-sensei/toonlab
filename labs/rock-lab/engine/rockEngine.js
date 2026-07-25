@@ -23,16 +23,16 @@ import {
   loadRockReferenceAsset,
   loadRockReferenceAssetManifest,
   loadRockReferenceSourceMaterial,
-  loadUnityRockMaterial,
+  loadToonRockMaterial,
   meshDocument,
 } from '../../../src/rockgen/index.js';
 import {
-  loadSoStylizedUnityRockMaterialIndex,
-  resolveSoStylizedUnityRockMaterial,
-} from '../../../src/environment/soStylizedUnityRockMaterialResolver.js';
-import { SO_STYLIZED_UNITY_RENDER_CONTRACT } from '../../../src/environment/soStylizedUnityRendering.js';
-import { installSoStylizedUnityShadowCasterBias } from '../../../src/environment/soStylizedUnityShadows.js';
-import { createSoStylizedUnityStagePostPipeline } from '../../../src/environment/soStylizedUnityStage.js';
+  loadToonLabRockMaterialIndex,
+  resolveToonLabRockMaterial,
+} from '../../../src/environment/toonLabRockMaterialResolver.js';
+import { TOONLAB_RENDER_CONTRACT } from '../../../src/environment/toonLabRendering.js';
+import { installToonLabShadowCasterBias } from '../../../src/environment/toonLabShadows.js';
+import { createToonLabStagePostPipeline } from '../../../src/environment/toonLabStage.js';
 import {
   convertRockMesh,
   createAoScheduler,
@@ -52,8 +52,8 @@ const MOVE_MODE_BUTTONS = Object.freeze({
   zoom: THREE.MOUSE.DOLLY,
 });
 const SELECTION_PIVOT_ID = '__rock_selection_pivot__';
-const UNITY_DIRECTION_TO_LIGHT = Object.freeze(
-  SO_STYLIZED_UNITY_RENDER_CONTRACT.sun.rayDirection.map((value) => -value),
+const TOONLAB_DIRECTION_TO_LIGHT = Object.freeze(
+  TOONLAB_RENDER_CONTRACT.sun.rayDirection.map((value) => -value),
 );
 
 function isHelperPiece(piece) {
@@ -65,9 +65,9 @@ export function createRockEngine({ mount, store, urlParams }) {
   const captureView = (urlParams.get('captureView') || '').toLowerCase();
   const deterministic = hudHidden || Boolean(captureView);
   const inspectEnabled = urlParams.get('inspect') === '1';
-  const unityCasterBiasEnabled = urlParams.get('unityCasterBias') !== '0';
-  const unityPostEnabled = urlParams.get('unityPost') !== '0';
-  const unityShadowsEnabled = urlParams.get('unityShadows') !== '0';
+  const toonLabCasterBiasEnabled = urlParams.get('toonLabCasterBias') !== '0';
+  const toonLabPostEnabled = urlParams.get('toonLabPost') !== '0';
+  const toonLabShadowsEnabled = urlParams.get('toonLabShadows') !== '0';
 
   document.body.dataset.scene = 'rock';
   document.body.dataset.modelReady = 'false';
@@ -75,7 +75,7 @@ export function createRockEngine({ mount, store, urlParams }) {
 
   const sceneContext = createRockScene({
     container: mount,
-    unityShadowsEnabled,
+    toonLabShadowsEnabled,
   });
   const {
     ambient, camera, controls, environmentBox, frameComposition, renderer, rockRoot, scene,
@@ -115,28 +115,28 @@ export function createRockEngine({ mount, store, urlParams }) {
   let referenceBuild = null;
   let referenceLoadToken = 0;
   let referenceManifestPromise = null;
-  let unityRockMaterialIndexPromise = null;
+  let toonRockMaterialIndexPromise = null;
   let regenerateTimer = 0;
   let rebuilding = false;
   const rebuiltListeners = new Set();
   const frameListeners = new Set();
   const dynamicShadowCasters = new Set();
   let sunShadowRefreshFrames = 1;
-  let unityPost = null;
-  let unityPostDirty = true;
+  let toonLabPost = null;
+  let toonLabPostDirty = true;
   let gizmo = null;
 
   const doc = () => store.getState().document;
 
-  function reportUnityInspector() {
+  function reportToonLabInspector() {
     if (!inspectEnabled) return;
     const rockMeshes = visibleRockMeshes();
     const rockBox = new THREE.Box3();
     for (const mesh of rockMeshes) {
       rockBox.union(mesh.geometry.boundingBox.clone().applyMatrix4(mesh.matrixWorld));
     }
-    const { ground, unityStageLights } = sceneContext;
-    const csm = unityStageLights.cascadedShadows[0];
+    const { ground, toonLabStageLights } = sceneContext;
+    const csm = toonLabStageLights.cascadedShadows[0];
     const casters = [];
     scene.traverse((object) => {
       if (!object.isMesh || !object.castShadow) return;
@@ -193,11 +193,11 @@ export function createRockEngine({ mount, store, urlParams }) {
         receiveShadow: rockMeshes.every((mesh) => mesh.receiveShadow),
       },
       sun: {
-        castShadow: unityStageLights.light.castShadow,
-        position: unityStageLights.light.position.toArray(),
-        shadowNode: unityStageLights.light.shadow.shadowNode?.constructor?.name ?? null,
-        target: unityStageLights.light.target.position.toArray(),
-        visible: unityStageLights.light.visible,
+        castShadow: toonLabStageLights.light.castShadow,
+        position: toonLabStageLights.light.position.toArray(),
+        shadowNode: toonLabStageLights.light.shadow.shadowNode?.constructor?.name ?? null,
+        target: toonLabStageLights.light.target.position.toArray(),
+        visible: toonLabStageLights.light.visible,
       },
     });
   }
@@ -222,7 +222,7 @@ export function createRockEngine({ mount, store, urlParams }) {
     const next = desiredRenderAuthority(state);
     if (getRenderAuthority() !== next) {
       setRenderAuthority(next);
-      unityPostDirty = true;
+      toonLabPostDirty = true;
     }
     gizmo?.setSceneMounted(next !== 'source');
     return next;
@@ -365,15 +365,15 @@ export function createRockEngine({ mount, store, urlParams }) {
       : String(store.getState().previewResolution);
     document.body.dataset.rockPieceCount = isReferenceMode() ? '1' : String(doc().pieces.length);
     document.body.dataset.rockAoState = 'pending';
-    const unity = getRenderAuthority() === 'source';
+    const toonlab = getRenderAuthority() === 'source';
     const rockMeshes = visibleRockMeshes();
-    document.body.dataset.rockUnityCaster = String(
-      unity && rockMeshes.length > 0 && rockMeshes.every((mesh) => mesh.castShadow),
+    document.body.dataset.rockToonLabCaster = String(
+      toonlab && rockMeshes.length > 0 && rockMeshes.every((mesh) => mesh.castShadow),
     );
-    document.body.dataset.rockUnitySelfShadow = String(
-      unity && rockMeshes.length > 0 && rockMeshes.every((mesh) => mesh.receiveShadow),
+    document.body.dataset.rockToonLabSelfShadow = String(
+      toonlab && rockMeshes.length > 0 && rockMeshes.every((mesh) => mesh.receiveShadow),
     );
-    unityPostDirty = true;
+    toonLabPostDirty = true;
     aoScheduler.schedule();
     for (const listener of rebuiltListeners) listener();
     if (!deterministic) attachGizmoToSelection();
@@ -509,44 +509,44 @@ export function createRockEngine({ mount, store, urlParams }) {
         }
         asset.sourceMaterial = sourceMaterial;
       }
-      if (state.referenceMaterialMode === 'toonlab' && !asset.unityMaterial) {
-        unityRockMaterialIndexPromise ??= loadSoStylizedUnityRockMaterialIndex();
-        const index = await unityRockMaterialIndexPromise;
+      if (state.referenceMaterialMode === 'toonlab' && !asset.toonLabMaterial) {
+        toonRockMaterialIndexPromise ??= loadToonLabRockMaterialIndex();
+        const index = await toonRockMaterialIndexPromise;
         const materialReference = asset.localEntry.materials?.find(Boolean);
-        const resolution = resolveSoStylizedUnityRockMaterial(materialReference, {
+        const resolution = resolveToonLabRockMaterial(materialReference, {
           allowFallback: true,
           index,
           sourceAssetName: asset.entry.sourceAssetName,
         });
         if (!resolution?.materialRecord) {
-          throw new Error(`No Unity S_Rock material matches ${asset.entry.sourceAssetName}.`);
+          throw new Error(`No ToonLab S_Rock material matches ${asset.entry.sourceAssetName}.`);
         }
-        const unityMaterial = await loadUnityRockMaterial({
+        const toonLabMaterial = await loadToonRockMaterial({
           manifest: index.manifest,
           material: resolution.materialRecord,
           coordinates: {
             zSign: 1,
-            // Unity's authored thresholds and the glTF reference geometry
+            // ToonLab's authored thresholds and the glTF reference geometry
             // are both in metres after export.
             distanceScale: 1,
           },
         });
         if (token !== referenceLoadToken) {
-          unityMaterial.dispose();
+          toonLabMaterial.dispose();
           return true;
         }
-        if (unityCasterBiasEnabled) {
-          installSoStylizedUnityShadowCasterBias(unityMaterial, {
-            directionToLight: UNITY_DIRECTION_TO_LIGHT,
+        if (toonLabCasterBiasEnabled) {
+          installToonLabShadowCasterBias(toonLabMaterial, {
+            directionToLight: TOONLAB_DIRECTION_TO_LIGHT,
           });
         }
-        unityMaterial.userData.environmentShaderExclude = true;
-        unityMaterial.userData.toonlabRockSourceMaterial = {
+        toonLabMaterial.userData.environmentShaderExclude = true;
+        toonLabMaterial.userData.toonlabRockSourceMaterial = {
           materialPath: materialReference,
           sourceAssetName: asset.entry.sourceAssetName,
-          unityMaterial: resolution.unityMaterialName,
+          toonLabMaterial: resolution.toonLabMaterialName,
         };
-        asset.unityMaterial = unityMaterial;
+        asset.toonLabMaterial = toonLabMaterial;
       }
       disposeReferenceBuild();
       const materialMode = ['source', 'toonlab', 'authored'].includes(state.referenceMaterialMode)
@@ -562,7 +562,7 @@ export function createRockEngine({ mount, store, urlParams }) {
       // default automatic LOD update also runs for every shadow camera. With
       // cascaded shadows that lets cascade 0 select one mesh, cascade 1 select
       // another, and leaves the later shadow passes with mutated visibility.
-      // Unity chooses the renderer LOD for the view before shadow submission,
+      // ToonLab chooses the renderer LOD for the view before shadow submission,
       // so pin Three's automatic updates and make the same choice explicitly.
       referenceBuild.lod.autoUpdate = false;
       compositionGroup.add(referenceBuild.lod);
@@ -597,11 +597,11 @@ export function createRockEngine({ mount, store, urlParams }) {
         ? 'Original source'
         : `Source-derived variation ${state.seed}`;
       const materialLabel = state.referenceMaterialMode === 'authored'
-        ? 'Unreal material bake'
+        ? 'ToonLab material bake'
         : state.referenceMaterialMode === 'source'
           ? 'source material graph port'
           : state.referenceMaterialMode === 'toonlab'
-            ? 'ToonLab S_Rock shader (Unity source port)'
+            ? 'ToonLab S_Rock shader (ToonLab source port)'
           : state.referenceMaterialMode === 'neutral' ? 'neutral material' : 'legacy ToonLab material';
       store.actions.setStatus(
         `${geometryLabel}: ${asset.entry.sourceAssetName} · ${counts} tris · ${materialLabel}`,
@@ -979,7 +979,7 @@ export function createRockEngine({ mount, store, urlParams }) {
     setFogScale,
     setRenderAuthority(authority) {
       const next = sceneContext.setRenderAuthority(authority);
-      unityPostDirty = true;
+      toonLabPostDirty = true;
       return next;
     },
     setSunState,
@@ -996,7 +996,7 @@ export function createRockEngine({ mount, store, urlParams }) {
     // WebGPU backends boot asynchronously; renders (incl. AO bakes) wait.
     await whenRendererReady(renderer);
     // Prepare the normal lab ground once, then restore the requested
-    // authority. Unity mode swaps to its dedicated URP-lit receiver so native
+    // authority. ToonLab mode swaps to its dedicated surface receiver so native
     // cascade shadows are not routed through ToonLab's custom shadow texture.
     const requestedAuthority = desiredRenderAuthority();
     setRenderAuthority('toonlab');
@@ -1034,21 +1034,21 @@ export function createRockEngine({ mount, store, urlParams }) {
       // must render this already-selected level without changing it.
       referenceBuild?.lod.update(camera);
       const sourceAuthority = getRenderAuthority() === 'source';
-      if (sourceAuthority && unityPostEnabled && unityPostDirty) {
-        unityPost?.pipeline?.dispose?.();
-        unityPost = createSoStylizedUnityStagePostPipeline({
+      if (sourceAuthority && toonLabPostEnabled && toonLabPostDirty) {
+        toonLabPost?.pipeline?.dispose?.();
+        toonLabPost = createToonLabStagePostPipeline({
           camera,
           renderer,
           scene,
         });
-        unityPostDirty = false;
-        document.body.dataset.rockUnityPost = 'ready';
-        document.body.dataset.rockUnityCascadeCount = String(
-          SO_STYLIZED_UNITY_RENDER_CONTRACT.shadows.cascadeCount,
+        toonLabPostDirty = false;
+        document.body.dataset.rockToonLabPost = 'ready';
+        document.body.dataset.rockToonLabCascadeCount = String(
+          TOONLAB_RENDER_CONTRACT.shadows.cascadeCount,
         );
       }
-      if (sourceAuthority && !unityPostEnabled) {
-        document.body.dataset.rockUnityPost = 'disabled';
+      if (sourceAuthority && !toonLabPostEnabled) {
+        document.body.dataset.rockToonLabPost = 'disabled';
       }
       const refreshSunShadow = sunShadowRefreshFrames > 0;
       if (!sourceAuthority) {
@@ -1057,9 +1057,9 @@ export function createRockEngine({ mount, store, urlParams }) {
         });
       }
       if (refreshSunShadow) sunShadowRefreshFrames -= 1;
-      if (sourceAuthority && unityPostEnabled) unityPost.pipeline.render();
+      if (sourceAuthority && toonLabPostEnabled) toonLabPost.pipeline.render();
       else renderer.render(scene, camera);
-      reportUnityInspector();
+      reportToonLabInspector();
     });
   };
 

@@ -35,8 +35,8 @@ export function createLightingCapabilityReport(options = {}) {
       cookies: Object.freeze({ spot: true }),
       iesProfiles: 'metadata-only',
       lightLinking: 'three-layers-plus-metadata',
-      lumen: false,
-      megaLights: false,
+      globalIllumination: false,
+      manyLights: false,
       manyLightRenderer: false,
       shadows: Object.freeze({
         ambient: false,

@@ -115,7 +115,7 @@ Point any model-aware lab at your own model with the Model URL input or
 |---|---|---|
 | Toon character shading | `@call-me-sensei/toonlab/toon` | Modern anime character shader: cel bands with art-directed face lighting, skin-tone shadow management, shadow-color HSV control, scene/self/contact shadows, average-shadow smoothing, rim light (fresnel or screen-space depth), stylized + anisotropic hair highlights, eye catchlights, role-aware specular, source map routing (normal/AO/emissive/MatCap/ramp/detail), inverted-hull outlines, glitter, stickers, perspective removal, shell fur, dither fades — 23 settings groups, all preset-serializable. [Docs](docs/toon-shading.md) |
 | Environment shading | `@call-me-sensei/toonlab/environment` | Modern anime-style scene shader for texture packs, standard glTF, and untextured scenes: material-role classification, wrapped lighting, packed-map hints, window cutouts, sun/lamp rigs, time-of-day, six-direction ambient probe, planar floor reflections, BVH vertex-AO baking, height fog, cloud shadows. [Docs](docs/environment.md) |
-| Lighting | `@call-me-sensei/toonlab/lighting` | Versioned lighting recipes and looks, physical/artistic intensity helpers, reusable luminaire/rig/look/quality presets, deterministic light and shadow budgets, capability diagnostics, runtime Three.js realization, and a data-only Unreal Engine 5.8 MegaLights/Lumen handoff. [Docs](docs/lighting.md) |
+| Lighting | `@call-me-sensei/toonlab/lighting` | Versioned lighting recipes and looks, physical/artistic intensity helpers, reusable luminaire/rig/look/quality presets, deterministic light and shadow budgets, capability diagnostics, runtime Three.js realization, and a data-only ToonLab Many Lights/Dynamic GI handoff. [Docs](docs/lighting.md) |
 | Weather | `@call-me-sensei/toonlab/weather` | Shared cross-system weather coordinator with 21 conditions rendered through an independent IP-wide style, smooth transitions, one-draw GPU precipitation (rain, snow, sleet, hail, dust), lightning/thunder events, and normalized wetness/snow/ice outputs. It drives sky, sun, fog, cloud shadows, wind, vegetation, water, fauna, and ambient effects through their public adapters. [Docs](docs/weather.md) |
 | Water | `@call-me-sensei/toonlab/water` | Fully procedural integrated water system: Gerstner wave stack with a calm→storm dial, wave sets, plunging breakers you can surf, three-stop absorption color, refraction/caustics/foam, GPU ripple sim, splashes, wakes, rain, kelp, underwater view, construction-time quality, and a CPU mirror of the whole spectrum for buoyancy. [Docs](docs/water.md) |
 | Vegetation | `@call-me-sensei/toonlab/vegetation` | Instanced grass and flower fields, procedural trees/flowers with serializable recipes, coordinated grass palettes (base, tip, and shadow tint), and one semantic-role `VegetationShaderProfile` shared across grass, foliage, flowers, bark, and stems. Asset identity and current wind/weather remain separate. [Docs](docs/vegetation-sky.md) |
@@ -278,9 +278,9 @@ stack, with WebGL2 fallback through the same TSL path.
 - [Getting started](docs/getting-started.md) — clone, run, tour the labs,
   load your own models.
 - [Toon character shading](docs/toon-shading.md)
-- [Urban prop surface roles](docs/urban-prop-surface-roles.md) — the
-  classify-once material contract for imported/generated GLBs and reusable
-  role-aware prop shaders.
+- [Manufactured environment materials](docs/urban-prop-surface-roles.md) —
+  the layered classify-once contract for props, vehicles, buildings,
+  interiors, and reusable material-aware shaders.
 - [Environment shading](docs/environment.md)
 - [Lighting](docs/lighting.md)
 - [Weather system](docs/weather.md)

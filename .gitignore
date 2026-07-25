@@ -13,6 +13,7 @@ build/
 # repo. The labs discover models/environments dropped in here (see
 # docs/characters.md). Back this folder up — it is not in git.
 assets-local/
+.local-reference/
 
 # Licensed reference texture — supply your own painted stone tile; the
 # outdoor-world example runs without it (cliffs just skip the triplanar

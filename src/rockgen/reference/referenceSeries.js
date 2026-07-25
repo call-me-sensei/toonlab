@@ -1,4 +1,4 @@
-// Audited So Stylized rock-library taxonomy. This is metadata only: source
+// Audited ToonLab rock-library taxonomy. This is metadata only: source
 // mesh topology, UVs, textures, and material assets are intentionally absent.
 
 const core = (definition) => ({
@@ -214,10 +214,10 @@ export const AUDITED_ROCK_REFERENCE_SERIES = Object.freeze([
 ].map(freezeMetadata));
 
 export const ROCK_REFERENCE_SOURCE_STYLE_LABELS = Object.freeze({
-  classic: 'So Stylized / Classic',
-  cubic: 'So Stylized / Cubic',
-  desert: 'So Stylized / Desert',
-  hexic: 'So Stylized / Hexic',
-  mountains: 'So Stylized / Mountains',
-  spire: 'So Stylized / Spire',
+  classic: 'ToonLab / Classic',
+  cubic: 'ToonLab / Cubic',
+  desert: 'ToonLab / Desert',
+  hexic: 'ToonLab / Hexic',
+  mountains: 'ToonLab / Mountains',
+  spire: 'ToonLab / Spire',
 });

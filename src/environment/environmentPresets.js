@@ -10,12 +10,19 @@
 // approved Liyue room look) never shifts underneath integrators.
 
 import { ENVIRONMENT_SETTING_FIELD_SCHEMA } from './environmentSettings.js';
+import {
+  createManufacturedMaterialLook,
+  validateManufacturedMaterialLook,
+} from './manufacturedMaterialContract.js';
 
 /** Document type tag stamped on shareable environment preset JSON documents. */
 export const ENVIRONMENT_PRESET_DOCUMENT_TYPE = 'toonlab/environment-preset';
 
-/** Current schema version for environment preset documents. v2 adds `preset.scenarios`. */
-export const ENVIRONMENT_PRESET_SCHEMA_VERSION = 2;
+/**
+ * Current schema version for environment preset documents.
+ * v2 adds `preset.scenarios`; v3 adds `preset.materialLook`.
+ */
+export const ENVIRONMENT_PRESET_SCHEMA_VERSION = 3;
 
 /**
  * Canonical environment scenarios — the world-state axis (venue × time of
@@ -91,6 +98,7 @@ export function registerEnvironmentPreset(name, preset, { overwrite = false } = 
     parameters: {},
     rig: {},
     ...source,
+    materialLook: createManufacturedMaterialLook(source.materialLook),
     scenarios,
   });
   return key;
@@ -127,10 +135,12 @@ export function getEnvironmentPresetOptions() {
 // A style's complete payload for one scenario: authored variant over the
 // style base when the style ships one, otherwise the canonical rendition
 // (the Default style's variant) over the style base. Sections merge
-// shallowly (features / parameters / rig).
+// shallowly (features / parameters / rig). `materialLook` is stable style
+// identity and does not vary with scene time/venue.
 function resolveEnvironmentStyleVariant(preset, scenarioId) {
   const base = {
     features: { ...preset.features },
+    materialLook: createManufacturedMaterialLook(preset.materialLook),
     parameters: { ...preset.parameters },
     rig: { ...preset.rig },
   };
@@ -139,13 +149,14 @@ function resolveEnvironmentStyleVariant(preset, scenarioId) {
   if (!partial) return base;
   return {
     features: { ...base.features, ...partial.features },
+    materialLook: base.materialLook,
     parameters: { ...base.parameters, ...partial.parameters },
     rig: { ...base.rig, ...partial.rig },
   };
 }
 
 /**
- * Returns { features, parameters, rig } ready to spread into
+ * Returns { features, materialLook, parameters, rig } ready to spread into
  * applyEnvironmentShader options and the rig constructors.
  *
  * `name` selects a STYLE; the optional `scenario` (one of
@@ -163,6 +174,7 @@ export function resolveEnvironmentPreset(name, scenario = undefined) {
   if (scenarioId === undefined) {
     return {
       features: { ...preset.features },
+      materialLook: createManufacturedMaterialLook(preset.materialLook),
       parameters: { ...preset.parameters },
       rig: { ...preset.rig },
     };
@@ -275,6 +287,10 @@ export function sanitizeEnvironmentPreset(preset) {
     rig[key] = entry;
   }
 
+  const materialLookResult = validateManufacturedMaterialLook(source.materialLook);
+  errors.push(...materialLookResult.errors);
+  warnings.push(...materialLookResult.warnings);
+
   const ok = errors.length === 0;
   return {
     errors,
@@ -284,6 +300,7 @@ export function sanitizeEnvironmentPreset(preset) {
         description: String(source.description ?? ''),
         features,
         label: String(source.label ?? ''),
+        materialLook: materialLookResult.value,
         parameters,
         rig,
       }
@@ -354,6 +371,7 @@ export function createEnvironmentPresetDocument(name, { description, label } = {
     label: sanitized.value.label,
     preset: {
       features: sanitized.value.features,
+      materialLook: sanitized.value.materialLook,
       parameters: sanitized.value.parameters,
       rig: sanitized.value.rig,
       ...(scenarioResult.scenarios === undefined ? {} : { scenarios: scenarioResult.scenarios }),
@@ -439,6 +457,7 @@ export function validateEnvironmentPresetDocument(input) {
         features: sanitized.value.features,
         id,
         label: sanitized.value.label,
+        materialLook: sanitized.value.materialLook,
         parameters: sanitized.value.parameters,
         rig: sanitized.value.rig,
         ...(scenarioResult.scenarios === undefined ? {} : { scenarios: scenarioResult.scenarios }),
@@ -594,6 +613,60 @@ registerEnvironmentPreset('showcase', {
 // registerEnvironmentPreset / environment preset documents.
 registerEnvironmentPreset('call_me_sensei', {
   label: 'Call Me Sensei',
+  // Sparse material/object response over the base look. These are IP-owned
+  // settings; assets keep the same stable classification under other styles.
+  materialLook: {
+    version: 1,
+    baseMaterials: {
+      glass: {
+        parameters: {
+          normalMapStrength: 0.35,
+          specularShininess: 78,
+          specularStrength: 0.42,
+        },
+      },
+      metal: {
+        parameters: {
+          normalMapStrength: 0.68,
+          specularShininess: 58,
+          specularStrength: 0.26,
+        },
+      },
+      mineral: {
+        parameters: {
+          normalMapStrength: 0.82,
+          specularStrength: 0.05,
+        },
+      },
+      rubber: {
+        parameters: {
+          normalMapStrength: 0.5,
+          specularStrength: 0.025,
+        },
+      },
+    },
+    contentFlags: {
+      emissive: {
+        parameters: { emissiveStrength: 0.82 },
+      },
+      graphic: {
+        parameters: {
+          normalMapStrength: 0.2,
+          specularStrength: 0.035,
+        },
+      },
+    },
+    objectClasses: {
+      buildingExterior: {
+        parameters: { normalMapStrength: 0.66 },
+      },
+    },
+    structuralRoles: {
+      cavity: {
+        parameters: { shadowLift: 0.28 },
+      },
+    },
+  },
   // Identity base: luminous blue-filled shade, restrained aerial haze, and
   // enough contrast for the light to stay alive. This preset is frequently
   // applied directly by games (without createStylizedWorld), so its base

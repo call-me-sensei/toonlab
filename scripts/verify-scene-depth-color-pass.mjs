@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { float, positionLocal, vec3 } from 'three/tsl';
 import { MeshPhysicalNodeMaterial } from 'three/webgpu';
 
-import { installSoStylizedUnityMaterialPassCoupling } from '../src/environment/soStylizedUnityMaterialPassCoupling.js';
+import { installToonLabMaterialPassCoupling } from '../src/environment/toonLabMaterialPassCoupling.js';
 import { createSceneDepthColorPass } from '../src/shaders-tsl/chunks/scene-depth-color-pass.js';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -26,7 +26,7 @@ function coupledMaterial({
 }) {
   const material = new MeshPhysicalNodeMaterial();
   material.name = name;
-  installSoStylizedUnityMaterialPassCoupling(material, {
+  installToonLabMaterialPassCoupling(material, {
     ...(alphaClip ? {
       alphaChannel: 'verifier.a',
       alphaNode: float(0.4),
@@ -52,11 +52,11 @@ const foliageMaterial = coupledMaterial({
   alphaClip: true,
   name: 'Verifier:Foliage',
   positionNode: deformedPosition,
-  shaderName: 'Shader Graphs/S_FoliageShader',
+  shaderName: 'ToonLab Graphs/S_FoliageShader',
 });
 const barkMaterial = coupledMaterial({
   name: 'Verifier:Bark',
-  shaderName: 'Shader Graphs/S_Bark',
+  shaderName: 'ToonLab Graphs/S_Bark',
 });
 
 const genericPosition = positionLocal.add(vec3(0.04, 0.05, 0.06));
@@ -200,8 +200,8 @@ assert.equal(renderer.currentTarget, previousTarget);
 assert.equal(renderer.clearColor.getHex(), previousClearColor.getHex());
 assert.equal(renderer.clearAlpha, previousClearAlpha);
 assert.equal(renderer.shadowMap.enabled, true);
-assert.equal(foliageMaterial.userData.soStylizedUnityPassCoupling.runtime.depthVariantCreateCount, 1);
-assert.equal(barkMaterial.userData.soStylizedUnityPassCoupling.runtime.depthVariantCreateCount, 1);
+assert.equal(foliageMaterial.userData.toonLabPassCoupling.runtime.depthVariantCreateCount, 1);
+assert.equal(barkMaterial.userData.toonLabPassCoupling.runtime.depthVariantCreateCount, 1);
 
 const secondReport = depthPass.render(renderer, camera, target);
 assert.equal(secondReport.renderCount, 2);
@@ -209,8 +209,8 @@ assert.equal(secondReport.coupledVariantCreateCount, 2);
 assert.equal(secondReport.genericVariantCreateCount, 1);
 assert.equal(renderObservationCount, 2);
 assert.equal(renderer.clearCount, 2);
-assert.equal(foliageMaterial.userData.soStylizedUnityPassCoupling.runtime.depthVariantCreateCount, 1);
-assert.equal(barkMaterial.userData.soStylizedUnityPassCoupling.runtime.depthVariantCreateCount, 1);
+assert.equal(foliageMaterial.userData.toonLabPassCoupling.runtime.depthVariantCreateCount, 1);
+assert.equal(barkMaterial.userData.toonLabPassCoupling.runtime.depthVariantCreateCount, 1);
 
 // A broken explicit factory must fail closed without leaving any earlier mesh
 // swapped or any visibility/renderer/scene state altered.
@@ -255,4 +255,4 @@ points.material.dispose();
 points.geometry.dispose();
 geometry.dispose();
 
-console.log('Scene depth-color pass verified: exact Unity mask/WPO/cull coupling, generic fallback accounting, cache reuse, and full state restoration.');
+console.log('Scene depth-color pass verified: exact ToonLab mask/WPO/cull coupling, generic fallback accounting, cache reuse, and full state restoration.');

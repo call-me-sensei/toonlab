@@ -3,6 +3,14 @@ import {
   classifyEnvironmentMaterialRole,
   toMaterialArray,
 } from './environmentMaterialClassifier.js';
+import {
+  MANUFACTURED_OBJECT_CLASSES,
+  applyManufacturedMaterialManifest,
+  classifyManufacturedMaterial,
+  createManufacturedMaterialLook,
+  inferManufacturedObjectClass,
+  resolveManufacturedMaterialLook,
+} from './manufacturedMaterialContract.js';
 
 // Environment node materials read scene lights from the shared toon light
 // uniforms (shaders-tsl/chunks/character-scene-lights.js) instead of three's
@@ -64,6 +72,27 @@ export {
   toMaterialArray,
   usesAlphaCutout,
 } from './environmentMaterialClassifier.js';
+
+export {
+  MANUFACTURED_CONTENT_FLAGS,
+  MANUFACTURED_MATERIAL_BASES,
+  MANUFACTURED_MATERIAL_FINISHES,
+  MANUFACTURED_MATERIAL_LOOK_VERSION,
+  MANUFACTURED_MATERIAL_MANIFEST_TYPE,
+  MANUFACTURED_MATERIAL_MANIFEST_VERSION,
+  MANUFACTURED_OBJECT_CLASSES,
+  MANUFACTURED_RENDER_MODES,
+  MANUFACTURED_STRUCTURAL_ROLES,
+  analyzeManufacturedAsset,
+  applyManufacturedMaterialManifest,
+  classifyManufacturedMaterial,
+  createManufacturedMaterialClassification,
+  createManufacturedMaterialLook,
+  inferManufacturedObjectClass,
+  resolveManufacturedMaterialLook,
+  validateManufacturedMaterialLook,
+  validateManufacturedMaterialManifest,
+} from './manufacturedMaterialContract.js';
 
 export {
   DEFAULT_ENVIRONMENT_FEATURES,
@@ -154,15 +183,27 @@ function createConvertedEnvironmentMaterial(mat, options) {
 //   'auto' applies it only to materials that detect as Megascans/Fab scans;
 //   material.userData.envScanStylize overrides detection per material.
 // - scanStylizeParams: overrides merged over DEFAULT_SCAN_STYLIZE_PARAMS.
+// - materialLook: sparse IP-owned profiles resolved over the global catch-all
+//   by base material, finish, render mode, structural role, content flags,
+//   object class, then stable asset id.
+// - materialManifest: optional sidecar manifest for formats that cannot
+//   reliably preserve glTF extras (also useful for third-party GLBs).
+// - assetId/objectClass: stable profile selectors; explicit values override
+//   root metadata and manifest values.
 //
 // Returns conversion counts plus a classification report:
-// [{ object, material, role, source }] for every converted material.
+// [{ object, material, role, source, manufactured, appliedProfiles }] for
+// every converted material.
 export async function applyEnvironmentShader(root, {
+  assetId = '',
   bakeVertexAo = 'auto',
   debugOutputMode = 'off',
   environmentBox = null,
   features = {},
   hasSun = false,
+  materialLook = undefined,
+  materialManifest = null,
+  objectClass = '',
   parameters = {},
   roleOverrides = null,
   scanStylize = 'auto',
@@ -172,7 +213,23 @@ export async function applyEnvironmentShader(root, {
   openWindows = false,
   vertexAoOptions = {},
 } = {}) {
+  const manifestResult = materialManifest
+    ? applyManufacturedMaterialManifest(root, materialManifest)
+    : null;
   const environmentSettings = resolveEnvironmentSettings({ features, parameters, settings });
+  const resolvedMaterialLook = createManufacturedMaterialLook(
+    materialLook ?? settings?.materialLook ?? {},
+  );
+  const resolvedAssetId = String(
+    assetId
+      || manifestResult?.assetId
+      || root?.userData?.toonlabAssetId
+      || '',
+  );
+  const requestedObjectClass = objectClass || manifestResult?.objectClass;
+  const resolvedObjectClass = MANUFACTURED_OBJECT_CLASSES.includes(requestedObjectClass)
+    ? requestedObjectClass
+    : inferManufacturedObjectClass(root);
   const normalizedShaderMode = ['anime', 'basic', 'standard'].includes(shaderMode)
     ? shaderMode
     : 'anime';
@@ -255,13 +312,21 @@ export async function applyEnvironmentShader(root, {
     const originalMaterials = toMaterialArray(obj.material);
     const roleInfos = originalMaterials.map((mat) => {
       const info = classifyEnvironmentMaterialRole(obj, mat, { roleOverrides });
+      const manufactured = classifyManufacturedMaterial(obj, mat);
+      const materialProfile = resolveManufacturedMaterialLook(resolvedMaterialLook, {
+        assetId: resolvedAssetId,
+        classification: manufactured,
+        objectClass: resolvedObjectClass,
+      });
       classification.push({
+        appliedProfiles: materialProfile.appliedProfiles,
         material: mat?.name ?? '',
+        manufactured,
         object: obj.name ?? '',
         role: info.role,
         source: info.source,
       });
-      return info;
+      return { ...info, manufactured, materialProfile };
     });
     const shadowMesh = environmentSettings.features.shadowMesh
       && roleInfos.some((info) => info.role === 'shadowMesh');
@@ -272,17 +337,32 @@ export async function applyEnvironmentShader(root, {
     const hasUv2 = ensureUv2Attribute(obj.geometry);
 
     const convertMaterial = (mat, index) => {
+      const roleInfo = roleInfos[index];
+      const perMaterialSettings = createEnvironmentSettings({
+        features: {
+          ...environmentSettings.features,
+          ...roleInfo?.materialProfile?.features,
+        },
+        parameters: {
+          ...environmentSettings.parameters,
+          ...roleInfo?.materialProfile?.parameters,
+        },
+      });
       const converted = createConvertedEnvironmentMaterial(mat, {
+        assetId: resolvedAssetId,
         debugOutputMode: resolvedDebugMode,
         environmentBox,
-        environmentSettings,
+        environmentSettings: perMaterialSettings,
         hasSun,
         hasUv2,
         hasVertexAo,
         hasVertexColors,
+        manufacturedClassification: roleInfo?.manufactured,
+        manufacturedObjectClass: resolvedObjectClass,
+        materialProfile: roleInfo?.materialProfile,
         normalizedShaderMode,
         openWindows,
-        role: roleInfos[index]?.role ?? null,
+        role: roleInfo?.role ?? null,
         textureSet: materialTextureSets.get(mat),
       });
       if (scanMaterials.has(mat)) {
@@ -327,6 +407,9 @@ export async function applyEnvironmentShader(root, {
     aoOverlayMeshCount,
     classification,
     convertedMeshCount,
+    manifestWarnings: manifestResult?.warnings ?? [],
+    manufacturedAssetId: resolvedAssetId,
+    manufacturedObjectClass: resolvedObjectClass,
     scanStylizedMaterialCount,
     shaderMode: normalizedShaderMode,
     shadowMeshCount,

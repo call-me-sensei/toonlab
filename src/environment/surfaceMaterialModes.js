@@ -60,9 +60,9 @@ export function copySurfaceMaterialModes(source, target) {
 
 export function resolveSurfaceMaterialFamily(material) {
   return material?.userData?.surfaceMaterialFamily
-    ?? material?.userData?.soStylizedSource?.family
+    ?? material?.userData?.toonLabSource?.family
     ?? (material?.userData?.toonlabRockSourceMaterial ? 'rock' : null)
-    ?? (material?.userData?.unityRockProfile ? 'rock' : null)
+    ?? (material?.userData?.toonLabRockProfile ? 'rock' : null)
     ?? 'unclassified';
 }
 

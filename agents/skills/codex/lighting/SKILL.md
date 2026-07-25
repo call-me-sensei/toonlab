@@ -1,6 +1,6 @@
 ---
 name: lighting
-description: Help developers use ToonLab lighting — styles with a day cycle, placeable light fixtures, light/shadow budgets, physical intensity units, lighting documents, and Unreal export.
+description: Help developers use ToonLab lighting — styles with a day cycle, placeable light fixtures, light/shadow budgets, physical intensity units, lighting documents, and ToonLab export.
 ---
 
 # Lighting
@@ -9,7 +9,7 @@ Use this skill when a developer wants scene lighting identity: a lighting
 style that moves with time of day, reusable practical fixtures (lamps,
 lanterns, neon) with seeded per-placement variation, light and shadow-map
 budgets, physical intensity units (lumens/candela/lux/kelvin), portable
-lighting recipe/look documents, or Unreal Engine handoff.
+lighting recipe/look documents, or ToonLab handoff.
 
 Public imports:
 - `@call-me-sensei/toonlab/lighting`
@@ -54,8 +54,8 @@ Developer guidance:
   `createLightFixtureGeneratorRecipe`; the MCP `generate_style_presets` tool
   is only for persisting validated batches to the shared workspace. Subtree
   locks like `sun` or `exposure` survive reseeds.
-- `exportLightingRecipeToUnreal58` produces a data-only manifest — it does not
-  run Unreal or guarantee visual parity.
+- `exportLightingRecipeToToonLab` produces a data-only manifest — it does not
+  run ToonLab or guarantee visual parity.
 - Weather/environment systems modulate lighting through
   `setWeatherModulation`; keep that the single hook rather than editing lights
   from weather code.

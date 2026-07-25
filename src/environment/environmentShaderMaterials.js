@@ -211,22 +211,38 @@ function alphaCutoffFor(mat, isFoliage) {
 }
 
 export function createEnvironmentMaterial(mat, textureSet, {
+  assetId = '',
   environmentBox = null,
   environmentSettings = createEnvironmentSettings(),
   hasSun = false,
   hasUv2 = false,
   hasVertexAo = false,
   hasVertexColors = false,
+  manufacturedClassification = null,
+  manufacturedObjectClass = 'generic',
+  materialProfile = null,
   openWindows = false,
   role = null,
 } = {}) {
   const features = environmentSettings.features;
+  const renderMode = manufacturedClassification?.renderMode ?? null;
   const isFoliage = role ? role === 'foliage' : isFoliageMaterial(mat);
-  const isEmissive = role ? role === 'emissive' : isEmissiveEnvironmentMaterial(mat);
-  const isWindow = role ? role === 'window' : isWindowCutoutMaterial(mat);
+  const isEmissive = role === 'emissive'
+    || renderMode === 'unlit'
+    || manufacturedClassification?.contentFlags?.includes('emissive')
+    || (!role && isEmissiveEnvironmentMaterial(mat));
+  const isWindow = role === 'window'
+    || manufacturedClassification?.structuralRole === 'window'
+    || (!role && isWindowCutoutMaterial(mat));
   const isGlossFloor = role === 'glossFloor';
-  const alphaCutout = usesAlphaCutout(mat);
-  const alphaBlend = mat?.transparent === true && sourceOpacity(mat) < 0.999;
+  const alphaCutout = renderMode === 'alphaCutout' || usesAlphaCutout(mat);
+  const alphaBlend = ['translucent', 'transmissive'].includes(renderMode)
+    || (mat?.transparent === true && sourceOpacity(mat) < 0.999);
+  const opacity = renderMode === 'transmissive'
+    ? Math.min(sourceOpacity(mat), 0.68)
+    : renderMode === 'translucent'
+      ? Math.min(sourceOpacity(mat), 0.82)
+      : sourceOpacity(mat);
   const windowCutout = features.windowCutout && openWindows && isWindow;
   if (windowCutout) return createEnvironmentWindowOpeningMaterial(mat);
 
@@ -242,7 +258,11 @@ export function createEnvironmentMaterial(mat, textureSet, {
 
   const material = createEnvironmentNodeMaterial({
     alphaBlend,
-    alphaCutoff: alphaCutoffFor(mat, isFoliage),
+    alphaCutoff: alphaCutout
+      ? isFoliage
+        ? Math.max(mat?.alphaTest ?? 0.12, 0.08)
+        : Math.max(mat?.alphaTest ?? 0.35, 0.35)
+      : -1,
     baseColor: materialBaseColor(mat, textureSet),
     environmentBox,
     flags: {
@@ -264,7 +284,7 @@ export function createEnvironmentMaterial(mat, textureSet, {
     isEmissive,
     isFoliage,
     isGlossFloor,
-    opacity: sourceOpacity(mat),
+    opacity,
     side: mat?.side ?? THREE.DoubleSide,
     textureSet,
   });
@@ -281,6 +301,17 @@ export function createEnvironmentMaterial(mat, textureSet, {
   material.userData.environmentMaterial = true;
   material.userData.environmentRole = role ?? (isFoliage ? 'foliage' : isEmissive ? 'emissive' : 'standard');
   material.userData.environmentFeatures = { ...features };
+  material.userData.urbanMaterial = manufacturedClassification
+    ? {
+      ...manufacturedClassification,
+      contentFlags: [...manufacturedClassification.contentFlags],
+    }
+    : undefined;
+  material.userData.manufacturedObjectClass = manufacturedObjectClass;
+  material.userData.manufacturedAssetId = assetId;
+  material.userData.manufacturedAppliedProfiles = [
+    ...(materialProfile?.appliedProfiles ?? []),
+  ];
   return applyEnvironmentSettingsToMaterial(material, environmentSettings);
 }
 

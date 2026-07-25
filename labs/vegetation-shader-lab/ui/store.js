@@ -89,7 +89,7 @@ function bootDocument(urlParams) {
   };
 }
 
-export function createVegetationShaderLabStore({
+export function createVegetationMaterialLabStore({
   urlParams = new URLSearchParams(window.location.search),
 } = {}) {
   const localPresets = loadLocalVegetationShaderProfiles();

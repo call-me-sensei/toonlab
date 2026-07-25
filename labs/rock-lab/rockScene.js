@@ -8,12 +8,12 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { MeshPhysicalNodeMaterial } from 'three/webgpu';
 
 import { createEnvironmentSunRig } from '../../src/environment/environmentRigs.js';
-import { SO_STYLIZED_UNITY_RENDER_CONTRACT } from '../../src/environment/soStylizedUnityRendering.js';
+import { TOONLAB_RENDER_CONTRACT } from '../../src/environment/toonLabRendering.js';
 import {
-  configureSoStylizedUnityStageRenderer,
-  createSoStylizedUnityStageLights,
-} from '../../src/environment/soStylizedUnityStage.js';
-import { installSoStylizedUnityUrpLighting } from '../../src/environment/soStylizedUnityUrpLighting.js';
+  configureToonLabStageRenderer,
+  createToonLabStageLights,
+} from '../../src/environment/toonLabStage.js';
+import { installToonLabSurfaceLighting } from '../../src/environment/toonLabSurfaceLighting.js';
 import { createLabRenderer } from '../shared/rendererFactory.js';
 
 const GROUND_RADIUS = 30;
@@ -28,9 +28,9 @@ const CAPTURE_VIEWS = Object.freeze({
   top: [0.02, 1, 0.02],
 });
 
-function createUnityShadowReceiverMaterial() {
+function createToonLabShadowReceiverMaterial() {
   // A neutral receiver isolates the renderer contract from terrain art while
-  // still exercising the exact URP BRDF, ambient probe, and native shadow
+  // still exercising the ToonLab BRDF, ambient probe, and native shadow
   // attenuation used by the source rock. This is deliberately not a ToonLab
   // ground shader or a painted contact-shadow decal.
   const material = new MeshPhysicalNodeMaterial({
@@ -38,14 +38,14 @@ function createUnityShadowReceiverMaterial() {
     metalness: 0,
     roughness: 1,
   });
-  material.name = 'Unity URP rock validation shadow receiver';
+  material.name = 'ToonLab rock validation shadow receiver';
   material.userData.environmentShaderExclude = true;
-  material.userData.soStylizedUnityShadowReceiver = true;
-  installSoStylizedUnityUrpLighting(material, { workflow: 'metallic' });
+  material.userData.toonLabShadowReceiver = true;
+  installToonLabSurfaceLighting(material, { workflow: 'metallic' });
   return material;
 }
 
-export function createRockScene({ container, unityShadowsEnabled = true }) {
+export function createRockScene({ container, toonLabShadowsEnabled = true }) {
   const renderer = createLabRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -118,26 +118,26 @@ export function createRockScene({ container, unityShadowsEnabled = true }) {
 
   const groundMaterials = {
     lab: ground.material,
-    unity: createUnityShadowReceiverMaterial(),
+    toonlab: createToonLabShadowReceiverMaterial(),
   };
 
   const ambient = new THREE.AmbientLight(0xdfe8f2, 0.55);
   scene.add(ambient);
 
-  // Unity validation lighting is a separate scene-graph branch. Toggling the
+  // ToonLab validation lighting is a separate scene-graph branch. Toggling the
   // branch prevents the generic Rock Lab rig from leaking any fill or direct
   // light into the source-material result.
-  const unityLightRoot = new THREE.Group();
-  unityLightRoot.name = 'Unity source renderer lighting';
-  scene.add(unityLightRoot);
-  const unityStageLights = createSoStylizedUnityStageLights(unityLightRoot, {
-    castShadow: unityShadowsEnabled,
+  const toonLabLightRoot = new THREE.Group();
+  toonLabLightRoot.name = 'ToonLab source renderer lighting';
+  scene.add(toonLabLightRoot);
+  const toonLabStageLights = createToonLabStageLights(toonLabLightRoot, {
+    castShadow: toonLabShadowsEnabled,
     target: [0, 0, 0],
   });
-  unityLightRoot.visible = false;
+  toonLabLightRoot.visible = false;
 
-  const unityBackground = new THREE.Color().setRGB(
-    ...SO_STYLIZED_UNITY_RENDER_CONTRACT.fog.colorLinear,
+  const toonLabBackground = new THREE.Color().setRGB(
+    ...TOONLAB_RENDER_CONTRACT.fog.colorLinear,
     THREE.LinearSRGBColorSpace,
   );
   const labBackground = scene.background.clone();
@@ -190,15 +190,15 @@ export function createRockScene({ container, unityShadowsEnabled = true }) {
     sunRigBoxSize = size;
   }
 
-  function updateUnityLightTarget() {
+  function updateToonLabLightTarget() {
     const targetWorld = environmentBox.getCenter(new THREE.Vector3());
     const rayDirection = new THREE.Vector3(
-      ...SO_STYLIZED_UNITY_RENDER_CONTRACT.sun.rayDirection,
+      ...TOONLAB_RENDER_CONTRACT.sun.rayDirection,
     ).normalize();
-    unityStageLights.light.target.position.copy(targetWorld);
-    unityStageLights.light.position.copy(targetWorld).addScaledVector(rayDirection, -250);
-    unityStageLights.light.target.updateMatrixWorld(true);
-    unityStageLights.light.updateMatrixWorld(true);
+    toonLabStageLights.light.target.position.copy(targetWorld);
+    toonLabStageLights.light.position.copy(targetWorld).addScaledVector(rayDirection, -250);
+    toonLabStageLights.light.target.updateMatrixWorld(true);
+    toonLabStageLights.light.updateMatrixWorld(true);
   }
 
   function setRenderAuthority(value = 'legacy') {
@@ -206,17 +206,17 @@ export function createRockScene({ container, unityShadowsEnabled = true }) {
     const source = renderAuthority === 'source';
     ambient.visible = !source;
     if (sunRig?.group) sunRig.group.visible = !source;
-    unityLightRoot.visible = source;
-    ground.material = source ? groundMaterials.unity : groundMaterials.lab;
+    toonLabLightRoot.visible = source;
+    ground.material = source ? groundMaterials.toonlab : groundMaterials.lab;
 
     if (source) {
-      configureSoStylizedUnityStageRenderer(renderer, scene);
-      scene.background = unityBackground;
+      configureToonLabStageRenderer(renderer, scene);
+      scene.background = toonLabBackground;
       scene.fog = null;
-      camera.fov = SO_STYLIZED_UNITY_RENDER_CONTRACT.camera.fieldOfView;
-      camera.near = SO_STYLIZED_UNITY_RENDER_CONTRACT.camera.near;
-      camera.far = SO_STYLIZED_UNITY_RENDER_CONTRACT.camera.far;
-      updateUnityLightTarget();
+      camera.fov = TOONLAB_RENDER_CONTRACT.camera.fieldOfView;
+      camera.near = TOONLAB_RENDER_CONTRACT.camera.near;
+      camera.far = TOONLAB_RENDER_CONTRACT.camera.far;
+      updateToonLabLightTarget();
     } else {
       scene.background = labBackground;
       scene.fog = labFog;
@@ -226,8 +226,8 @@ export function createRockScene({ container, unityShadowsEnabled = true }) {
     camera.updateProjectionMatrix();
     if (typeof document !== 'undefined') {
       document.body.dataset.rockRenderAuthority = renderAuthority;
-      document.body.dataset.rockUnityAmbient = String(unityStageLights.ambient.visible && source);
-      document.body.dataset.rockUnitySun = String(unityStageLights.light.visible && source);
+      document.body.dataset.rockToonLabAmbient = String(toonLabStageLights.ambient.visible && source);
+      document.body.dataset.rockToonLabSun = String(toonLabStageLights.light.visible && source);
       document.body.dataset.rockShadowReceiver = String(ground.receiveShadow && source);
     }
     return renderAuthority;
@@ -236,7 +236,7 @@ export function createRockScene({ container, unityShadowsEnabled = true }) {
   function registerLabGroundMaterial(material) {
     if (!material) return;
     groundMaterials.lab = material;
-    ground.material = renderAuthority === 'source' ? groundMaterials.unity : groundMaterials.lab;
+    ground.material = renderAuthority === 'source' ? groundMaterials.toonlab : groundMaterials.lab;
   }
 
   /** Applies sky/weather sun overrides and rebuilds the rig around them. */
@@ -290,7 +290,7 @@ export function createRockScene({ container, unityShadowsEnabled = true }) {
     box.min.y = Math.min(box.min.y, -0.01);
     environmentBox.copy(box);
     updateSunRig();
-    updateUnityLightTarget();
+    updateToonLabLightTarget();
     return environmentBox;
   }
 
@@ -307,10 +307,10 @@ export function createRockScene({ container, unityShadowsEnabled = true }) {
     controls.minDistance = Math.max(0.05, radius * 0.05);
     controls.maxDistance = Math.max(100, distance * 8);
     camera.near = renderAuthority === 'source'
-      ? SO_STYLIZED_UNITY_RENDER_CONTRACT.camera.near
+      ? TOONLAB_RENDER_CONTRACT.camera.near
       : Math.max(0.01, radius / 5000);
     camera.far = renderAuthority === 'source'
-      ? SO_STYLIZED_UNITY_RENDER_CONTRACT.camera.far
+      ? TOONLAB_RENDER_CONTRACT.camera.far
       : Math.max(400, controls.maxDistance + radius * 4);
     camera.updateProjectionMatrix();
     camera.position.copy(center).addScaledVector(direction, distance);
@@ -342,7 +342,7 @@ export function createRockScene({ container, unityShadowsEnabled = true }) {
     setFogScale,
     setRenderAuthority,
     setSunState,
-    unityStageLights,
+    toonLabStageLights,
     updateEnvironmentBox,
   };
 }

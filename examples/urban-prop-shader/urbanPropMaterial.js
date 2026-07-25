@@ -1,6 +1,25 @@
 import * as THREE from 'three';
+import { MeshToonNodeMaterial } from 'three/webgpu';
+import {
+  abs,
+  cameraPosition,
+  clamp,
+  dot,
+  float,
+  mix,
+  normalMap as normalMapNode,
+  normalWorld,
+  normalize,
+  positionWorld,
+  pow,
+  smoothstep,
+  texture,
+  uniform,
+  vec2,
+  vec3,
+} from 'three/tsl';
 
-const SURFACE_PROFILES = Object.freeze({
+const LEGACY_SURFACE_PROFILES = Object.freeze({
   paintedMetal: Object.freeze({
     colorControl: 'bodyColor',
     colorLiftScale: 1,
@@ -174,6 +193,234 @@ const SURFACE_PROFILES = Object.freeze({
     wearScale: 0.95,
   }),
 });
+
+function surfaceProfile(base, overrides) {
+  return Object.freeze({ ...base, ...overrides });
+}
+
+const SURFACE_PROFILES = Object.freeze({
+  ...LEGACY_SURFACE_PROFILES,
+  coatedPanel: LEGACY_SURFACE_PROFILES.lid,
+  genericDielectric: surfaceProfile(LEGACY_SURFACE_PROFILES.paintedMetal, {
+    colorLiftScale: 0.42,
+    fallbackMetalness: 0,
+    fresnelScale: 0.34,
+    highlightScale: 0.2,
+    lightValueCap: 1.08,
+    materialResponseScale: 0.42,
+    normalScale: 0.82,
+    paintExtractionScale: 0.35,
+    pastelScale: 0.45,
+    planarSheenScale: 0.08,
+    responseValueCap: 1.15,
+    roughnessBreakupScale: 0.72,
+    sharpRustBoost: 0.2,
+    viewReflectionScale: 0.2,
+    wearScale: 0.3,
+  }),
+  masonry: surfaceProfile(LEGACY_SURFACE_PROFILES.paintedMetal, {
+    colorLiftScale: 0.2,
+    fallbackMetalness: 0,
+    fresnelScale: 0.08,
+    highlightScale: 0.08,
+    lightValueCap: 1.05,
+    materialResponseScale: 0.18,
+    normalScale: 1,
+    paintExtractionScale: 0.12,
+    pastelScale: 0.18,
+    planarSheenScale: 0.015,
+    responseValueCap: 1.08,
+    roughnessBreakupScale: 1,
+    sharpRustBoost: 0,
+    sourceAnchorAuthorityScale: 0,
+    viewReflectionScale: 0.035,
+    wearScale: 0.24,
+  }),
+  wood: surfaceProfile(LEGACY_SURFACE_PROFILES.paintedMetal, {
+    colorLiftScale: 0.28,
+    fallbackMetalness: 0,
+    fresnelScale: 0.24,
+    highlightScale: 0.15,
+    lightValueCap: 1.08,
+    materialResponseScale: 0.32,
+    normalScale: 0.88,
+    paintExtractionScale: 0.18,
+    pastelScale: 0.28,
+    planarSheenScale: 0.06,
+    responseValueCap: 1.12,
+    roughnessBreakupScale: 0.82,
+    sharpRustBoost: 0,
+    sourceAnchorAuthorityScale: 0,
+    viewReflectionScale: 0.14,
+    wearScale: 0.34,
+  }),
+  polymer: surfaceProfile(LEGACY_SURFACE_PROFILES.lid, {
+    colorControl: 'bodyColor',
+    colorLiftScale: 0.34,
+    fallbackMetalness: 0,
+    lightValueCap: 0.82,
+    paintExtractionScale: 0.18,
+    pastelScale: 0.24,
+    responseValueCap: 1.02,
+    roleColorMix: 0,
+    sharpRustBoost: 0,
+    sourceAnchorAuthorityScale: 0,
+    viewReflectionScale: 0.62,
+    wearScale: 0.14,
+  }),
+  glass: surfaceProfile(LEGACY_SURFACE_PROFILES.technicalSurface, {
+    fallbackMetalness: 0,
+    fresnelScale: 1.35,
+    highlightScale: 1,
+    lightValueCap: 1.05,
+    materialResponseScale: 1.15,
+    normalScale: 0.35,
+    pastelScale: 0,
+    planarSheenScale: 0.5,
+    responseValueCap: 1.2,
+    roughnessBreakupScale: 0.28,
+    viewReflectionScale: 1.15,
+    wearScale: 0.02,
+  }),
+  ceramic: surfaceProfile(LEGACY_SURFACE_PROFILES.paintedMetal, {
+    colorLiftScale: 0.3,
+    fallbackMetalness: 0,
+    fresnelScale: 0.46,
+    highlightScale: 0.54,
+    materialResponseScale: 0.55,
+    normalScale: 0.68,
+    paintExtractionScale: 0.12,
+    pastelScale: 0.32,
+    planarSheenScale: 0.18,
+    roughnessBreakupScale: 0.42,
+    sharpRustBoost: 0,
+    viewReflectionScale: 0.36,
+    wearScale: 0.08,
+  }),
+  textile: surfaceProfile(LEGACY_SURFACE_PROFILES.paintedMetal, {
+    colorLiftScale: 0.18,
+    fallbackMetalness: 0,
+    fresnelScale: 0.06,
+    highlightScale: 0.035,
+    lightValueCap: 1.02,
+    materialResponseScale: 0.1,
+    normalScale: 0.92,
+    paintExtractionScale: 0.08,
+    pastelScale: 0.2,
+    planarSheenScale: 0,
+    responseValueCap: 1.04,
+    roughnessBreakupScale: 0.9,
+    sharpRustBoost: 0,
+    sourceAnchorAuthorityScale: 0,
+    viewReflectionScale: 0.02,
+    wearScale: 0.1,
+  }),
+  leather: surfaceProfile(LEGACY_SURFACE_PROFILES.paintedMetal, {
+    colorLiftScale: 0.16,
+    fallbackMetalness: 0,
+    fresnelScale: 0.26,
+    highlightScale: 0.18,
+    lightValueCap: 0.9,
+    materialResponseScale: 0.28,
+    normalScale: 0.82,
+    paintExtractionScale: 0.08,
+    pastelScale: 0.08,
+    planarSheenScale: 0.05,
+    responseValueCap: 1,
+    roughnessBreakupScale: 0.7,
+    sharpRustBoost: 0,
+    sourceAnchorAuthorityScale: 0,
+    viewReflectionScale: 0.16,
+    wearScale: 0.16,
+  }),
+  paper: surfaceProfile(LEGACY_SURFACE_PROFILES.graphicPanel, {
+    fallbackMetalness: 0,
+    fresnelScale: 0.04,
+    highlightScale: 0.02,
+    materialResponseScale: 0.08,
+    normalScale: 0.3,
+    planarSheenScale: 0,
+    viewReflectionScale: 0.01,
+  }),
+  composite: surfaceProfile(LEGACY_SURFACE_PROFILES.technicalSurface, {
+    fallbackMetalness: 0.08,
+    fresnelScale: 0.58,
+    highlightScale: 0.42,
+    materialResponseScale: 0.62,
+    normalScale: 0.72,
+    pastelScale: 0.06,
+    planarSheenScale: 0.2,
+    viewReflectionScale: 0.44,
+    wearScale: 0.1,
+  }),
+  fluid: surfaceProfile(LEGACY_SURFACE_PROFILES.technicalSurface, {
+    fallbackMetalness: 0,
+    fresnelScale: 1.2,
+    highlightScale: 0.9,
+    materialResponseScale: 1.08,
+    normalScale: 0.55,
+    pastelScale: 0,
+    planarSheenScale: 0.62,
+    viewReflectionScale: 1.1,
+    wearScale: 0,
+  }),
+});
+
+export { SURFACE_PROFILES as URBAN_PROP_SURFACE_PROFILES };
+
+export const URBAN_MATERIAL_BASES = Object.freeze([
+  'metal',
+  'mineral',
+  'wood',
+  'polymer',
+  'rubber',
+  'glass',
+  'ceramic',
+  'textile',
+  'leather',
+  'paper',
+  'composite',
+  'fluid',
+  'genericDielectric',
+]);
+
+export const URBAN_MATERIAL_FINISHES = Object.freeze([
+  'raw',
+  'painted',
+  'varnished',
+  'clearCoated',
+  'polished',
+  'brushed',
+  'glazed',
+  'anodized',
+  'mirror',
+  'matte',
+]);
+
+export const URBAN_RENDER_MODES = Object.freeze([
+  'opaque',
+  'alphaCutout',
+  'translucent',
+  'transmissive',
+  'unlit',
+]);
+
+export const URBAN_STRUCTURAL_ROLES = Object.freeze([
+  'primaryMass',
+  'secondaryStructure',
+  'trim',
+  'fastener',
+  'cavity',
+  'window',
+  'graphic',
+  'lightEmitter',
+]);
+
+export const URBAN_CONTENT_FLAGS = Object.freeze([
+  'graphic',
+  'display',
+  'emissive',
+]);
 
 export const URBAN_PROP_SURFACE_ROLES = Object.freeze([
   'paintedMetal',
@@ -472,6 +719,10 @@ export function createUrbanPropShaderControls(palette = 'source') {
     rimEnabled: numberControl(0),
     reflectionNormalEnabled: numberControl(1),
     reflectionNormalStrength: numberControl(0.8),
+    reflectionProbeAvailable: numberControl(0),
+    reflectionProbeLayerEnabled: numberControl(1),
+    reflectionProbeMap: { value: null },
+    reflectionProbeStrength: numberControl(0.82),
     reflectionSelectivityEnabled: numberControl(1),
     reflectionSelectivityStrength: numberControl(0.82),
     roughnessBreakupEnabled: numberControl(1),
@@ -498,41 +749,365 @@ export function applyUrbanPropPalette(controls, palette) {
   controls.paletteOverride.value = selected.overrideStrength;
 }
 
-export function classifyUrbanPropSurface(object, materialOverride = null) {
-  const sourceMaterial = materialOverride ?? (
-    Array.isArray(object?.material)
-      ? object.material[0]
-      : object?.material
-  );
-  const explicitRole = sourceMaterial?.userData?.urbanSurface
-    ?? object?.userData?.urbanSurface;
-  if (URBAN_PROP_SURFACE_ROLES.includes(explicitRole)) return explicitRole;
+const LEGACY_SURFACE_CLASSIFICATIONS = Object.freeze({
+  paintedMetal: Object.freeze({
+    baseMaterial: 'metal',
+    finish: 'painted',
+    renderMode: 'opaque',
+    structuralRole: 'primaryMass',
+  }),
+  paintedTrim: Object.freeze({
+    baseMaterial: 'metal',
+    finish: 'painted',
+    renderMode: 'opaque',
+    structuralRole: 'trim',
+  }),
+  bareMetal: Object.freeze({
+    baseMaterial: 'metal',
+    finish: 'raw',
+    renderMode: 'opaque',
+    structuralRole: 'secondaryStructure',
+  }),
+  rubber: Object.freeze({
+    baseMaterial: 'rubber',
+    finish: 'matte',
+    renderMode: 'opaque',
+    structuralRole: 'secondaryStructure',
+  }),
+  lid: Object.freeze({
+    baseMaterial: 'metal',
+    finish: 'painted',
+    renderMode: 'opaque',
+    structuralRole: 'secondaryStructure',
+  }),
+  graphicPanel: Object.freeze({
+    baseMaterial: 'genericDielectric',
+    contentFlags: Object.freeze(['graphic']),
+    finish: 'matte',
+    renderMode: 'opaque',
+    structuralRole: 'graphic',
+  }),
+  technicalSurface: Object.freeze({
+    baseMaterial: 'genericDielectric',
+    contentFlags: Object.freeze(['display']),
+    finish: 'matte',
+    renderMode: 'opaque',
+    structuralRole: 'secondaryStructure',
+  }),
+});
 
-  const text = `${object?.name ?? ''} ${object?.parent?.name ?? ''} ${
+function includesEnum(values, value) {
+  return values.includes(value);
+}
+
+function sourceRenderMode(sourceMaterial) {
+  if (
+    Number(sourceMaterial?.transmission ?? 0) > 0
+    || Number(sourceMaterial?.transmissionNode?.value ?? 0) > 0
+  ) {
+    return 'transmissive';
+  }
+  if (sourceMaterial?.transparent || Number(sourceMaterial?.opacity ?? 1) < 0.999) {
+    return 'translucent';
+  }
+  if (Number(sourceMaterial?.alphaTest ?? 0) > 0) return 'alphaCutout';
+  return 'opaque';
+}
+
+function sourceHasEmission(sourceMaterial) {
+  if (sourceMaterial?.emissiveMap || sourceMaterial?.emissiveNode) return true;
+  const emissive = sourceMaterial?.emissive;
+  return Boolean(emissive && (emissive.r > 0 || emissive.g > 0 || emissive.b > 0));
+}
+
+export function createUrbanMaterialClassification(options = {}) {
+  const baseMaterial = includesEnum(URBAN_MATERIAL_BASES, options.baseMaterial)
+    ? options.baseMaterial
+    : 'genericDielectric';
+  const finish = includesEnum(URBAN_MATERIAL_FINISHES, options.finish)
+    ? options.finish
+    : 'matte';
+  const renderMode = includesEnum(URBAN_RENDER_MODES, options.renderMode)
+    ? options.renderMode
+    : 'opaque';
+  const structuralRole = includesEnum(URBAN_STRUCTURAL_ROLES, options.structuralRole)
+    ? options.structuralRole
+    : 'primaryMass';
+  const contentFlags = Object.freeze([
+    ...new Set(
+      (Array.isArray(options.contentFlags) ? options.contentFlags : [])
+        .filter((flag) => includesEnum(URBAN_CONTENT_FLAGS, flag)),
+    ),
+  ]);
+  return Object.freeze({
+    version: 1,
+    baseMaterial,
+    finish,
+    renderMode,
+    structuralRole,
+    contentFlags,
+    classificationSource: options.classificationSource ?? 'explicit',
+    confidence: THREE.MathUtils.clamp(Number(options.confidence ?? 1), 0, 1),
+  });
+}
+
+function classificationFromMetadata(object, sourceMaterial) {
+  const nodeData = object?.userData ?? {};
+  const materialData = sourceMaterial?.userData ?? {};
+  const nested = {
+    ...(nodeData.urbanMaterial && typeof nodeData.urbanMaterial === 'object'
+      ? nodeData.urbanMaterial
+      : {}),
+    ...(materialData.urbanMaterial && typeof materialData.urbanMaterial === 'object'
+      ? materialData.urbanMaterial
+      : {}),
+  };
+  const explicit = {
+    baseMaterial: materialData.urbanBaseMaterial
+      ?? nodeData.urbanBaseMaterial
+      ?? nested.baseMaterial,
+    finish: materialData.urbanFinish
+      ?? nodeData.urbanFinish
+      ?? nested.finish,
+    renderMode: materialData.urbanRenderMode
+      ?? nodeData.urbanRenderMode
+      ?? nested.renderMode,
+    structuralRole: materialData.urbanStructuralRole
+      ?? nodeData.urbanStructuralRole
+      ?? nested.structuralRole,
+    contentFlags: materialData.urbanContentFlags
+      ?? nodeData.urbanContentFlags
+      ?? nested.contentFlags,
+  };
+  if (!includesEnum(URBAN_MATERIAL_BASES, explicit.baseMaterial)) return null;
+  return createUrbanMaterialClassification({
+    ...explicit,
+    classificationSource: 'explicit',
+    confidence: 1,
+  });
+}
+
+function classificationText(object, materialOverride) {
+  return `${object?.name ?? ''} ${object?.parent?.name ?? ''} ${
     materialOverride
       ? materialOverride?.name ?? ''
       : Array.isArray(object?.material)
         ? object.material.map((material) => material?.name ?? '').join(' ')
         : object?.material?.name ?? ''
   }`.toLowerCase();
+}
+
+export function resolveUrbanMaterialProfile(classification) {
+  const flags = classification?.contentFlags ?? [];
+  if (flags.includes('graphic') || classification?.structuralRole === 'graphic') {
+    return 'graphicPanel';
+  }
+  if (flags.includes('display') || flags.includes('emissive')) {
+    return 'technicalSurface';
+  }
+  switch (classification?.baseMaterial) {
+    case 'metal':
+      if (['raw', 'polished', 'brushed', 'anodized', 'mirror'].includes(
+        classification.finish,
+      )) {
+        return 'bareMetal';
+      }
+      if (classification.structuralRole === 'trim') return 'paintedTrim';
+      if (classification.structuralRole === 'secondaryStructure') {
+        return 'coatedPanel';
+      }
+      return 'paintedMetal';
+    case 'mineral':
+      return 'masonry';
+    case 'wood':
+      return 'wood';
+    case 'polymer':
+      return 'polymer';
+    case 'rubber':
+      return 'rubber';
+    case 'glass':
+      return 'glass';
+    case 'ceramic':
+      return 'ceramic';
+    case 'textile':
+      return 'textile';
+    case 'leather':
+      return 'leather';
+    case 'paper':
+      return 'paper';
+    case 'composite':
+      return 'composite';
+    case 'fluid':
+      return 'fluid';
+    default:
+      return 'genericDielectric';
+  }
+}
+
+export function classifyUrbanMaterial(object, materialOverride = null) {
+  const sourceMaterial = materialOverride ?? (
+    Array.isArray(object?.material)
+      ? object.material[0]
+      : object?.material
+  );
+  const explicitClassification = classificationFromMetadata(object, sourceMaterial);
+  if (explicitClassification) return explicitClassification;
+
+  const explicitRole = sourceMaterial?.userData?.urbanSurface
+    ?? object?.userData?.urbanSurface;
+  if (URBAN_PROP_SURFACE_ROLES.includes(explicitRole)) {
+    return createUrbanMaterialClassification({
+      ...LEGACY_SURFACE_CLASSIFICATIONS[explicitRole],
+      renderMode: sourceRenderMode(sourceMaterial),
+      contentFlags: [
+        ...(LEGACY_SURFACE_CLASSIFICATIONS[explicitRole]?.contentFlags ?? []),
+        ...(sourceHasEmission(sourceMaterial) ? ['emissive'] : []),
+      ],
+      classificationSource: 'legacy',
+      confidence: 1,
+    });
+  }
+
+  const text = classificationText(object, materialOverride);
   const canonicalRole = URBAN_PROP_SURFACE_ROLES.find((role) => (
     new RegExp(`(?:^|[^a-z0-9])${role.toLowerCase()}(?:$|[^a-z0-9])`).test(text)
   ));
-  if (canonicalRole) return canonicalRole;
-  if (/(electrical|electronic|solar|photovoltaic|circuit|control.?panel)/.test(text)) {
-    return 'technicalSurface';
+  if (canonicalRole) {
+    return createUrbanMaterialClassification({
+      ...LEGACY_SURFACE_CLASSIFICATIONS[canonicalRole],
+      renderMode: sourceRenderMode(sourceMaterial),
+      contentFlags: [
+        ...(LEGACY_SURFACE_CLASSIFICATIONS[canonicalRole]?.contentFlags ?? []),
+        ...(sourceHasEmission(sourceMaterial) ? ['emissive'] : []),
+      ],
+      classificationSource: 'nameToken',
+      confidence: 0.95,
+    });
   }
-  if (/(sign|poster|billboard|advert|screen|display|graphic)/.test(text)) {
-    return 'graphicPanel';
+
+  let baseMaterial = 'genericDielectric';
+  let finish = 'matte';
+  let structuralRole = 'primaryMass';
+  const renderMode = sourceRenderMode(sourceMaterial);
+  const contentFlags = [];
+  let confidence = 0.46;
+
+  if (/(sign|poster|billboard|advert|label|decal|graphic|print)/.test(text)) {
+    contentFlags.push('graphic');
+    structuralRole = 'graphic';
+    confidence = Math.max(confidence, 0.9);
   }
-  if (/(rubber|tire|tyre|wheel)/.test(text)) return 'rubber';
-  if (/(top|lid|roof)/.test(text)) return 'lid';
-  if (/(handle|hinge|rod|bar|rail|pipe)/.test(text)) return 'bareMetal';
-  if (/(side|trim|frame|grate|extra)/.test(text)) return 'paintedTrim';
-  return 'paintedMetal';
+  if (/(electrical|electronic|solar|photovoltaic|circuit|control.?panel|screen|display)/.test(text)) {
+    contentFlags.push('display');
+    structuralRole = structuralRole === 'graphic' ? structuralRole : 'secondaryStructure';
+    confidence = Math.max(confidence, 0.86);
+  }
+  if (sourceHasEmission(sourceMaterial) || /(emissive|lamp|light|neon|led)/.test(text)) {
+    contentFlags.push('emissive');
+    if (structuralRole === 'primaryMass') structuralRole = 'lightEmitter';
+    confidence = Math.max(confidence, 0.82);
+  }
+
+  if (/(glass|window|windshield|windscreen|mirror)/.test(text)) {
+    baseMaterial = 'glass';
+    finish = /mirror/.test(text) ? 'mirror' : 'polished';
+    structuralRole = /window|windshield|windscreen/.test(text) ? 'window' : structuralRole;
+    confidence = 0.96;
+  } else if (/(rubber|tire|tyre)/.test(text)) {
+    baseMaterial = 'rubber';
+    finish = 'matte';
+    structuralRole = 'secondaryStructure';
+    confidence = 0.96;
+  } else if (/(fabric|textile|cloth|upholstery|curtain|canvas|carpet|rug)/.test(text)) {
+    baseMaterial = 'textile';
+    finish = 'matte';
+    confidence = 0.92;
+  } else if (/(leather|suede)/.test(text)) {
+    baseMaterial = 'leather';
+    finish = 'matte';
+    confidence = 0.96;
+  } else if (/(paper|cardboard|carton|poster)/.test(text)) {
+    baseMaterial = 'paper';
+    finish = 'matte';
+    confidence = 0.92;
+  } else if (/(ceramic|porcelain|earthenware)/.test(text)) {
+    baseMaterial = 'ceramic';
+    finish = /glaz/.test(text) ? 'glazed' : 'matte';
+    confidence = 0.94;
+  } else if (/(wood|timber|plank|plywood|veneer)/.test(text)) {
+    baseMaterial = 'wood';
+    finish = /(varnish|lacquer)/.test(text) ? 'varnished' : 'raw';
+    confidence = 0.94;
+  } else if (/(plastic|polymer|acrylic|vinyl|resin|foam)/.test(text)) {
+    baseMaterial = 'polymer';
+    finish = 'matte';
+    confidence = 0.9;
+  } else if (/(carbon.?fiber|fiberglass|fibre.?glass|laminate|composite)/.test(text)) {
+    baseMaterial = 'composite';
+    finish = /clear.?coat/.test(text) ? 'clearCoated' : 'matte';
+    confidence = 0.92;
+  } else if (/(liquid|fluid|water|oil)/.test(text)) {
+    baseMaterial = 'fluid';
+    finish = 'polished';
+    confidence = 0.88;
+  } else if (
+    /(brick|concrete|cement|plaster|stucco|masonry|stone|marble|granite|asphalt|pavement|drywall|wall|floor|roof|gable|building)/.test(text)
+  ) {
+    baseMaterial = 'mineral';
+    finish = /(marble|granite|polish)/.test(text) ? 'polished' : 'raw';
+    confidence = 0.9;
+  } else if (
+    /(metal|steel|iron|alum|chrome|copper|brass|handle|hinge|rod|bar|rail|pipe)/.test(text)
+    || Number(sourceMaterial?.metalness ?? 0) > 0.45
+  ) {
+    baseMaterial = 'metal';
+    finish = /(chrome|polish|mirror)/.test(text)
+      ? 'polished'
+      : /(brush)/.test(text)
+        ? 'brushed'
+        : /(handle|hinge|rod|bar|rail|pipe|bare)/.test(text)
+          ? 'raw'
+          : 'painted';
+    confidence = /(metal|steel|iron|alum|chrome|copper|brass)/.test(text) ? 0.94 : 0.72;
+  }
+
+  if (/(top|lid|cover|roof|gable)/.test(text) && structuralRole === 'primaryMass') {
+    structuralRole = 'secondaryStructure';
+  }
+  if (/(trim|frame|grate|extra)/.test(text) && structuralRole === 'primaryMass') {
+    structuralRole = 'trim';
+  }
+  if (/(handle|hinge|fastener|bolt|screw|rod|bar|rail|pipe)/.test(text)) {
+    structuralRole = 'fastener';
+  }
+  if (/(cavity|interior|inside|recess|void)/.test(text)) {
+    structuralRole = 'cavity';
+  }
+
+  return createUrbanMaterialClassification({
+    baseMaterial,
+    finish,
+    renderMode,
+    structuralRole,
+    contentFlags,
+    classificationSource: baseMaterial === 'genericDielectric' ? 'fallback' : 'inferred',
+    confidence,
+  });
 }
 
-function installLockedLookShader(material, source, profile, controls) {
+export function classifyUrbanPropSurface(object, materialOverride = null) {
+  return resolveUrbanMaterialProfile(
+    classifyUrbanMaterial(object, materialOverride),
+  );
+}
+
+function installLockedLookShader(
+  material,
+  source,
+  profile,
+  controls,
+  { isMirror = false } = {},
+) {
   const sourceAnchor = deriveTextureAnchor(source?.map);
   const sourceResponseMap = source?.roughnessMap ?? source?.metalnessMap ?? null;
   const sourceImage = source?.map?.image;
@@ -608,6 +1183,15 @@ function installLockedLookShader(material, source, profile, controls) {
       controls.reflectionNormalEnabled;
     shader.uniforms.urbanReflectionNormalStrength =
       controls.reflectionNormalStrength;
+    if (isMirror) {
+      shader.uniforms.urbanReflectionProbeAvailable =
+        controls.reflectionProbeAvailable;
+      shader.uniforms.urbanReflectionProbeLayerEnabled =
+        controls.reflectionProbeLayerEnabled;
+      shader.uniforms.urbanReflectionProbeMap = controls.reflectionProbeMap;
+      shader.uniforms.urbanReflectionProbeStrength =
+        controls.reflectionProbeStrength;
+    }
     shader.uniforms.urbanReflectionSelectivityEnabled =
       controls.reflectionSelectivityEnabled;
     shader.uniforms.urbanReflectionSelectivityStrength =
@@ -669,6 +1253,12 @@ function installLockedLookShader(material, source, profile, controls) {
       uniform float urbanRimEnabled;
       uniform float urbanReflectionNormalEnabled;
       uniform float urbanReflectionNormalStrength;
+      ${isMirror ? `
+      uniform float urbanReflectionProbeAvailable;
+      uniform float urbanReflectionProbeLayerEnabled;
+      uniform samplerCube urbanReflectionProbeMap;
+      uniform float urbanReflectionProbeStrength;
+      ` : ''}
       uniform float urbanReflectionSelectivityEnabled;
       uniform float urbanReflectionSelectivityStrength;
       uniform vec3 urbanRoleColor;
@@ -785,6 +1375,21 @@ function installLockedLookShader(material, source, profile, controls) {
             urbanSharpColor.b
           );
           float urbanSharpChroma = urbanSharpHigh - urbanSharpLow;
+          float urbanSharpRelativeChroma = urbanSharpChroma
+            / max(urbanSharpHigh, 0.06);
+          float urbanLocalNeutralMask = 1.0 - smoothstep(
+            0.055,
+            0.18,
+            urbanSharpRelativeChroma
+          );
+          // Black is a local source property, not a material-wide class. A
+          // mixed atlas can contain rust-red paint and a neutral black bike;
+          // the colored texels must not grant their hue to the black texels.
+          float urbanLocalBlackMask = (
+            1.0 - smoothstep(0.10, 0.34, urbanSharpHigh)
+          ) * (
+            1.0 - smoothstep(0.06, 0.20, urbanSharpRelativeChroma)
+          );
           float urbanMacroHigh = max(
             max(urbanMacroColor.r, urbanMacroColor.g),
             urbanMacroColor.b
@@ -985,6 +1590,14 @@ function installLockedLookShader(material, source, profile, controls) {
           float urbanSourceBlackMask = urbanSourceNeutralClass * (
             1.0 - smoothstep(0.10, 0.34, urbanMacroHigh)
           );
+          urbanDarkNeutralMask = max(
+            urbanDarkNeutralMask,
+            urbanLocalBlackMask
+          );
+          urbanSourceBlackMask = max(
+            urbanSourceBlackMask,
+            urbanLocalBlackMask
+          );
           float urbanRawStableSourceValue = clamp(
             mix(
               urbanMacroHigh,
@@ -1003,7 +1616,7 @@ function installLockedLookShader(material, source, profile, controls) {
             urbanPaintValue,
             urbanStableSourceValue,
             urbanSourceAuthority
-              * urbanSourceNeutralClass
+              * max(urbanSourceNeutralClass, urbanLocalBlackMask)
               * ${Math.max(
                 profile.sourceValueAuthorityScale,
                 profile.sourceHueAuthorityScale,
@@ -1036,6 +1649,16 @@ function installLockedLookShader(material, source, profile, controls) {
             urbanPaintHue * urbanPaintValue,
             0.0,
             1.0
+          );
+          float urbanLocalBlackValue = clamp(
+            urbanSharpLuma * 0.72 + 0.008,
+            0.008,
+            0.12
+          );
+          urbanCleanPaint = mix(
+            urbanCleanPaint,
+            vec3(urbanLocalBlackValue),
+            urbanLocalBlackMask * urbanSourceAuthority
           );
 
           float urbanSharpWarmRust = smoothstep(
@@ -1140,6 +1763,32 @@ function installLockedLookShader(material, source, profile, controls) {
             urbanReconstructed,
             urbanGraphicColor,
             clamp(urbanGraphicStrength, 0.0, 1.0)
+          );
+          // Neutral metal inside a colored mixed atlas keeps its own value.
+          // This prevents a red paint anchor from recoloring rims, spokes,
+          // chainrings, handles, and other gray hardware.
+          float urbanLocalNeutralValue = clamp(
+            pow(max(urbanSharpLuma, 0.0), 0.88),
+            0.008,
+            0.82
+          );
+          diffuseColor.rgb = mix(
+            diffuseColor.rgb,
+            vec3(urbanLocalNeutralValue),
+            urbanLocalNeutralMask
+              * urbanSourceAuthority
+              * (1.0 - urbanGraphicStrength)
+          );
+          // Final albedo authority for actual black texels. This must occur
+          // after wear and graphics reconstruction because a mixed atlas can
+          // place a red panel close enough for the macro samples to bleed into
+          // a black bicycle frame. Light and reflection response remain later.
+          diffuseColor.rgb = mix(
+            diffuseColor.rgb,
+            vec3(urbanLocalBlackValue),
+            urbanLocalBlackMask
+              * urbanSourceAuthority
+              * (1.0 - urbanGraphicStrength)
           );
           diffuseColor.a *= urbanSourceSample.a;
         `
@@ -1254,13 +1903,24 @@ function installLockedLookShader(material, source, profile, controls) {
             tbn * urbanReflectionMapNormal
           );
         #endif
+        float urbanNeutralResponseMask =
+          ${source?.map ? 'urbanLocalNeutralMask' : '0.0'};
         vec3 urbanGraphicLight = normalize(vec3(-0.25, 0.78, 0.57));
         float urbanHighlightBand = smoothstep(
           0.62,
           0.74,
           dot(urbanViewNormal, urbanGraphicLight)
         ) * (1.0 - urbanShadowMask);
-        outgoingLight += urbanHighlightBandColor
+        float urbanHighlightBandLuma = dot(
+          urbanHighlightBandColor,
+          vec3(0.2126, 0.7152, 0.0722)
+        );
+        vec3 urbanAppliedHighlightBandColor = mix(
+          urbanHighlightBandColor,
+          vec3(urbanHighlightBandLuma),
+          urbanNeutralResponseMask
+        );
+        outgoingLight += urbanAppliedHighlightBandColor
           * urbanHighlightBand
           * urbanHighlightBandEnabled
           * urbanHighlightBandStrength
@@ -1278,7 +1938,16 @@ function installLockedLookShader(material, source, profile, controls) {
         ) * (
           1.0 - smoothstep(0.94, 1.0, 1.0 - urbanFacing)
         );
-        outgoingLight += urbanFresnelColor
+        float urbanFresnelColorLuma = dot(
+          urbanFresnelColor,
+          vec3(0.2126, 0.7152, 0.0722)
+        );
+        vec3 urbanAppliedFresnelColor = mix(
+          urbanFresnelColor,
+          vec3(urbanFresnelColorLuma),
+          urbanNeutralResponseMask
+        );
+        outgoingLight += urbanAppliedFresnelColor
           * urbanFresnelEdge
           * urbanFresnelStrength
           * urbanFresnelEnabled
@@ -1288,6 +1957,15 @@ function installLockedLookShader(material, source, profile, controls) {
           urbanRimLeftColor,
           urbanRimRightColor,
           smoothstep(-0.42, 0.42, urbanViewNormal.x)
+        );
+        float urbanRimColorLuma = dot(
+          urbanRimColor,
+          vec3(0.2126, 0.7152, 0.0722)
+        );
+        urbanRimColor = mix(
+          urbanRimColor,
+          vec3(urbanRimColorLuma),
+          urbanNeutralResponseMask
         );
         outgoingLight += urbanRimColor
           * urbanRim
@@ -1569,6 +2247,15 @@ function installLockedLookShader(material, source, profile, controls) {
           ),
           urbanMaterialMetalness
         );
+        float urbanResponseTintLuma = dot(
+          urbanResponseTint,
+          vec3(0.2126, 0.7152, 0.0722)
+        );
+        urbanResponseTint = mix(
+          urbanResponseTint,
+          vec3(urbanResponseTintLuma),
+          urbanNeutralResponseMask
+        );
         float urbanResponseAmount = urbanMaterialResponseEnabled
           * urbanMaterialResponseStrength
           * ${profile.materialResponseScale.toFixed(4)}
@@ -1606,6 +2293,15 @@ function installLockedLookShader(material, source, profile, controls) {
               + urbanHorizonReflection * 0.03
             )
           + urbanPlanarLightResponse * 0.85;
+        float urbanPlanarSheenLuma = dot(
+          urbanPlanarSheenColor,
+          vec3(0.2126, 0.7152, 0.0722)
+        );
+        urbanPlanarSheenColor = mix(
+          urbanPlanarSheenColor,
+          vec3(urbanPlanarSheenLuma),
+          urbanNeutralResponseMask
+        );
         outgoingLight += urbanPlanarSheenColor
           * urbanPlanarFacing
           * urbanPlanarRoughnessGain
@@ -1651,12 +2347,52 @@ function installLockedLookShader(material, source, profile, controls) {
           * urbanReflectionCoverage
           * mix(0.38, 1.16, urbanStylizedSmoothness)
           * mix(0.72, 1.0, urbanRoughnessSheen);
+        ${isMirror ? `
+        vec3 urbanProbeDirection = inverseTransformDirection(
+          urbanReflectedView,
+          viewMatrix
+        );
+        urbanProbeDirection.x *= -1.0;
+        vec3 urbanProbeColor = textureCube(
+          urbanReflectionProbeMap,
+          urbanProbeDirection
+        ).rgb;
+        float urbanProbeHigh = max(
+          max(urbanProbeColor.r, urbanProbeColor.g),
+          urbanProbeColor.b
+        );
+        vec3 urbanProbeHue = urbanProbeColor
+          / max(urbanProbeHigh, 0.025);
+        float urbanProbeBand = floor(
+          clamp(urbanProbeHigh, 0.0, 0.999) * 5.0
+        ) * 0.25;
+        vec3 urbanStylizedProbe = urbanProbeHue * mix(
+          urbanProbeHigh,
+          urbanProbeBand,
+          0.28
+        );
+        float urbanProbeFresnel = pow(
+          clamp(1.0 - urbanFacing, 0.0, 1.0),
+          3.0
+        );
+        float urbanProbeAmount =
+          urbanReflectionProbeAvailable
+          * urbanReflectionProbeLayerEnabled
+          * urbanReflectionProbeStrength
+          * mix(0.74, 0.94, urbanProbeFresnel);
+        outgoingLight = mix(
+          outgoingLight,
+          urbanStylizedProbe,
+          clamp(urbanProbeAmount, 0.0, 0.96)
+        );
+        ` : ''}
       `,
     );
   };
 
   material.customProgramCacheKey = () => [
-    'locked-urban-v69-canonical-surface-role-contract',
+    'locked-urban-v72-local-neutral-authority',
+    isMirror,
     Boolean(source?.map),
     Boolean(sourceResponseMap),
     profile.colorControl,
@@ -1685,12 +2421,45 @@ function installLockedLookShader(material, source, profile, controls) {
   ].join(':');
 }
 
+function classificationForAdapter(source, classification, legacySurface) {
+  if (classification && typeof classification === 'object') {
+    return createUrbanMaterialClassification(classification);
+  }
+  const legacy = LEGACY_SURFACE_CLASSIFICATIONS[legacySurface]
+    ?? LEGACY_SURFACE_CLASSIFICATIONS.paintedMetal;
+  return createUrbanMaterialClassification({
+    ...legacy,
+    renderMode: sourceRenderMode(source),
+    contentFlags: [
+      ...(legacy.contentFlags ?? []),
+      ...(sourceHasEmission(source) ? ['emissive'] : []),
+    ],
+    classificationSource: legacySurface ? 'legacyAdapter' : 'defaultAdapter',
+    confidence: legacySurface ? 1 : 0.5,
+  });
+}
+
+function legacySurfaceForProfile(profileId) {
+  if (URBAN_PROP_SURFACE_ROLES.includes(profileId)) return profileId;
+  if (profileId === 'coatedPanel' || profileId === 'polymer') return 'lid';
+  if (profileId === 'glass' || profileId === 'composite' || profileId === 'fluid') {
+    return 'technicalSurface';
+  }
+  if (profileId === 'rubber') return 'rubber';
+  return 'paintedMetal';
+}
+
 export function createUrbanAnimePropMaterial(sourceMaterial, {
+  classification = null,
   controls,
-  surface = 'paintedMetal',
+  surface = null,
 } = {}) {
   const source = Array.isArray(sourceMaterial) ? sourceMaterial[0] : sourceMaterial;
-  const profile = SURFACE_PROFILES[surface] ?? SURFACE_PROFILES.paintedMetal;
+  const materialClassification = classificationForAdapter(source, classification, surface);
+  const profileId = surface && SURFACE_PROFILES[surface]
+    ? surface
+    : resolveUrbanMaterialProfile(materialClassification);
+  const profile = SURFACE_PROFILES[profileId] ?? SURFACE_PROFILES.genericDielectric;
   const shared = controls ?? createUrbanPropShaderControls();
 
   const material = new THREE.MeshToonMaterial({
@@ -1698,7 +2467,7 @@ export function createUrbanAnimePropMaterial(sourceMaterial, {
     emissive: 0x020508,
     gradientMap: createLockedGradientMap(),
   });
-  material.name = `Locked urban · ${surface} · ${source?.name ?? 'material'}`;
+  material.name = `Locked urban · ${profileId} · ${source?.name ?? 'material'}`;
   material.map = source?.map ?? null;
   material.normalMap = source?.normalMap ?? null;
   material.side = source?.side ?? THREE.FrontSide;
@@ -1737,9 +2506,200 @@ export function createUrbanAnimePropMaterial(sourceMaterial, {
   syncLookControls();
   material.onBeforeRender = syncLookControls;
 
-  installLockedLookShader(material, source, profile, shared);
+  installLockedLookShader(material, source, profile, shared, {
+    isMirror: materialClassification.finish === 'mirror',
+  });
   material.userData.environmentShaderExclude = true;
-  material.userData.urbanPropSurface = surface;
-  material.userData.urbanLookVersion = 4;
+  material.userData.urbanMaterial = {
+    ...materialClassification,
+    contentFlags: [...materialClassification.contentFlags],
+  };
+  material.userData.urbanSurfaceProfile = profileId;
+  material.userData.urbanSurface = legacySurfaceForProfile(profileId);
+  material.userData.urbanPropSurface = material.userData.urbanSurface;
+  material.userData.urbanLookVersion = 5;
+  return material;
+}
+
+/**
+ * WebGPU/TSL presentation adapter for the locked urban look.
+ *
+ * The standalone benchmark uses `onBeforeCompile`, which WebGPURenderer does
+ * not execute. This adapter consumes the same controls and role profiles while
+ * retaining source texture/node authority, toon bands, normal detail, source
+ * emission, roughness-selective sheen, and the canonical urbanSurface role.
+ */
+export function createUrbanAnimePropNodeMaterial(sourceMaterial, {
+  classification = null,
+  controls,
+  surface = null,
+} = {}) {
+  const source = Array.isArray(sourceMaterial) ? sourceMaterial[0] : sourceMaterial;
+  const materialClassification = classificationForAdapter(source, classification, surface);
+  const profileId = surface && SURFACE_PROFILES[surface]
+    ? surface
+    : resolveUrbanMaterialProfile(materialClassification);
+  const profile = SURFACE_PROFILES[profileId] ?? SURFACE_PROFILES.genericDielectric;
+  const shared = controls ?? createUrbanPropShaderControls();
+  const scalarBindings = [];
+  const scalarControl = (control) => {
+    const node = uniform(Number(control?.value ?? 0));
+    scalarBindings.push([node, control]);
+    return node;
+  };
+  const colorControlNode = (control, fallback = 0xffffff) => (
+    uniform(control?.value ?? new THREE.Color(fallback))
+  );
+
+  const sourceColor = source?.color?.clone?.() ?? new THREE.Color(0xffffff);
+  let sourceColorNode = source?.colorNode ?? vec3(
+    sourceColor.r,
+    sourceColor.g,
+    sourceColor.b,
+  );
+  if (!source?.colorNode && source?.map) {
+    sourceColorNode = texture(source.map).rgb.mul(sourceColorNode);
+  }
+
+  const roleColor = colorControlNode(shared[profile.colorControl]);
+  const paletteAmount = scalarControl(shared.paletteOverride)
+    .mul(profile.roleColorMix);
+  let urbanColor = mix(sourceColorNode, roleColor, paletteAmount);
+  const pastelAmount = scalarControl(shared.pastelPaletteEnabled)
+    .mul(scalarControl(shared.pastelStrength))
+    .mul(profile.pastelScale);
+  const pastelTarget = urbanColor
+    .mul(0.9)
+    .add(colorControlNode(shared.pastelBlueColor, 0x8faabd).mul(0.1));
+  urbanColor = mix(urbanColor, pastelTarget, pastelAmount);
+  urbanColor = urbanColor.add(
+    scalarControl(shared.colorLiftEnabled)
+      .mul(scalarControl(shared.colorLiftStrength))
+      .mul(profile.colorLiftScale * 0.035),
+  );
+
+  let sourceRoughnessNode = float(
+    Number.isFinite(source?.roughness) ? source.roughness : 0.72,
+  );
+  if (source?.roughnessNode) {
+    sourceRoughnessNode = source.roughnessNode;
+  } else if (source?.roughnessMap) {
+    sourceRoughnessNode = texture(source.roughnessMap).g.mul(
+      Number.isFinite(source.roughness) ? source.roughness : 1,
+    );
+  }
+  const roughnessNode = clamp(sourceRoughnessNode, 0, 1);
+
+  let sourceMetalnessNode = float(
+    Number.isFinite(source?.metalness)
+      ? source.metalness
+      : profile.fallbackMetalness,
+  );
+  if (source?.metalnessNode) {
+    sourceMetalnessNode = source.metalnessNode;
+  } else if (source?.metalnessMap) {
+    sourceMetalnessNode = texture(source.metalnessMap).b.mul(
+      Number.isFinite(source.metalness) ? source.metalness : 1,
+    );
+  }
+  const metalnessNode = clamp(sourceMetalnessNode, 0, 1);
+
+  let sourceNormalNode = source?.normalNode ?? null;
+  if (!sourceNormalNode && source?.normalMap) {
+    const sourceNormalScale = source.normalScale ?? new THREE.Vector2(1, 1);
+    const detailAmount = scalarControl(shared.normalDetailEnabled)
+      .mul(scalarControl(shared.normalStrength))
+      .mul(profile.normalScale);
+    sourceNormalNode = normalMapNode(
+      texture(source.normalMap).rgb,
+      vec2(sourceNormalScale.x, sourceNormalScale.y).mul(detailAmount),
+    );
+  }
+
+  let sourceEmissionNode = source?.emissiveNode ?? vec3(0);
+  if (!source?.emissiveNode) {
+    const sourceEmissive = source?.emissive?.clone?.() ?? new THREE.Color(0x000000);
+    sourceEmissionNode = vec3(
+      sourceEmissive.r,
+      sourceEmissive.g,
+      sourceEmissive.b,
+    ).mul(Number(source?.emissiveIntensity ?? 1));
+    if (source?.emissiveMap) {
+      sourceEmissionNode = texture(source.emissiveMap).rgb.mul(sourceEmissionNode);
+    }
+  }
+
+  const viewDirection = normalize(cameraPosition.sub(positionWorld));
+  const facing = clamp(abs(dot(normalWorld, viewDirection)), 0, 1);
+  const fresnel = pow(facing.oneMinus(), 3);
+  const planarFacing = smoothstep(0.38, 0.94, normalWorld.y);
+  const smoothResponse = mix(0.38, 1.18, roughnessNode.oneMinus());
+  const metalResponse = mix(0.42, 1, metalnessNode);
+  const materialResponseAmount = scalarControl(shared.materialResponseEnabled)
+    .mul(scalarControl(shared.materialResponseStrength))
+    .mul(profile.materialResponseScale);
+  const fresnelResponse = fresnel
+    .mul(scalarControl(shared.fresnelEnabled))
+    .mul(scalarControl(shared.fresnelStrength))
+    .mul(profile.fresnelScale * 0.34);
+  const planarResponse = planarFacing
+    .mul(scalarControl(shared.planarSheenEnabled))
+    .mul(scalarControl(shared.planarSheenStrength))
+    .mul(profile.planarSheenScale * 0.18);
+  const highlightBand = smoothstep(0.28, 0.54, fresnel)
+    .sub(smoothstep(0.62, 0.82, fresnel))
+    .mul(scalarControl(shared.highlightBandEnabled))
+    .mul(scalarControl(shared.highlightBandStrength))
+    .mul(profile.highlightScale * 0.12);
+  const stylizedResponse = colorControlNode(
+    shared.materialResponseColor,
+    0xaacbe0,
+  ).mul(
+    fresnelResponse
+      .add(planarResponse)
+      .add(highlightBand)
+      .mul(smoothResponse)
+      .mul(metalResponse)
+      .mul(materialResponseAmount),
+  );
+
+  const material = new MeshToonNodeMaterial();
+  material.name = `Locked urban WebGPU · ${profileId} · ${
+    source?.name ?? 'material'
+  }`;
+  material.colorNode = clamp(urbanColor, 0, profile.lightValueCap);
+  material.emissiveNode = sourceEmissionNode.add(stylizedResponse);
+  material.normalNode = sourceNormalNode;
+  material.gradientMap = createLockedGradientMap();
+  material.side = source?.side ?? THREE.FrontSide;
+  material.transparent = source?.transparent ?? false;
+  material.opacity = source?.opacity ?? 1;
+  material.alphaTest = source?.alphaTest ?? 0;
+  if (source?.opacityNode) {
+    material.opacityNode = source.opacityNode;
+  } else if (source?.map && material.transparent) {
+    material.opacityNode = texture(source.map).a.mul(material.opacity);
+  }
+  material.fog = true;
+  material.onBeforeRender = () => {
+    for (const [node, control] of scalarBindings) {
+      node.value = Number(control?.value ?? 0);
+    }
+    material.gradientMap = shared.celLightingEnabled.value > 0.5
+      ? createLockedGradientMap()
+      : createSmoothGradientMap();
+  };
+  material.userData.environmentShaderExclude = true;
+  material.userData.urbanMaterial = {
+    ...materialClassification,
+    contentFlags: [...materialClassification.contentFlags],
+  };
+  material.userData.urbanSurfaceProfile = profileId;
+  material.userData.urbanSurface = legacySurfaceForProfile(profileId);
+  material.userData.urbanPropSurface = material.userData.urbanSurface;
+  material.userData.urbanLookVersion = 5;
+  material.userData.urbanRendererAdapter = 'WebGPU/TSL';
+  material.userData.urbanSourceMaterial = source?.name ?? null;
+  material.needsUpdate = true;
   return material;
 }

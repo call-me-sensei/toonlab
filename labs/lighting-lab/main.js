@@ -40,7 +40,7 @@ import {
 import { resolveGeneratorRecipe } from '../../src/core/generation.js';
 
 import { installWalkPreviewController, WALK_PREVIEW_TITLE } from '../shared/walkPreview.js';
-import { exportUnrealManifest, slug } from './lightingApi.js';
+import { exportToonLabManifest, slug } from './lightingApi.js';
 import { createLightingLabStage, disposeSceneRoot } from './lightingStage.js';
 import { SCENES } from './scenes.js';
 
@@ -66,7 +66,7 @@ const WEATHER_MODULATIONS = Object.freeze({
 });
 
 const elements = Object.fromEntries([
-  'candidateGrid', 'copyRuntime', 'diagWarnings', 'exportFixture', 'exportStyle', 'exportUnreal',
+  'candidateGrid', 'copyRuntime', 'diagWarnings', 'exportFixture', 'exportStyle', 'exportToonLab',
   'fixtureFamily', 'fixtureList', 'fixtureSeed', 'fixtureVariations', 'generateFixture', 'generateStyle',
   'importError', 'importStyle', 'lockExposure', 'lockFog', 'lockSun', 'placeFixture', 'placementCount',
   'placementList', 'saveStyle', 'sceneHub', 'sceneTabs', 'stage', 'statusBackend', 'statusFps',
@@ -760,16 +760,16 @@ function bindUi() {
     importStyleFile(await file.text(), file.name);
   });
   elements.copyRuntime.addEventListener('click', () => copyText(runtimeSnippet(), 'Runtime snippet copied'));
-  elements.exportUnreal.addEventListener('click', () => {
-    // The Unreal manifest describes exactly what is on screen: a rig built
+  elements.exportToonLab.addEventListener('click', () => {
+    // The ToonLab manifest describes exactly what is on screen: a rig built
     // from the live placements' resolved descriptors (system.manager.recipe).
-    const manifest = exportUnrealManifest({
+    const manifest = exportToonLabManifest({
       id: 'lab-rig',
       name: 'Lighting Lab Rig',
       lights: clone(system.manager.recipe.lights),
     });
-    downloadText(manifest, 'lab-rig.unreal-5.8-megalights.json');
-    showToast('Unreal 5.8 manifest downloaded');
+    downloadText(manifest, 'lab-rig.toonlab-lighting.json');
+    showToast('ToonLab manifest downloaded');
   });
   elements.placeFixture.addEventListener('click', () => placeFixtureInView(state.selectedFixtureId));
   elements.generateFixture.addEventListener('click', generateFixture);

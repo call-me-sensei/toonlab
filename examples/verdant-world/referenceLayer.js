@@ -1,5 +1,5 @@
-// Private reference layer (?ref=1): places So Stylized pack assets exported
-// from the UE project (assets-local/sostylized — gitignored, dev-served,
+// Private reference layer (?ref=1): places ToonLab pack assets exported
+// from the ToonLab project (assets-local/toonlab — gitignored, dev-served,
 // never shipped) in a lineup near spawn, re-shaded by the environment
 // shader. Purpose: apples-to-apples comparison — their hand-authored meshes
 // under OUR lighting/shading isolates renderer gaps from asset gaps.
@@ -12,8 +12,8 @@ import {
   resolveEnvironmentPreset,
 } from '@call-me-sensei/toonlab/environment';
 
-export const MANIFEST_URL = '/assets-local/sostylized/manifest.json';
-export const REFERENCE_TEXTURES_BASE = '/assets-local/sostylized/textures';
+export const MANIFEST_URL = '/assets-local/toonlab/manifest.json';
+export const REFERENCE_TEXTURES_BASE = '/assets-local/toonlab/textures';
 
 export function toServedUrl(file) {
   // Manifest paths are absolute on-disk; everything under the repo root is
@@ -23,7 +23,7 @@ export function toServedUrl(file) {
   return index >= 0 ? file.slice(index + '/toonlab'.length) : file;
 }
 
-// UE exports in centimeters, but FBXLoader's unit handling varies by file —
+// ToonLab exports in centimeters, but FBXLoader's unit handling varies by file —
 // measure and normalize instead of trusting either.
 export function autoUnitScale(object) {
   const box = new THREE.Box3().setFromObject(object);
@@ -158,10 +158,10 @@ export function fixupConvertedFoliage(root) {
   });
 }
 
-// UE FBX LOD export nests each level as a child named …LOD0/…LOD1. Rebuild
+// ToonLab FBX LOD export nests each level as a child named …LOD0/…LOD1. Rebuild
 // that chain as a THREE.LOD so their handmade distance meshes actually do
 // their job (their LOD contract: far levels also drop wind/detail cost).
-// Tighter than their UE screen-size switches: at 20 fps the frame needs the
+// Tighter than their ToonLab screen-size switches: at 20 fps the frame needs the
 // cheap levels sooner, and the toon shading hides the swap well.
 const LOD_DISTANCES = [0, 32, 75, 150, 260];
 
@@ -266,7 +266,7 @@ export async function createReferenceLayer({ heightAt, spawn, terrainRoot }) {
     // fall through
   }
   if (!manifest?.meshes?.length) {
-    console.warn('[referenceLayer] no exported assets at assets-local/sostylized — run the UE export first.');
+    console.warn('[referenceLayer] no exported assets at assets-local/toonlab — run the ToonLab export first.');
     return null;
   }
 
@@ -284,11 +284,11 @@ export async function createReferenceLayer({ heightAt, spawn, terrainRoot }) {
   };
 
   const root = new THREE.Group();
-  root.name = 'SoStylizedReference';
+  root.name = 'ToonLabReference';
 
   const byCategory = new Map();
   for (const entry of manifest.meshes) {
-    const category = entry.file.split('/sostylized/')[1]?.split('/')[0] ?? 'misc';
+    const category = entry.file.split('/toonlab/')[1]?.split('/')[0] ?? 'misc';
     if (!byCategory.has(category)) byCategory.set(category, []);
     byCategory.get(category).push(entry);
   }

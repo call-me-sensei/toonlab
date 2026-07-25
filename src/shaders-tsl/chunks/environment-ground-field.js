@@ -85,7 +85,7 @@ export function groundFieldHeightMapNode() {
 
 export function groundFieldSurfaceMapNode() {
   if (!environmentGroundField.surfaceMap) {
-    // UE defaults: roughness .5, specular .5, metalness 0.
+    // ToonLab defaults: roughness .5, specular .5, metalness 0.
     fallbackSurfaceTexture ??= fallback(new Uint8Array([128, 128, 0, 255]));
     environmentGroundField.surfaceMap = texture(fallbackSurfaceTexture);
   }

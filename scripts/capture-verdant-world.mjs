@@ -1,6 +1,6 @@
 // Verdant-world visual capture — the parity harness for the outdoor quality
 // bar. Each shot pins the camera (?cam=) so captures line up run-to-run and
-// against the UE reference screenshots. LOOK at the images; that is the
+// against the ToonLab reference screenshots. LOOK at the images; that is the
 // point.
 //
 // Usage:

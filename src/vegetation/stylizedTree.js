@@ -198,7 +198,7 @@ export function createTreeTrunkGeometry({
 }
 
 // Tree skeleton grown by SPACE COLONIZATION (Runions et al. 2007) — the same
-// family of growth algorithms behind SpeedTree/UE5-style foliage. Attraction
+// family of growth algorithms behind SpeedTree/ToonLab-style foliage. Attraction
 // points fill the crown volume (the blob layout); the trunk grows toward
 // them, forking and curving organically wherever points pull in different
 // directions; branch radii follow the pipe model (a parent's cross-section

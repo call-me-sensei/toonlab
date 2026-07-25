@@ -35,6 +35,10 @@ import {
 } from '../src/assetlib/ambientcg.js';
 import { importedAssetCatalogEntry } from '../src/assetlib/importedEntry.js';
 import {
+  GALLERY_MATERIAL_FAMILY,
+  resolveGalleryMaterialFamily,
+} from '../src/assetlib/galleryMaterialFamily.js';
+import {
   normalizePolyPizzaModel,
   rewritePolyPizzaDownloadUrl,
   searchPolyPizza,
@@ -708,6 +712,60 @@ check('smithsonian: detail lookup joins one model and thumbnail by model_url',
   && isSmithsonianGalleryReady(smithsonianAsset));
 check('smithsonian: browser endpoint is the keyless upstream API',
   SMITHSONIAN_3D_API_URL === 'https://3d-api.si.edu/api/v1.0');
+
+// --- gallery material-family routing ---------------------------------------------
+
+check('gallery materials: PLATEAU landmark uses the urban shader',
+  resolveGalleryMaterialFamily(findPlateauLandmark('tokyo-tower'))
+    === GALLERY_MATERIAL_FAMILY.urban);
+check('gallery materials: manufactured props default to the urban shader',
+  resolveGalleryMaterialFamily({
+    categories: ['props'],
+    id: 'wooden_crate_01',
+    kind: 'model',
+    name: 'Wooden crate',
+    source: 'polyhaven',
+  }) === GALLERY_MATERIAL_FAMILY.urban);
+check('gallery materials: uncategorized models default urban and explicit metadata wins',
+  resolveGalleryMaterialFamily({
+    kind: 'model',
+    name: 'Uncatalogued display object',
+  }) === GALLERY_MATERIAL_FAMILY.urban
+  && resolveGalleryMaterialFamily({
+    kind: 'model',
+    materialFamily: GALLERY_MATERIAL_FAMILY.environment,
+    name: 'Curated natural asset',
+  }) === GALLERY_MATERIAL_FAMILY.environment);
+check('gallery materials: manufactured context wins for stone walls',
+  resolveGalleryMaterialFamily({
+    categories: ['stone', 'architecture'],
+    kind: 'model',
+    name: 'Old stone wall',
+  }) === GALLERY_MATERIAL_FAMILY.urban);
+check('gallery materials: vegetation and geology retain environment shading',
+  resolveGalleryMaterialFamily({
+    categories: ['nature'],
+    kind: 'model',
+    name: 'Forest fern plant',
+  }) === GALLERY_MATERIAL_FAMILY.environment
+  && resolveGalleryMaterialFamily({
+    categories: ['rocks'],
+    kind: 'model',
+    name: 'Granite boulder',
+  }) === GALLERY_MATERIAL_FAMILY.environment);
+check('gallery materials: natural museum specimens retain environment shading',
+  resolveGalleryMaterialFamily({
+    categories: ['natural history', 'specimen'],
+    kind: 'model',
+    name: 'Blue crab',
+    source: 'smithsonian',
+  }) === GALLERY_MATERIAL_FAMILY.environment);
+check('gallery materials: texture entries do not use the object shader',
+  resolveGalleryMaterialFamily({
+    categories: ['brick'],
+    kind: 'texture',
+    name: 'Brick wall',
+  }) === GALLERY_MATERIAL_FAMILY.environment);
 
 // --- catalog entry contract ---------------------------------------------------------
 

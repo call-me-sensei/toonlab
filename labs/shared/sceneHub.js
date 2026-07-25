@@ -25,7 +25,7 @@ export const SCENE_HUB_OPTIONS = Object.freeze([
     search: '',
   }),
   Object.freeze({
-    id: 'vegetationShaderLab',
+    id: 'vegetationMaterialLab',
     label: 'Vegetation Shader Lab',
     path: '/vegetation-shader-lab/',
     search: '',
@@ -215,7 +215,7 @@ export function resolveSceneHubId(params = new URLSearchParams(window.location.s
   if (pathname.startsWith('/weather-lab')) return 'weatherLab';
   if (pathname.startsWith('/environment-lab')) return 'environmentLab';
   if (pathname.startsWith('/grass-lab')) return 'grassLab';
-  if (pathname.startsWith('/vegetation-shader-lab')) return 'vegetationShaderLab';
+  if (pathname.startsWith('/vegetation-shader-lab')) return 'vegetationMaterialLab';
   if (pathname.startsWith('/prop-lab')) return 'propLab';
   if (pathname.startsWith('/building-lab')) return 'buildingLab';
   if (pathname.startsWith('/settings')) return 'settings';

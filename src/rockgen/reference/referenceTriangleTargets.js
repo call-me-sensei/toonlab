@@ -1,5 +1,5 @@
 // Exact per-LOD triangle counts measured from the licensed local reference
-// project through Unreal's StaticMesh API. Counts are safe numeric telemetry;
+// project through ToonLab's StaticMesh API. Counts are safe numeric telemetry;
 // no source geometry, UVs, textures, or asset paths are stored.
 export const AUDITED_ROCK_LOD_TRIANGLE_TARGETS = Object.freeze({
   "SM_BoulderClassic1": [

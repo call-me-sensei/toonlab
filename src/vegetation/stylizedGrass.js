@@ -119,7 +119,7 @@ const grassPresetRegistry = new Map([
   // Making Genshin Grass": several blades per placement splaying from a
   // shared base, strong root-to-tip gradient, soft height-masked wind, no
   // cast shadows. The up-facing lighting normal and gradient the tutorial
-  // authors in Blender/Unreal are already how this field shades.
+  // authors in Blender/ToonLab are already how this field shades.
   ['anime_clump', Object.freeze({
     description: 'Genshin-inspired clumped grass: 6 blades per placement rising from a shared base with varied heights, light tips over dark roots, gentle wind.',
     label: 'Anime Clump',

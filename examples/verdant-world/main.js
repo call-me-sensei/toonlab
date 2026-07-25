@@ -1,8 +1,8 @@
 // ToonLab verdant-world — the from-scratch outdoor world being built to the
-// So Stylized / Genshin environment quality bar (see the outdoor-quality-bar
+// ToonLab / Genshin environment quality bar (see the outdoor-quality-bar
 // plan). This example is the parity vehicle: every environment upgrade
 // (ground-field color adoption, unified wind, day cycle, stylized fog) lands
-// here first and is screenshot-compared against the UE reference captures.
+// here first and is screenshot-compared against the ToonLab reference captures.
 // It intentionally starts leaner than examples/outdoor-world (no minimap,
 // villages, or set dressing) — systems earn their way in as they hit the bar.
 //
@@ -165,7 +165,7 @@ async function main() {
   WORLD.waterLevel = terrain.waterLevel;
   WORLD.bounds = { x: terrain.size.x / 2 - 20, z: terrain.size.z / 2 - 20 };
 
-  // Reference-first strategy: the So Stylized ground textures drive the
+  // Reference-first strategy: the ToonLab ground textures drive the
   // terrain while our procedural equivalents are rebuilt to match — their
   // tiling grass as the base map, their hand-painted biome colormap over
   // it, their rock albedo on steep faces. Dev-only files (gitignored);
@@ -176,7 +176,7 @@ async function main() {
     const tryTexture = (url, setup) => new Promise((resolve) => {
       textureLoader.load(url, (tex) => { setup?.(tex); resolve(tex); }, undefined, () => resolve(null));
     });
-    const base = '/assets-local/sostylized/textures';
+    const base = '/assets-local/toonlab/textures';
     const [grassTexture, colormapTexture, rockTexture] = await Promise.all([
       tryTexture(`${base}/T_Grass1_BC.png`, (tex) => {
         tex.colorSpace = THREE.SRGBColorSpace;
@@ -233,7 +233,7 @@ async function main() {
     camera,
     environment: {
       bakeVertexAo: false,
-      // The So Stylized-derived terrain look: noise-broken cliff edges,
+      // The ToonLab-derived terrain look: noise-broken cliff edges,
       // seeded macro biome colormap, dual-scale anti-tiling detail.
       parameters: {
         cliffNoiseScale: 0.05,
@@ -260,7 +260,7 @@ async function main() {
     // ?grass=1 re-enables.
     grass: !params.has('grass') || params.get('grass') === '0' ? false : {
       settings: {
-        // The signature So Stylized move: blades adopt the terrain color
+        // The signature ToonLab move: blades adopt the terrain color
         // beneath them (ground-field pass), lightly lifted so the meadow
         // reads sunlit rather than muddy. ?adopt=0 A/B-toggles it. The
         // gradient sits high (their "RVT gradient placed high on the
@@ -333,7 +333,7 @@ async function main() {
     });
   }
 
-  // ?ref=1 places the exported So Stylized assets (private, gitignored) in
+  // ?ref=1 places the exported ToonLab assets (private, gitignored) in
   // a lineup near spawn under our shading — the apples-to-apples layer.
   if (params.has('ref')) {
     const { createReferenceLayer } = await import('./referenceLayer.js');

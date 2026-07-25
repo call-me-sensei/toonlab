@@ -300,7 +300,7 @@ function Library() {
             <tr><td>/sky</td><td>Gradient/sun/painterly-cloud/star system — 46 portable art fields per preset.</td></tr>
             <tr><td>/weather</td><td>Cross-system coordinator: 21 conditions rendered through an independent IP-wide style, plus GPU precipitation and lightning; drives sky, water, wind, vegetation, and fog.</td></tr>
             <tr><td>/vegetation</td><td>Instanced grass and flower fields, procedural trees, palettes, masks, and scatter helpers.</td></tr>
-            <tr><td>/lighting</td><td>Versioned light recipes, budgets, runtime realization, and a data-only UE5 handoff.</td></tr>
+            <tr><td>/lighting</td><td>Versioned light recipes, budgets, runtime realization, and a data-only ToonLab handoff.</td></tr>
             <tr><td>/post, /camera, /game-feel</td><td>Compositor pipeline, camera operator stack + director, and hit-stop/punch/flash game feel.</td></tr>
             <tr><td>/texgen</td><td>Seamless CPU-baked PBR texture generator with 60+ presets and a natural-language recipe mapper.</td></tr>
             <tr><td>/rockgen, /pathgen</td><td>Seeded rock generation and road/bridge networks routed over any terrain.</td></tr>
@@ -330,9 +330,10 @@ function Library() {
         TSL modules — fork the cluster and keep the preset contract.
       </p>
       <p>
-        Custom prop shaders follow the same separation through the{' '}
-        <a href="#/urban-prop-roles">urban prop surface-role contract</a>: assets keep stable
-        semantic roles while each shader supplies global settings and sparse role profiles.
+        Custom environment shaders follow the same separation through the{' '}
+        <a href="#/urban-prop-roles">manufactured environment material contract</a>: assets keep
+        stable material, finish, rendering, structural, and content classifications while each
+        shader supplies global settings and sparse profile layers.
       </p>
 
       <h2>Create assets</h2>
@@ -673,7 +674,7 @@ function Reference() {
   );
 }
 
-/* ------------------------------------------------------ urban prop roles */
+/* ------------------------------------------ manufactured material contract */
 
 let urbanPropSurfaceRolesHtmlCache = null;
 
@@ -692,7 +693,7 @@ function UrbanPropSurfaceRoles() {
   const html = useMemo(urbanPropSurfaceRolesHtml, []);
   return (
     <article>
-      <div className="docs-eyebrow">Asset material contract</div>
+      <div className="docs-eyebrow">Manufactured environment contract</div>
       <div className="docs-md" dangerouslySetInnerHTML={{ __html: html }} />
     </article>
   );
@@ -703,7 +704,11 @@ function UrbanPropSurfaceRoles() {
 const SECTIONS = [
   { hash: '', label: 'Overview', component: Overview },
   { hash: '#/library', label: 'Using the library', component: Library },
-  { hash: '#/urban-prop-roles', label: 'Urban prop roles', component: UrbanPropSurfaceRoles },
+  {
+    hash: '#/urban-prop-roles',
+    label: 'Environment materials',
+    component: UrbanPropSurfaceRoles,
+  },
   { hash: '#/mcp', label: 'Connect via MCP', component: Mcp },
   { hash: '#/prompts', label: 'Prompt cookbook', component: Prompts },
   { hash: '#/reference', label: 'Settings reference', component: Reference },

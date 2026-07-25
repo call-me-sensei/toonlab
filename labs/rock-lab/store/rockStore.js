@@ -99,10 +99,10 @@ function normalizeReferenceGeometryMode(value, fallback = 'original') {
 }
 
 function normalizeReferenceMaterialMode(value, fallback = 'toonlab') {
-  // `unity` was the temporary name of ToonLab's source-faithful S_Rock port.
+  // `toonlab` was the temporary name of ToonLab's source-faithful S_Rock port.
   // Canonicalize old URLs/projects so users select the ToonLab product path,
   // not an implementation-provenance mode.
-  const normalized = value === 'unity' ? 'toonlab' : value;
+  const normalized = value === 'toonlab' ? 'toonlab' : value;
   return ROCK_REFERENCE_MATERIAL_MODES.includes(normalized) ? normalized : fallback;
 }
 

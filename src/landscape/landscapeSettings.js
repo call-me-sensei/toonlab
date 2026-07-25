@@ -59,14 +59,14 @@ export const DEFAULT_LANDSCAPE_SETTINGS = Object.freeze({
 });
 
 export const LANDSCAPE_SETTING_GROUPS = Object.freeze([
-  Object.freeze({ id: 'brush', label: 'Brush', description: 'Shared sculpt/paint brush response: size, falloff, and strength (UE Landscape triplet).' }),
+  Object.freeze({ id: 'brush', label: 'Brush', description: 'Shared sculpt/paint brush response: size, falloff, and strength (ToonLab Landscape triplet).' }),
   Object.freeze({ id: 'material', label: 'Material', description: 'Splat layer tints and world-space macro variation.' }),
   Object.freeze({ id: 'environment', label: 'Environment', description: 'Stage water level and preview toys around the terrain.' }),
   Object.freeze({ id: 'foliage', label: 'Foliage', description: 'Global foliage paint response.' }),
 ]);
 
 const FIELD_METADATA = {
-  brushRadius: { group: 'brush', label: 'Brush Size', min: 0.5, max: 40, step: 0.1, description: 'Brush radius in meters ( [ and ] adjust it, UE-style).' },
+  brushRadius: { group: 'brush', label: 'Brush Size', min: 0.5, max: 40, step: 0.1, description: 'Brush radius in meters ( [ and ] adjust it, ToonLab-style).' },
   brushStrength: { group: 'brush', label: 'Tool Strength', min: 0.01, max: 1, step: 0.01, description: 'How strongly each stroke sample applies; Shift inverts sculpt direction.' },
   brushHardness: { group: 'brush', label: 'Brush Falloff', min: 0, max: 1, step: 0.01, description: '0 feathers from the center outward; 1 is a hard-edged disc.' },
   brushShape: {

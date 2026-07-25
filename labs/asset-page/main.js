@@ -18,6 +18,9 @@ import {
 import { fetchPlateauBuildingIndex } from '../../src/assetlib/plateau.js';
 import { findPlateauLandmark } from '../../src/assetlib/plateauLandmarks.js';
 import { mountPlateauViewer } from '../../src/assetlib/plateauViewer.js';
+import {
+  resolveGalleryMaterialFamily,
+} from '../../src/assetlib/galleryMaterialFamily.js';
 
 const params = new URLSearchParams(window.location.search);
 const assetId = (params.get('id') ?? '').replace(/[^a-z0-9_-]/gi, '');
@@ -138,7 +141,16 @@ async function boot() {
     els.stage.style.backgroundImage = `url("https://cdn.polyhaven.com/asset_img/primary/${assetId}.png?width=1600")`;
     return;
   }
-  setupStage(kind);
+  setupStage(kind, null, {
+    materialFamily: resolveGalleryMaterialFamily({
+      categories: info.categories,
+      id: assetId,
+      kind,
+      name: info.name,
+      source: 'polyhaven',
+      tags: info.tags,
+    }),
+  });
 }
 
 async function bootSmithsonian() {
@@ -169,7 +181,9 @@ async function bootSmithsonian() {
     els.tags.appendChild(a);
   }
   setupDownload('model', ref.download);
-  setupStage('model', ref);
+  setupStage('model', ref, {
+    materialFamily: resolveGalleryMaterialFamily(ref),
+  });
 }
 
 async function bootPlateau() {
@@ -277,7 +291,9 @@ function bootPlateauLandmark(ref) {
   els.download.href = ref.download.url;
   els.download.download = `${ref.id}.glb`;
   els.download.hidden = false;
-  setupStage('model', ref);
+  setupStage('model', ref, {
+    materialFamily: resolveGalleryMaterialFamily(ref),
+  });
 }
 
 function setupPlateauStage(ref) {
@@ -335,7 +351,13 @@ function setupPlateauStage(ref) {
 
 // ----- live stage (texture/model): same embed contract as the Pro page -----
 
-function setupStage(kind, directRef = null) {
+function setupStage(kind, directRef = null, {
+  materialFamily = resolveGalleryMaterialFamily({
+    id: assetId,
+    kind,
+    source: assetSource,
+  }),
+} = {}) {
   const labUrl = directRef
     ? `/asset-lab/?url=${encodeURIComponent(directRef.download.url)}&asset=${encodeURIComponent(assetId)}&kind=model&style=call_me_sensei`
     : `/asset-lab/?source=polyhaven&asset=${encodeURIComponent(assetId)}&kind=${kind}&style=call_me_sensei`;
@@ -344,7 +366,8 @@ function setupStage(kind, directRef = null) {
   els.stage.style.backgroundImage = `url("${stageThumb.replace(/"/g, '%22')}")`;
 
   const frame = document.createElement('iframe');
-  frame.src = `${labUrl}&hud=0&embed=1&compare=1&split=0.2`;
+  frame.src = `${labUrl}&hud=0&embed=1&compare=1&split=0.2`
+    + `&materialFamily=${encodeURIComponent(materialFamily)}`;
   frame.title = `${assetId} — source vs Call Me Sensei style, live`;
   frame.allow = 'fullscreen';
   els.stage.appendChild(frame);

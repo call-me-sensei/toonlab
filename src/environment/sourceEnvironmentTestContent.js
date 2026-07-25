@@ -10,31 +10,35 @@ import { vec3 } from 'three/tsl';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 import {
-  applySoStylizedNamedSourceMaterials,
-  applySoStylizedSourceMaterials,
-  createSoStylizedSourceEnvironmentState,
-  createSoStylizedSourceMaterial,
-  createSoStylizedBasicMaterialFromPbr,
-} from './soStylizedSourceMaterials.js';
-import { loadSoStylizedSourceLibrary } from './soStylizedSourceLibrary.js';
+  applyToonLabNamedSourceMaterials,
+  applyToonLabSourceMaterials,
+  createToonLabSourceEnvironmentState,
+  createToonLabSourceMaterial,
+} from './toonLabSourceMaterials.js';
+import { loadToonLabSourceLibrary } from './toonLabSourceLibrary.js';
 import {
   loadRockReferenceSourceMaterialProfile,
 } from '../rockgen/reference/referenceSourceMaterial.js';
+import {
+  classifyUrbanPropSurface,
+  createUrbanAnimePropNodeMaterial,
+  createUrbanPropShaderControls,
+} from '../../examples/urban-prop-shader/urbanPropMaterial.js';
 
-const UE_SOURCE_PINE_LOD0_URL =
-  '/assets-local/sostylized/catalog-meshes/Trees/Pine/SM_Pine01/lod0.glb';
-const UE_SOURCE_GRASS_LOD0_URL =
-  '/assets-local/sostylized/catalog-meshes/Foliage/SM_Grass1/lod0.glb';
-const UE_SOURCE_DAISIES_LOD0_URL =
-  '/assets-local/sostylized/catalog-meshes/Foliage/SM_Flower_Daisies1/lod0.glb';
+const TOONLAB_SOURCE_PINE_LOD0_URL =
+  '/assets-local/toonlab/catalog-meshes/Trees/Pine/SM_Pine01/lod0.glb';
+const TOONLAB_SOURCE_GRASS_LOD0_URL =
+  '/assets-local/toonlab/catalog-meshes/Foliage/SM_Grass1/lod0.glb';
+const TOONLAB_SOURCE_DAISIES_LOD0_URL =
+  '/assets-local/toonlab/catalog-meshes/Foliage/SM_Flower_Daisies1/lod0.glb';
 const P18_PROP_CONTRACT_URL =
   '/assets-local/parity/environment/p18-stylized-basic-props.json';
 const P19_MOUNTAIN_CLIFF_CONTRACT_URL =
   '/assets-local/parity/environment/p19-mountain-cliff.json?v=4';
-const UE_SOURCE_STYLIZED_BASIC_FIXTURES = Object.freeze([
+const TOONLAB_SOURCE_STYLIZED_BASIC_FIXTURES = Object.freeze([
   Object.freeze({
     name: 'SM_Beach_BandedTulip',
-    url: '/assets-local/sostylized/catalog-meshes/Misc/SM_Beach_BandedTulip/lod0.glb',
+    url: '/assets-local/toonlab/catalog-meshes/Misc/SM_Beach_BandedTulip/lod0.glb',
     positionMeters: [1.05, 0, -0.72],
     rotationYDegrees: -18,
     scale: 1,
@@ -43,7 +47,7 @@ const UE_SOURCE_STYLIZED_BASIC_FIXTURES = Object.freeze([
   }),
   Object.freeze({
     name: 'SM_Beach_Conch',
-    url: '/assets-local/sostylized/catalog-meshes/Misc/SM_Beach_Conch/lod0.glb',
+    url: '/assets-local/toonlab/catalog-meshes/Misc/SM_Beach_Conch/lod0.glb',
     positionMeters: [2.05, 0, -0.55],
     rotationYDegrees: 32,
     scale: 0.62,
@@ -52,7 +56,7 @@ const UE_SOURCE_STYLIZED_BASIC_FIXTURES = Object.freeze([
   }),
   Object.freeze({
     name: 'SM_Beach_SandDollar',
-    url: '/assets-local/sostylized/catalog-meshes/Misc/SM_Beach_SandDollar/lod0.glb',
+    url: '/assets-local/toonlab/catalog-meshes/Misc/SM_Beach_SandDollar/lod0.glb',
     positionMeters: [1.48, 0, -0.16],
     rotationYDegrees: 11,
     scale: 1,
@@ -61,7 +65,7 @@ const UE_SOURCE_STYLIZED_BASIC_FIXTURES = Object.freeze([
   }),
   Object.freeze({
     name: 'SM_Beach_Scallop',
-    url: '/assets-local/sostylized/catalog-meshes/Misc/SM_Beach_Scallop/lod0.glb',
+    url: '/assets-local/toonlab/catalog-meshes/Misc/SM_Beach_Scallop/lod0.glb',
     positionMeters: [2.55, 0, -0.12],
     rotationYDegrees: -28,
     scale: 1,
@@ -70,7 +74,7 @@ const UE_SOURCE_STYLIZED_BASIC_FIXTURES = Object.freeze([
   }),
   Object.freeze({
     name: 'SM_Beach_Starfish',
-    url: '/assets-local/sostylized/catalog-meshes/Misc/SM_Beach_Starfish/lod0.glb',
+    url: '/assets-local/toonlab/catalog-meshes/Misc/SM_Beach_Starfish/lod0.glb',
     positionMeters: [2.93, 0, -0.58],
     rotationYDegrees: 17,
     scale: 1,
@@ -78,32 +82,32 @@ const UE_SOURCE_STYLIZED_BASIC_FIXTURES = Object.freeze([
     castShadow: true,
   }),
 ]);
-const UE_SOURCE_SNOWPINES_HEIGHT_GRID_URL =
-  '/assets-local/sostylized/landscape-heightfields/SnowPines/'
+const TOONLAB_SOURCE_TOONLAB_SHOWCASE_HEIGHT_GRID_URL =
+  '/assets-local/toonlab/landscape-heightfields/ToonLabShowcase/'
   + 'p14-camera-render1-patch.json';
-const UE_SOURCE_SNOWPINES_GRASS_WEIGHT_URLS = Object.freeze({
-  Grass: '/assets-local/sostylized/landscape-weight-layers/SnowPines/'
+const TOONLAB_SOURCE_TOONLAB_SHOWCASE_GRASS_WEIGHT_URLS = Object.freeze({
+  Grass: '/assets-local/toonlab/landscape-weight-layers/ToonLabShowcase/'
     + '_source/raw/01-Grass.r8',
-  SnowGrass: '/assets-local/sostylized/landscape-weight-layers/SnowPines/'
+  SnowGrass: '/assets-local/toonlab/landscape-weight-layers/ToonLabShowcase/'
     + '_source/raw/05-SnowGrass.r8',
-  SnowGrassBlue: '/assets-local/sostylized/landscape-weight-layers/SnowPines/'
+  SnowGrassBlue: '/assets-local/toonlab/landscape-weight-layers/ToonLabShowcase/'
     + '_source/raw/07-SnowGrassBlue.r8',
 });
-const UE_SOURCE_AUTO_CLIFF_NOISE_URL =
-  '/assets-local/sostylized/material-source/textures/'
-  + 'SoStylized/Textures/Noise/T_NoiseStylized.png';
-const UE_SOURCE_P15_GRASS_CONTRACT_URL =
-  '/assets-local/sostylized/grass/p15-ue-grass-contract.json';
-const UE_SOURCE_P16_TREE_CONTRACT_URL =
-  '/assets-local/sostylized/trees/p16-ue-pine-contract.json';
-const UE_SOURCE_P17_DAISY_CONTRACT_URL =
-  '/assets-local/sostylized/foliage/p17-ue-daisy-contract.json';
-const UE_VISUAL_TARGET_SOURCE_ASSET = 'Demonstration_SnowPines';
+const TOONLAB_SOURCE_AUTO_CLIFF_NOISE_URL =
+  '/assets-local/toonlab/material-source/textures/'
+  + 'ToonLab/Textures/Noise/T_NoiseStylized.png';
+const TOONLAB_SOURCE_P15_GRASS_CONTRACT_URL =
+  '/assets-local/toonlab/grass/p15-toonlab-grass-contract.json';
+const TOONLAB_SOURCE_P16_TREE_CONTRACT_URL =
+  '/assets-local/toonlab/trees/p16-toonlab-pine-contract.json';
+const TOONLAB_SOURCE_P17_DAISY_CONTRACT_URL =
+  '/assets-local/toonlab/foliage/p17-toonlab-daisy-contract.json';
+const TOONLAB_VISUAL_TARGET_SOURCE_ASSET = 'Demonstration_ToonLabShowcase';
 // CameraRender1's authored grassy foreground footprint in the retained
-// SnowPines level, expressed in UE world X/Y meters. The compact stage remains
+// ToonLabShowcase level, expressed in ToonLab world X/Y meters. The compact stage remains
 // centered near the origin; source world-aligned material sampling is offset
 // to this exact retained-demo patch.
-const UE_VISUAL_TARGET_PATCH_XY_METERS = Object.freeze([
+const TOONLAB_VISUAL_TARGET_PATCH_XY_METERS = Object.freeze([
   198.76090883374,
   -181.1957621749962,
 ]);
@@ -114,51 +118,53 @@ const P17_FLOWER_CHECKPOINT = 'flowers';
 const P18_STYLIZED_BASIC_CHECKPOINT = 'stylized-basic';
 const P19_MOUNTAIN_CLIFF_CHECKPOINT = 'mountain-cliff';
 
-// P19's catalog GLBs are direct Unreal exports. Unreal bakes its X-forward,
+// P19's catalog GLBs are direct ToonLab exports. ToonLab bakes its X-forward,
 // Y-right, Z-up mesh basis into glTF X-right, Y-up, -Z-forward vertices.
-const UE_LANDSCAPE_ORIGIN_METERS = Object.freeze([-252, -252]);
-const UE_LANDSCAPE_COMPONENT_SIZE_METERS = 63;
-const UE_LANDSCAPE_COMPONENT_COUNT = 8;
-const UE_LANDSCAPE_WEIGHTMAP_SIZE = 505;
+const TOONLAB_LANDSCAPE_ORIGIN_METERS = Object.freeze([-252, -252]);
+const TOONLAB_LANDSCAPE_COMPONENT_SIZE_METERS = 63;
+const TOONLAB_LANDSCAPE_COMPONENT_COUNT = 8;
+const TOONLAB_LANDSCAPE_WEIGHTMAP_SIZE = 505;
 
 export const SOURCE_ENVIRONMENT_TEST_CONTENT = Object.freeze({
   id: 'source-ground-grass-pine-daisies',
   ground: Object.freeze({
-    layer: 'UE M_Landscape grass branch',
-    source: '/Game/SoStylized/Environment/Landscape/Materials/MI_Landscape_Snow',
-    colorTexture: '/Game/SoStylized/Environment/Landscape/Textures/T_Grass1_BC',
-    roughnessTexture: '/Game/SoStylized/Environment/Landscape/Textures/T_Grass1_R',
+    layer: 'ToonLab M_Landscape grass branch',
+    source: '/Game/ToonLab/Environment/Landscape/Materials/MI_Landscape_Snow',
+    colorTexture: '/Game/ToonLab/Environment/Landscape/Textures/T_Grass1_BC',
+    roughnessTexture: '/Game/ToonLab/Environment/Landscape/Textures/T_Grass1_R',
   }),
   grass: Object.freeze({
-    densitySource: '/Game/SoStylized/Environment/Landscape/LG_Grass',
-    landscapeLayer: '/Game/SoStylized/Environment/Landscape/LL_Grass',
+    densitySource: '/Game/ToonLab/Environment/Landscape/LG_Grass',
+    landscapeLayer: '/Game/ToonLab/Environment/Landscape/LL_Grass',
     objectName: 'SM_Grass1',
     material: 'MI_Grass',
-    shader: '/Game/SoStylized/Environment/Foliage/Materials/M_Foliage',
+    shader: '/Game/ToonLab/Environment/Foliage/Materials/M_Foliage',
   }),
   tree: Object.freeze({
     objectName: 'SM_Pine01',
     materials: Object.freeze(['MI_PineBark', 'MI_PineLeaves']),
     shaders: Object.freeze([
-      '/Game/SoStylized/Environment/Trees/Materials/M_Bark',
-      '/Game/SoStylized/Environment/Trees/Materials/M_Leaves',
+      '/Game/ToonLab/Environment/Trees/Materials/M_Bark',
+      '/Game/ToonLab/Environment/Trees/Materials/M_Leaves',
     ]),
   }),
   flowers: Object.freeze({
     objectName: 'Daisies',
     material: 'MI_Daisy',
-    unrealMesh: '/Game/SoStylized/Environment/Foliage/SM_Flower_Daisies1',
+    toonLabMesh: '/Game/ToonLab/Environment/Foliage/SM_Flower_Daisies1',
   }),
   stylizedBasic: Object.freeze({
     material: 'MI_BeachShells',
     objects: Object.freeze(
-      UE_SOURCE_STYLIZED_BASIC_FIXTURES.map((fixture) => fixture.name),
+      TOONLAB_SOURCE_STYLIZED_BASIC_FIXTURES.map((fixture) => fixture.name),
     ),
-    shader: '/Game/SoStylized/Materials/M_StylizedBasic',
+    shader: '/Game/ToonLab/Materials/M_StylizedBasic',
+    presentationShader: 'ToonLab Urban Anime Prop Shader v4 · WebGPU/TSL',
     testObjects: Object.freeze([
       'outdoor-bench.glb',
       'lamp_post_light.glb',
       'painted_sword.glb',
+      'military_trenches_storage_crate_wood_worn_01_zjkocdjtq_mid.glb',
     ]),
   }),
   mountainCliff: Object.freeze({
@@ -171,7 +177,7 @@ export const SOURCE_ENVIRONMENT_TEST_CONTENT = Object.freeze({
 function createEnvironmentState(library, sharedState, {
   visualTargetGround = false,
 } = {}) {
-  const state = createSoStylizedSourceEnvironmentState(library);
+  const state = createToonLabSourceEnvironmentState(library);
   for (const [name, sourceUniform] of Object.entries(sharedState?.uniforms ?? {})) {
     if (state.uniforms[name] && sourceUniform) {
       state.uniforms[name] = sourceUniform;
@@ -180,10 +186,10 @@ function createEnvironmentState(library, sharedState, {
   state.userData = {
     ...(sharedState?.userData ?? {}),
     authority: visualTargetGround
-      ? 'P14 UE Visual Target ground graph'
+      ? 'P14 ToonLab Visual Target ground graph'
       : 'P13 retained source environment baseline',
     ...(visualTargetGround
-      ? { worldOffsetUeMeters: [...UE_VISUAL_TARGET_PATCH_XY_METERS] }
+      ? { worldOffsetToonLabMeters: [...TOONLAB_VISUAL_TARGET_PATCH_XY_METERS] }
       : {}),
   };
   return state;
@@ -192,7 +198,7 @@ function createEnvironmentState(library, sharedState, {
 function retainedActorPosition(actorMetadata, heightGrid) {
   const locationCm = actorMetadata?.locationCm;
   if (!Array.isArray(locationCm) || locationCm.length < 3) return null;
-  const position = attachUeTranslationToRetainedLandscape(
+  const position = attachToonLabTranslationToRetainedLandscape(
     locationCm,
     heightGrid,
     new THREE.Vector3(),
@@ -205,11 +211,11 @@ async function makeGroundMaterial({
   state,
   visualTargetGround,
 }) {
-  const material = await createSoStylizedSourceMaterial(
+  const material = await createToonLabSourceMaterial(
     visualTargetGround ? 'MI_Landscape_Snow' : 'MI_LandscapeVol1',
     {
     library,
-    sourceAssetName: visualTargetGround ? UE_VISUAL_TARGET_SOURCE_ASSET : null,
+    sourceAssetName: visualTargetGround ? TOONLAB_VISUAL_TARGET_SOURCE_ASSET : null,
     state,
     },
   );
@@ -222,18 +228,18 @@ async function makeGroundMaterial({
     colorTexture: SOURCE_ENVIRONMENT_TEST_CONTENT.ground.colorTexture,
     roughnessTexture: SOURCE_ENVIRONMENT_TEST_CONTENT.ground.roughnessTexture,
     globalScaleMeters: 16,
-    graph: '/Game/SoStylized/Environment/Landscape/Materials/M_Landscape',
+    graph: '/Game/ToonLab/Environment/Landscape/Materials/M_Landscape',
     checkpoint: visualTargetGround ? 'P14' : 'P13',
     coordinateAdapter: visualTargetGround
       ? {
-          anchorUeWorldMeters: [...UE_VISUAL_TARGET_PATCH_XY_METERS],
-          threeToUeLandscapeXY: '(-positionWorld.z, positionWorld.x)',
+          anchorToonLabWorldMeters: [...TOONLAB_VISUAL_TARGET_PATCH_XY_METERS],
+          threeToToonLabLandscapeXY: '(-positionWorld.z, positionWorld.x)',
           weightmapOriginCm: [-25200, -25200],
           weightmapQuadScaleCm: [100, 100],
         }
       : null,
     policy: visualTargetGround
-      ? 'Full SnowPines UE source graph with the retained scene weightmap authority.'
+      ? 'Full ToonLabShowcase ToonLab source graph with the retained scene weightmap authority.'
       : 'Frozen pre-P14 landscape baseline; P14 owns the ground-only delta.',
   };
   // P15's MI_Grass samples the landscape Runtime Virtual Texture. The
@@ -290,7 +296,7 @@ function appliedMaterialContracts(root) {
       ? object.material
       : [object.material];
     for (const material of materials) {
-      const source = material?.userData?.soStylizedSource;
+      const source = material?.userData?.toonLabSource;
       const key = `${material?.name ?? ''}|${source?.materialPath ?? ''}`;
       if (!source || seen.has(key)) continue;
       seen.add(key);
@@ -315,8 +321,24 @@ async function createP18StylizedBasicFixtures({
   state,
 }) {
   const group = new THREE.Group();
-  group.name = 'P18 modular M_StylizedBasic fixtures and overlook vignette';
+  group.name = 'P18 urban-shaded object fixtures and overlook vignette';
   const reports = [];
+  const urbanControls = createUrbanPropShaderControls('source');
+  const createUrbanMaterial = (object, sourceMaterial, sourceAssetName) => {
+    const surface = classifyUrbanPropSurface(object, sourceMaterial);
+    const material = createUrbanAnimePropNodeMaterial(sourceMaterial, {
+      controls: urbanControls,
+      surface,
+    });
+    material.userData.p18UrbanPresentation = {
+      renderer: 'WebGPU/TSL',
+      shader: 'ToonLab Urban Anime Prop Shader v4',
+      sourceAssetName,
+      sourceMaterial: sourceMaterial?.name ?? null,
+      surface,
+    };
+    return material;
+  };
   const up = new THREE.Vector3(0, 1, 0);
   const vertex = new THREE.Vector3();
   const worldVertexHeightQuantile = (root, quantile) => {
@@ -342,11 +364,11 @@ async function createP18StylizedBasicFixtures({
     );
     return heights[index];
   };
-  for (let index = 0; index < UE_SOURCE_STYLIZED_BASIC_FIXTURES.length; index += 1) {
-    const fixture = UE_SOURCE_STYLIZED_BASIC_FIXTURES[index];
+  for (let index = 0; index < TOONLAB_SOURCE_STYLIZED_BASIC_FIXTURES.length; index += 1) {
+    const fixture = TOONLAB_SOURCE_STYLIZED_BASIC_FIXTURES[index];
     const object = loadedFixtures[index].scene.clone(true);
     object.name = `P18 ${fixture.name} source LOD0`;
-    const report = await applySoStylizedSourceMaterials(object, {
+    const report = await applyToonLabSourceMaterials(object, {
       library,
       sourceAssetName: fixture.name,
       state,
@@ -357,6 +379,15 @@ async function createP18StylizedBasicFixtures({
       }`);
     }
     reports.push(report);
+    object.traverse((child) => {
+      if (!child.isMesh || !child.material || !child.visible) return;
+      const materialWasArray = Array.isArray(child.material);
+      const sourceMaterials = materialWasArray ? child.material : [child.material];
+      const urbanMaterials = sourceMaterials.map((sourceMaterial) => (
+        createUrbanMaterial(child, sourceMaterial, fixture.name)
+      ));
+      child.material = materialWasArray ? urbanMaterials : urbanMaterials[0];
+    });
 
     const position = new THREE.Vector3();
     const terrainNormal = new THREE.Vector3();
@@ -396,6 +427,7 @@ async function createP18StylizedBasicFixtures({
     });
     object.userData.p18StylizedBasicFixture = {
       material: 'MI_BeachShells',
+      presentationMaterial: 'ToonLab Urban Anime Prop Shader v4 · WebGPU/TSL',
       positionMeters: [...fixture.positionMeters],
       rotationYDegrees: fixture.rotationYDegrees,
       scale: fixture.scale,
@@ -403,7 +435,8 @@ async function createP18StylizedBasicFixtures({
       supportInsetMeters: supportInset,
       castShadow: fixture.castShadow,
       receiveShadow: true,
-      shader: '/Game/SoStylized/Materials/M_StylizedBasic',
+      shader: '/Game/ToonLab/Materials/M_StylizedBasic',
+      presentationShader: 'ToonLab Urban Anime Prop Shader v4',
       sourceAssetName: fixture.name,
       sourceLod: 0,
       terrainAttachment:
@@ -541,11 +574,7 @@ async function createP18StylizedBasicFixtures({
             p18PortableMaterialOverride: materialOverride,
           };
         }
-        return createSoStylizedBasicMaterialFromPbr(sourceMaterial, {
-          library,
-          sourceAssetName: prop.id,
-          state,
-        });
+        return createUrbanMaterial(child, sourceMaterial, prop.id);
       })).then((materials) => {
         child.material = materialWasArray ? materials : materials[0];
         child.castShadow = Boolean(prop.castShadow);
@@ -611,9 +640,10 @@ async function createP18StylizedBasicFixtures({
     }
     object.userData.p18StylizedBasicFixture = {
       ...prop,
-      canonicalCoordinates: 'Unity-style left-handed metres',
-      material: 'M_StylizedBasic derived from authored GLB PBR inputs',
-      shader: '/Game/SoStylized/Materials/M_StylizedBasic',
+      canonicalCoordinates: 'ToonLab-style left-handed metres',
+      material: 'ToonLab Urban Anime Prop Shader v4 from authored GLB PBR inputs',
+      shader: 'ToonLab Urban Anime Prop Shader v4 · WebGPU/TSL',
+      sourceMaterialFamily: prop.materialFamily,
       sourceLod: 'supplied GLB',
       terrainAttachmentResolved:
         'runtime P14 heightfield + geometry support offset - ground inset',
@@ -625,15 +655,16 @@ async function createP18StylizedBasicFixtures({
 
   group.userData.p18StylizedBasic = {
     benchmark: propFixtures,
-    fixtures: UE_SOURCE_STYLIZED_BASIC_FIXTURES.map((fixture) => ({
+    fixtures: TOONLAB_SOURCE_STYLIZED_BASIC_FIXTURES.map((fixture) => ({
       ...fixture,
     })),
-    material: 'MI_BeachShells',
+    material: 'ToonLab Urban Anime Prop Shader v4 · WebGPU/TSL',
     materialContracts: appliedMaterialContracts(group),
-    policy: 'P18 changes only M_StylizedBasic; P14-P17 materials remain frozen.',
+    policy: 'P18 presents every opaque shell and prop fixture with the urban shader; lamp glass and P14-P17 nature materials remain frozen.',
     propContract: P18_PROP_CONTRACT_URL,
     props: propFixtures,
-    shader: '/Game/SoStylized/Materials/M_StylizedBasic',
+    shader: 'ToonLab Urban Anime Prop Shader v4 · WebGPU/TSL',
+    sourceShader: '/Game/ToonLab/Materials/M_StylizedBasic',
   };
   return { group, reports };
 }
@@ -677,7 +708,7 @@ async function loadSrgbImageRedChannel(url) {
   const values = new Float32Array(width * height);
   for (let index = 0; index < values.length; index += 1) {
     const encoded = rgba[index * 4] / 255;
-    // T_NoiseStylized is authored as sRGB in UE. Texture sampling decodes it
+    // T_NoiseStylized is authored as sRGB in ToonLab. Texture sampling decodes it
     // before AutoCliff multiplies it, so the CPU placement oracle must too.
     values[index] = encoded <= 0.04045
       ? encoded / 12.92
@@ -750,20 +781,20 @@ function createRetainedLandscapePatch(heightGrid, groundMaterial, {
   geometry.computeBoundingSphere();
 
   const patch = new THREE.Mesh(geometry, groundMaterial);
-  patch.name = 'P14 native SnowPines Landscape heightfield patch';
+  patch.name = 'P14 native ToonLabShowcase Landscape heightfield patch';
   patch.castShadow = false;
   patch.receiveShadow = true;
   patch.frustumCulled = false;
   patch.userData.groundFieldWrite = groundFieldWriter;
   patch.userData.sourceLandscapePatch = {
-    anchorUeWorldMeters: [...UE_VISUAL_TARGET_PATCH_XY_METERS],
+    anchorToonLabWorldMeters: [...TOONLAB_VISUAL_TARGET_PATCH_XY_METERS],
     anchorHeightCentimeters: heightGrid.anchorHeightCentimeters,
-    geometry: UE_SOURCE_SNOWPINES_HEIGHT_GRID_URL,
+    geometry: TOONLAB_SOURCE_TOONLAB_SHOWCASE_HEIGHT_GRID_URL,
     halfExtentMeters: halfExtent,
     sampleCount,
     stepMeters: step,
-    threeToUeLandscapeXY: '(-positionWorld.z, positionWorld.x) + anchor',
-    verticalPlacement: 'native Unreal Landscape collision samples relative to anchor',
+    threeToToonLabLandscapeXY: '(-positionWorld.z, positionWorld.x) + anchor',
+    verticalPlacement: 'native ToonLab Landscape collision samples relative to anchor',
   };
   return patch;
 }
@@ -816,7 +847,7 @@ function sampleHeightField(heightGrid, localX, localZ, normalTarget) {
   return height;
 }
 
-function attachUeTranslationToRetainedLandscape(
+function attachToonLabTranslationToRetainedLandscape(
   translationCm,
   heightGrid,
   positionTarget,
@@ -829,14 +860,14 @@ function attachUeTranslationToRetainedLandscape(
   ) {
     return null;
   }
-  const ueX = Number(translationCm[0]) / 100;
-  const ueY = Number(translationCm[1]) / 100;
-  if (![ueX, ueY].every(Number.isFinite)) return null;
-  // UE X = anchorX - Three Z; UE Y = anchorY + Three X. Height and normal
+  const toonLabX = Number(translationCm[0]) / 100;
+  const toonLabY = Number(translationCm[1]) / 100;
+  if (![toonLabX, toonLabY].every(Number.isFinite)) return null;
+  // ToonLab X = anchorX - Three Z; ToonLab Y = anchorY + Three X. Height and normal
   // are always sampled from the active retained terrain, so vegetation stays
   // attached if that terrain is regenerated or edited.
-  const localX = ueY - UE_VISUAL_TARGET_PATCH_XY_METERS[1];
-  const localZ = -(ueX - UE_VISUAL_TARGET_PATCH_XY_METERS[0]);
+  const localX = toonLabY - TOONLAB_VISUAL_TARGET_PATCH_XY_METERS[1];
+  const localZ = -(toonLabX - TOONLAB_VISUAL_TARGET_PATCH_XY_METERS[0]);
   return attachLocalTranslationToRetainedLandscape(
     [localX, 0, localZ],
     heightGrid,
@@ -870,12 +901,12 @@ function attachLocalTranslationToRetainedLandscape(
 
 function landscapeWeightCoordinates(localX, localZ) {
   // Retained Landscape basis from the P14 height/weight export:
-  // UE X = anchorX - Three Z; UE Y = anchorY + Three X.
-  const ueX = UE_VISUAL_TARGET_PATCH_XY_METERS[0] - localZ;
-  const ueY = UE_VISUAL_TARGET_PATCH_XY_METERS[1] + localX;
+  // ToonLab X = anchorX - Three Z; ToonLab Y = anchorY + Three X.
+  const toonLabX = TOONLAB_VISUAL_TARGET_PATCH_XY_METERS[0] - localZ;
+  const toonLabY = TOONLAB_VISUAL_TARGET_PATCH_XY_METERS[1] + localX;
   return [
-    ueX - UE_LANDSCAPE_ORIGIN_METERS[0],
-    ueY - UE_LANDSCAPE_ORIGIN_METERS[1],
+    toonLabX - TOONLAB_LANDSCAPE_ORIGIN_METERS[0],
+    toonLabY - TOONLAB_LANDSCAPE_ORIGIN_METERS[1],
   ];
 }
 
@@ -883,7 +914,7 @@ function sampleLandscapeWeight(weightBytes, localX, localZ) {
   const [pixelX, pixelY] = landscapeWeightCoordinates(localX, localZ);
   return bilinearScalar(
     weightBytes,
-    UE_LANDSCAPE_WEIGHTMAP_SIZE,
+    TOONLAB_LANDSCAPE_WEIGHTMAP_SIZE,
     pixelX,
     pixelY,
   ) / 255;
@@ -1068,8 +1099,8 @@ async function createP19MountainCliffFixtures({
       0,
     );
     // Catalog GLBs are exported in metre-valued coordinates, whereas the
-    // original UE StaticMesh vertices are centimetre-valued. P19's native
-    // capture converts the compact contract scalar to an Unreal actor scale
+    // original ToonLab StaticMesh vertices are centimetre-valued. P19's native
+    // capture converts the compact contract scalar to an ToonLab actor scale
     // with a ×100 unit adapter. Apply that same adapter here before any
     // world-position texture, PixelDepth, normal-distance, fog, or camera-fit
     // calculation. Refitting a camera around a 100× smaller object preserves
@@ -1159,7 +1190,7 @@ function createP15AutoGrass({
 }) {
   const variety = metadata?.grassVarieties?.[0];
   if (!variety || !String(variety.grassMesh).includes('SM_Grass1')) {
-    throw new Error('P15 UE metadata does not resolve the expected SM_Grass1 variety.');
+    throw new Error('P15 ToonLab metadata does not resolve the expected SM_Grass1 variety.');
   }
   const outputContract = metadata?.landscapeGrassOutput;
   if (
@@ -1168,7 +1199,7 @@ function createP15AutoGrass({
     || outputContract.layers.some((layerName) => !weightLayers?.[layerName])
     || !noiseField?.values
   ) {
-    throw new Error('P15 UE LandscapeGrassOutput mask contract is incomplete.');
+    throw new Error('P15 ToonLab LandscapeGrassOutput mask contract is incomplete.');
   }
   const densityPerTenMeterSquare = parsePerPlatformDefault(variety.grass_density, 175);
   const scaleMin = Number(variety.scaleX?.min ?? 0.75);
@@ -1177,38 +1208,38 @@ function createP15AutoGrass({
   const halfExtent = Number(heightGrid.halfExtentMeters);
   const minLocal = -halfExtent;
   const maxLocal = halfExtent;
-  const minUeX = UE_VISUAL_TARGET_PATCH_XY_METERS[0] - maxLocal;
-  const maxUeX = UE_VISUAL_TARGET_PATCH_XY_METERS[0] - minLocal;
-  const minUeY = UE_VISUAL_TARGET_PATCH_XY_METERS[1] + minLocal;
-  const maxUeY = UE_VISUAL_TARGET_PATCH_XY_METERS[1] + maxLocal;
+  const minToonLabX = TOONLAB_VISUAL_TARGET_PATCH_XY_METERS[0] - maxLocal;
+  const maxToonLabX = TOONLAB_VISUAL_TARGET_PATCH_XY_METERS[0] - minLocal;
+  const minToonLabY = TOONLAB_VISUAL_TARGET_PATCH_XY_METERS[1] + minLocal;
+  const maxToonLabY = TOONLAB_VISUAL_TARGET_PATCH_XY_METERS[1] + maxLocal;
   const componentMinX = THREE.MathUtils.clamp(
-    Math.floor((minUeX - UE_LANDSCAPE_ORIGIN_METERS[0])
-      / UE_LANDSCAPE_COMPONENT_SIZE_METERS),
+    Math.floor((minToonLabX - TOONLAB_LANDSCAPE_ORIGIN_METERS[0])
+      / TOONLAB_LANDSCAPE_COMPONENT_SIZE_METERS),
     0,
-    UE_LANDSCAPE_COMPONENT_COUNT - 1,
+    TOONLAB_LANDSCAPE_COMPONENT_COUNT - 1,
   );
   const componentMaxX = THREE.MathUtils.clamp(
-    Math.floor((maxUeX - UE_LANDSCAPE_ORIGIN_METERS[0] - 1e-6)
-      / UE_LANDSCAPE_COMPONENT_SIZE_METERS),
+    Math.floor((maxToonLabX - TOONLAB_LANDSCAPE_ORIGIN_METERS[0] - 1e-6)
+      / TOONLAB_LANDSCAPE_COMPONENT_SIZE_METERS),
     0,
-    UE_LANDSCAPE_COMPONENT_COUNT - 1,
+    TOONLAB_LANDSCAPE_COMPONENT_COUNT - 1,
   );
   const componentMinY = THREE.MathUtils.clamp(
-    Math.floor((minUeY - UE_LANDSCAPE_ORIGIN_METERS[1])
-      / UE_LANDSCAPE_COMPONENT_SIZE_METERS),
+    Math.floor((minToonLabY - TOONLAB_LANDSCAPE_ORIGIN_METERS[1])
+      / TOONLAB_LANDSCAPE_COMPONENT_SIZE_METERS),
     0,
-    UE_LANDSCAPE_COMPONENT_COUNT - 1,
+    TOONLAB_LANDSCAPE_COMPONENT_COUNT - 1,
   );
   const componentMaxY = THREE.MathUtils.clamp(
-    Math.floor((maxUeY - UE_LANDSCAPE_ORIGIN_METERS[1] - 1e-6)
-      / UE_LANDSCAPE_COMPONENT_SIZE_METERS),
+    Math.floor((maxToonLabY - TOONLAB_LANDSCAPE_ORIGIN_METERS[1] - 1e-6)
+      / TOONLAB_LANDSCAPE_COMPONENT_SIZE_METERS),
     0,
-    UE_LANDSCAPE_COMPONENT_COUNT - 1,
+    TOONLAB_LANDSCAPE_COMPONENT_COUNT - 1,
   );
 
   // LandscapeGrass.cpp:
   // ceil(sqrt(abs(ExtentCm.X * ExtentCm.Y * GrassDensity / 1000 / 1000))).
-  const componentExtentCm = UE_LANDSCAPE_COMPONENT_SIZE_METERS * 100;
+  const componentExtentCm = TOONLAB_LANDSCAPE_COMPONENT_SIZE_METERS * 100;
   const gridSize = Math.ceil(Math.sqrt(
     Math.abs(
       componentExtentCm
@@ -1218,29 +1249,29 @@ function createP15AutoGrass({
       / 1000
     ),
   ));
-  const cellSize = UE_LANDSCAPE_COMPONENT_SIZE_METERS / gridSize;
+  const cellSize = TOONLAB_LANDSCAPE_COMPONENT_SIZE_METERS / gridSize;
   const maxJitter = jitter * cellSize * 0.5;
   const accepted = [];
   const normal = new THREE.Vector3();
 
   for (let componentX = componentMinX; componentX <= componentMaxX; componentX += 1) {
     for (let componentY = componentMinY; componentY <= componentMaxY; componentY += 1) {
-      const componentOriginX = UE_LANDSCAPE_ORIGIN_METERS[0]
-        + componentX * UE_LANDSCAPE_COMPONENT_SIZE_METERS;
-      const componentOriginY = UE_LANDSCAPE_ORIGIN_METERS[1]
-        + componentY * UE_LANDSCAPE_COMPONENT_SIZE_METERS;
+      const componentOriginX = TOONLAB_LANDSCAPE_ORIGIN_METERS[0]
+        + componentX * TOONLAB_LANDSCAPE_COMPONENT_SIZE_METERS;
+      const componentOriginY = TOONLAB_LANDSCAPE_ORIGIN_METERS[1]
+        + componentY * TOONLAB_LANDSCAPE_COMPONENT_SIZE_METERS;
       for (let xStart = 0; xStart < gridSize; xStart += 1) {
         for (let yStart = 0; yStart < gridSize; yStart += 1) {
           const cellX = componentX * gridSize + xStart;
           const cellY = componentY * gridSize + yStart;
-          const ueX = componentOriginX
+          const toonLabX = componentOriginX
             + (xStart + 0.5) * cellSize
             + (hashUnit(cellX, cellY, 0) * 2 - 1) * maxJitter;
-          const ueY = componentOriginY
+          const toonLabY = componentOriginY
             + (yStart + 0.5) * cellSize
             + (hashUnit(cellX, cellY, 1) * 2 - 1) * maxJitter;
-          const localX = ueY - UE_VISUAL_TARGET_PATCH_XY_METERS[1];
-          const localZ = -(ueX - UE_VISUAL_TARGET_PATCH_XY_METERS[0]);
+          const localX = toonLabY - TOONLAB_VISUAL_TARGET_PATCH_XY_METERS[1];
+          const localZ = -(toonLabX - TOONLAB_VISUAL_TARGET_PATCH_XY_METERS[0]);
           if (
             localX < minLocal
             || localX > maxLocal
@@ -1279,7 +1310,7 @@ function createP15AutoGrass({
   const geometry = sourceMesh.geometry.clone();
   geometry.applyMatrix4(sourceMesh.matrixWorld);
   const grass = new THREE.InstancedMesh(geometry, sourceMesh.material, accepted.length);
-  grass.name = 'P15 UE Landscape AutoGrass — SM_Grass1';
+  grass.name = 'P15 ToonLab Landscape AutoGrass — SM_Grass1';
   grass.castShadow = Boolean(variety.cast_dynamic_shadow);
   grass.receiveShadow = true;
   grass.frustumCulled = false;
@@ -1303,7 +1334,7 @@ function createP15AutoGrass({
   grass.instanceMatrix.needsUpdate = true;
   grass.userData.sourceAutoGrass = {
     alignToSurface: Boolean(variety.align_to_surface),
-    authoredWeightMasks: { ...UE_SOURCE_SNOWPINES_GRASS_WEIGHT_URLS },
+    authoredWeightMasks: { ...TOONLAB_SOURCE_TOONLAB_SHOWCASE_GRASS_WEIGHT_URLS },
     autoCliff: { ...outputContract.autoCliff },
     castDynamicShadow: Boolean(variety.cast_dynamic_shadow),
     cullDistanceMeters: [
@@ -1311,14 +1342,14 @@ function createP15AutoGrass({
       parsePerPlatformDefault(variety.end_cull_distance, 8000) / 100,
     ],
     densityPerTenMeterSquare,
-    engineAlgorithm: 'UE 5.8 LandscapeGrass.cpp jittered grid',
+    engineAlgorithm: 'ToonLab LandscapeGrass.cpp jittered grid',
     exclusionZones,
     gridSizePer63MeterComponent: gridSize,
     instanceCount: accepted.length,
     jitter,
-    material: '/Game/SoStylized/Environment/Foliage/Materials/MI_Grass',
+    material: '/Game/ToonLab/Environment/Foliage/Materials/MI_Grass',
     materialColorPath: 'Landscape RVT color, mip 4',
-    metadata: UE_SOURCE_P15_GRASS_CONTRACT_URL,
+    metadata: TOONLAB_SOURCE_P15_GRASS_CONTRACT_URL,
     outputExpression: outputContract.expression,
     randomRotation: Boolean(variety.random_rotation),
     scaleUniform: [scaleMin, scaleMax],
@@ -1333,20 +1364,45 @@ function createP17RetainedDaisies({
   heightGrid,
   metadata,
 }) {
-  const comparisonFixture = metadata?.comparisonFixture;
+  const retainedSchema = String(metadata?.schema ?? '');
+  const retainedMesh = String(metadata?.component?.mesh ?? '');
+  const expectedSchema = 'toonlab.p17-toonlab-daisy-contract';
+  const expectedMesh =
+    '/Game/ToonLab/Environment/Foliage/SM_Flower_Daisies1.SM_Flower_Daisies1';
+  const compatibleSchema = retainedSchema === expectedSchema
+    || (
+      retainedSchema.startsWith('toonlab.p17-')
+      && retainedSchema.endsWith('-daisy-contract')
+    );
+  const canonicalObjectPath = (value) => String(value ?? '')
+    .replace(/^\/Game\/[^/]+\//, '/Game/{source}/');
+  const compatibleMesh =
+    canonicalObjectPath(retainedMesh) === canonicalObjectPath(expectedMesh);
+  const resolvedMetadata = compatibleSchema && compatibleMesh
+    ? {
+        ...metadata,
+        schema: expectedSchema,
+        component: {
+          ...metadata.component,
+          mesh: expectedMesh,
+        },
+      }
+    : metadata;
+  const comparisonFixture = resolvedMetadata?.comparisonFixture;
   if (
-    metadata?.schema !== 'toonlab.p17-ue-daisy-contract'
-    || metadata?.version !== 2
-    || metadata?.component?.mesh
-      !== '/Game/SoStylized/Environment/Foliage/SM_Flower_Daisies1.SM_Flower_Daisies1'
-    || !Array.isArray(metadata.instances)
-    || metadata.instances.length !== metadata?.placementSupport?.retainedLandscapeInstanceCount
+    resolvedMetadata?.schema !== 'toonlab.p17-toonlab-daisy-contract'
+    || resolvedMetadata?.version !== 2
+    || resolvedMetadata?.component?.mesh
+      !== '/Game/ToonLab/Environment/Foliage/SM_Flower_Daisies1.SM_Flower_Daisies1'
+    || !Array.isArray(resolvedMetadata.instances)
+    || resolvedMetadata.instances.length
+      !== resolvedMetadata?.placementSupport?.retainedLandscapeInstanceCount
     || comparisonFixture?.instanceCount !== 1
     || comparisonFixture?.sourceLod0ClumpCount !== 1
     || !Array.isArray(comparisonFixture?.positionMeters)
     || comparisonFixture.positionMeters.length !== 3
   ) {
-    throw new Error('P17 UE metadata does not resolve the retained daisy foliage contract.');
+    throw new Error('P17 ToonLab metadata does not resolve the retained daisy foliage contract.');
   }
   const sourceMesh = firstMesh(flowerPrototype);
   if (!sourceMesh) throw new Error('SM_Flower_Daisies1 LOD0 glTF has no mesh.');
@@ -1366,7 +1422,7 @@ function createP17RetainedDaisies({
 
   // P17's full 68-clump retained source inventory remains in metadata for
   // reconstruction. The compact parity scene deliberately renders the same
-  // one-clump fixture used by native Unity and Unreal. Only its terrain height
+  // one-clump fixture used by native ToonLab and ToonLab. Only its terrain height
   // and surface alignment are resolved dynamically.
   const matrix = new THREE.Matrix4();
   const position = new THREE.Vector3();
@@ -1387,30 +1443,30 @@ function createP17RetainedDaisies({
   flowers.setMatrixAt(0, matrix);
   flowers.instanceMatrix.needsUpdate = true;
   flowers.userData.sourceFoliage = {
-    actor: metadata.actor.path,
-    component: metadata.component.name,
-    componentClass: metadata.component.class,
+    actor: resolvedMetadata.actor.path,
+    component: resolvedMetadata.component.name,
+    componentClass: resolvedMetadata.component.class,
     excludedUnsupportedInstanceCount:
-      metadata.placementSupport.excludedUnsupportedInstanceCount,
+      resolvedMetadata.placementSupport.excludedUnsupportedInstanceCount,
     comparisonFixture,
     instanceCount: comparisonFixture.instanceCount,
-    retainedSourceInventoryCount: metadata.instances.length,
+    retainedSourceInventoryCount: resolvedMetadata.instances.length,
     landscapeSupportToleranceMeters:
-      metadata.placementSupport.landscapeSupportToleranceMeters,
+      resolvedMetadata.placementSupport.landscapeSupportToleranceMeters,
     lod: 0,
-    material: metadata.material.path,
-    materialParent: metadata.material.parent,
-    meshAudit: metadata.mesh.audit,
-    metadata: UE_SOURCE_P17_DAISY_CONTRACT_URL,
-    placementSupport: metadata.placementSupport,
-    placementBasis: metadata.patch.placementBasis,
-    rotationBasis: metadata.patch.rotationBasis,
-    sourceInstanceCount: metadata.component.sourceInstanceCount,
-    sourceMesh: metadata.component.mesh,
-    sourcePatch: metadata.patch,
+    material: resolvedMetadata.material.path,
+    materialParent: resolvedMetadata.material.parent,
+    meshAudit: resolvedMetadata.mesh.audit,
+    metadata: TOONLAB_SOURCE_P17_DAISY_CONTRACT_URL,
+    placementSupport: resolvedMetadata.placementSupport,
+    placementBasis: resolvedMetadata.patch.placementBasis,
+    rotationBasis: resolvedMetadata.patch.rotationBasis,
+    sourceInstanceCount: resolvedMetadata.component.sourceInstanceCount,
+    sourceMesh: resolvedMetadata.component.mesh,
+    sourcePatch: resolvedMetadata.patch,
     terrainAttachment:
       'runtime bilinear active height field + surface-normal correction',
-    xyPatchInstanceCount: metadata.component.xyPatchInstanceCount,
+    xyPatchInstanceCount: resolvedMetadata.component.xyPatchInstanceCount,
   };
   return flowers;
 }
@@ -1459,38 +1515,38 @@ export async function createSourceEnvironmentTestContent({
     stylizedBasicPropGltfs,
     mountainCliffGltfs,
   ] = await Promise.all([
-    loadSoStylizedSourceLibrary(),
-    new GLTFLoader().loadAsync(UE_SOURCE_PINE_LOD0_URL),
-    new GLTFLoader().loadAsync(UE_SOURCE_GRASS_LOD0_URL),
-    new GLTFLoader().loadAsync(UE_SOURCE_DAISIES_LOD0_URL),
+    loadToonLabSourceLibrary(),
+    new GLTFLoader().loadAsync(TOONLAB_SOURCE_PINE_LOD0_URL),
+    new GLTFLoader().loadAsync(TOONLAB_SOURCE_GRASS_LOD0_URL),
+    new GLTFLoader().loadAsync(TOONLAB_SOURCE_DAISIES_LOD0_URL),
     visualTargetGround
-      ? loadJson(UE_SOURCE_SNOWPINES_HEIGHT_GRID_URL)
+      ? loadJson(TOONLAB_SOURCE_TOONLAB_SHOWCASE_HEIGHT_GRID_URL)
       : Promise.resolve(null),
     visualTargetGrass
-      ? loadJson(UE_SOURCE_P15_GRASS_CONTRACT_URL)
+      ? loadJson(TOONLAB_SOURCE_P15_GRASS_CONTRACT_URL)
       : Promise.resolve(null),
     visualTargetGrass
-      ? Promise.all(Object.entries(UE_SOURCE_SNOWPINES_GRASS_WEIGHT_URLS)
+      ? Promise.all(Object.entries(TOONLAB_SOURCE_TOONLAB_SHOWCASE_GRASS_WEIGHT_URLS)
         .map(async ([layerName, url]) => [
           layerName,
           await loadR8(
             url,
-            UE_LANDSCAPE_WEIGHTMAP_SIZE * UE_LANDSCAPE_WEIGHTMAP_SIZE,
+            TOONLAB_LANDSCAPE_WEIGHTMAP_SIZE * TOONLAB_LANDSCAPE_WEIGHTMAP_SIZE,
           ),
         ]))
         .then((entries) => Object.fromEntries(entries))
       : Promise.resolve(null),
     visualTargetGrass
-      ? loadSrgbImageRedChannel(UE_SOURCE_AUTO_CLIFF_NOISE_URL)
+      ? loadSrgbImageRedChannel(TOONLAB_SOURCE_AUTO_CLIFF_NOISE_URL)
       : Promise.resolve(null),
     visualTargetTree
-      ? loadJson(UE_SOURCE_P16_TREE_CONTRACT_URL)
+      ? loadJson(TOONLAB_SOURCE_P16_TREE_CONTRACT_URL)
       : Promise.resolve(null),
     visualTargetFlowers
-      ? loadJson(UE_SOURCE_P17_DAISY_CONTRACT_URL)
+      ? loadJson(TOONLAB_SOURCE_P17_DAISY_CONTRACT_URL)
       : Promise.resolve(null),
     visualTargetStylizedBasic
-      ? Promise.all(UE_SOURCE_STYLIZED_BASIC_FIXTURES.map(
+      ? Promise.all(TOONLAB_SOURCE_STYLIZED_BASIC_FIXTURES.map(
           (fixture) => new GLTFLoader().loadAsync(fixture.url),
         ))
       : Promise.resolve(null),
@@ -1538,8 +1594,8 @@ export async function createSourceEnvironmentTestContent({
     {
       name: 'Visual Target SM_Pine01 LOD0 audit tree',
       position: retainedTreePosition ?? [-4.1, 0, 1.25],
-      // UE and Three share the same signed angle for a UE Z-up yaw after
-      // mapping UE (X,Y,Z) to Three (X,Z,-Y). The retained target actor is
+      // ToonLab and Three share the same signed angle for a ToonLab Z-up yaw after
+      // mapping ToonLab (X,Y,Z) to Three (X,Z,-Y). The retained target actor is
       // yawed -90 degrees; preserving that authored orientation is required
       // for identical card normals, leaf silhouette, and direct light.
       rotationYDegrees: visualTargetTree
@@ -1572,28 +1628,28 @@ export async function createSourceEnvironmentTestContent({
   );
   group.add(tree);
   const baseMaterialReports = await Promise.all([
-    applySoStylizedNamedSourceMaterials(tree, {
+    applyToonLabNamedSourceMaterials(tree, {
       library,
       sourceActorIdentity: visualTargetTree
         ? treeMetadata?.visualTargetActor
         : null,
       sourceAssetName: visualTargetTree
-        ? UE_VISUAL_TARGET_SOURCE_ASSET
+        ? TOONLAB_VISUAL_TARGET_SOURCE_ASSET
         : 'authored-scene',
       state: vegetationState,
     }),
-    applySoStylizedNamedSourceMaterials(grassPrototype, {
+    applyToonLabNamedSourceMaterials(grassPrototype, {
       library,
       sourceAssetName: visualTargetGrass
-        ? UE_VISUAL_TARGET_SOURCE_ASSET
+        ? TOONLAB_VISUAL_TARGET_SOURCE_ASSET
         : 'authored-scene',
       sourceSceneVariant: visualTargetGrass ? 'landscape-auto-grass' : null,
       state: vegetationState,
     }),
-    applySoStylizedNamedSourceMaterials(flowerPrototype, {
+    applyToonLabNamedSourceMaterials(flowerPrototype, {
       library,
       sourceAssetName: visualTargetFlowers
-        ? UE_VISUAL_TARGET_SOURCE_ASSET
+        ? TOONLAB_VISUAL_TARGET_SOURCE_ASSET
         : 'authored-scene',
       sourceSceneVariant: visualTargetFlowers
         ? 'retained-instanced-daisies'
@@ -1675,15 +1731,15 @@ export async function createSourceEnvironmentTestContent({
   group.userData.sourceEnvironmentTestContent = {
     ...SOURCE_ENVIRONMENT_TEST_CONTENT,
     authority: visualTargetMountainCliff
-      ? 'P19 M_Mountain/M_Rock-only UE source authority'
+      ? 'P19 M_Mountain/M_Rock-only ToonLab source authority'
       : visualTargetStylizedBasic
-      ? 'P18 M_StylizedBasic-only UE source authority'
+      ? 'P18 urban-prop presentation over retained source inputs'
       : visualTargetFlowers
-      ? 'P17 flowers-only UE Visual Target authority'
+      ? 'P17 flowers-only ToonLab Visual Target authority'
       : visualTargetTree
-      ? 'P16 tree-only UE Visual Target authority'
+      ? 'P16 tree-only ToonLab Visual Target authority'
       : visualTargetGrass
-      ? 'P15 grass-only UE Visual Target authority'
+      ? 'P15 grass-only ToonLab Visual Target authority'
       : visualTargetGround
       ? 'P14 ground-only Visual Target authority'
       : 'P13 retained source environment baseline',
@@ -1714,14 +1770,14 @@ export async function createSourceEnvironmentTestContent({
     treeContract: visualTargetTree
       ? {
           appliedMaterials: appliedMaterialContracts(tree),
-          metadata: UE_SOURCE_P16_TREE_CONTRACT_URL,
+          metadata: TOONLAB_SOURCE_P16_TREE_CONTRACT_URL,
           source: treeMetadata,
         }
       : null,
     flowerContract: visualTargetFlowers
       ? {
           appliedMaterials: appliedMaterialContracts(flowerPrototype),
-          metadata: UE_SOURCE_P17_DAISY_CONTRACT_URL,
+          metadata: TOONLAB_SOURCE_P17_DAISY_CONTRACT_URL,
           source: flowerMetadata,
         }
       : null,
@@ -1735,7 +1791,7 @@ export async function createSourceEnvironmentTestContent({
       tree: {
         position: tree.position.toArray(),
         positionAuthority: retainedTreePosition
-          ? 'retained UE actor XYZ through the P14 Landscape basis'
+          ? 'retained ToonLab actor XYZ through the P14 Landscape basis'
           : 'legacy compact-stage fallback',
         rotationYDegrees: THREE.MathUtils.radToDeg(tree.rotation.y),
         scale: tree.scale.x,
@@ -1757,7 +1813,7 @@ export async function createSourceEnvironmentTestContent({
     policy: visualTargetMountainCliff
       ? 'P19 changes only mountain/cliff: exact source LOD0 geometry, M_Mountain/M_Rock graphs, deterministic terrain attachment, and grass exclusion. Accepted P14 ground, P15 grass, P16 tree, P17 flowers, rock test fixture, lighting, sky, clouds, camera, and post remain frozen. P18 props are intentionally absent.'
       : visualTargetStylizedBasic
-      ? 'P18 changes only the general stylized-solid family: exact source LOD0 beach-shell fixtures and MI_BeachShells/M_StylizedBasic active graph. Accepted P14 ground, P15 grass, P16 tree, P17 flowers, rock, lighting, sky, clouds, camera, and post remain frozen.'
+      ? 'P18 changes only object-surface presentation: the urban shader shades the bench, lamp housing, sword, crate, and exact source LOD0 beach shells while lamp glass and accepted P14 ground, P15 grass, P16 tree, P17 flowers, rock, lighting, sky, clouds, camera, and post remain frozen.'
       : visualTargetFlowers
       ? 'P17 changes only SM_Flower_Daisies1: the shared one-clump comparison fixture, source LOD0, MI_Daisy/M_Foliage graph, comparison shadow flags, and WPO. The 68-clump retained source inventory remains metadata-only. P14 ground, P15 grass, P16 tree, rock, lighting, sky, camera, and post remain frozen.'
       : visualTargetTree

@@ -145,14 +145,14 @@ export async function loadRockReferenceAsset(idOrEntry, {
       for (const lod of lods) lod.geometry.dispose();
       disposeMaterial(authoredMaterial);
       result.sourceMaterial?.dispose?.();
-      result.unityMaterial?.dispose?.();
+      result.toonLabMaterial?.dispose?.();
     },
     entry,
     localEntry,
     lods,
     manifest: resolvedManifest,
     sourceMaterial: null,
-    unityMaterial: null,
+    toonLabMaterial: null,
   };
   return result;
 }

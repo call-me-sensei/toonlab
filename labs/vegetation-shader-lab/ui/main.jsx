@@ -4,20 +4,20 @@ import '../../shared/ui/tokens.css';
 import '../../shared/ui/kit.css';
 import './app.css';
 
-import { createVegetationShaderLabEngine } from './engine.js';
-import { createVegetationShaderLabStore } from './store.js';
+import { createVegetationMaterialLabEngine } from './engine.js';
+import { createVegetationMaterialLabStore } from './store.js';
 import { App } from './App.jsx';
 
-if (!window.__vegetationShaderLabBooted) {
-  window.__vegetationShaderLabBooted = true;
+if (!window.__vegetationMaterialLabBooted) {
+  window.__vegetationMaterialLabBooted = true;
   const urlParams = new URLSearchParams(window.location.search);
   const hudHidden = urlParams.get('hud') === '0';
-  const store = createVegetationShaderLabStore({ urlParams });
-  const engine = createVegetationShaderLabEngine({
+  const store = createVegetationMaterialLabStore({ urlParams });
+  const engine = createVegetationMaterialLabEngine({
     mount: document.getElementById('stage'),
     store,
   });
-  window.__vegetationShaderLab = { engine, store };
+  window.__vegetationMaterialLab = { engine, store };
 
   window.addEventListener('keydown', (event) => {
     const target = event.target;

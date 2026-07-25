@@ -22,5 +22,6 @@ export * from './plateau.js';
 export * from './plateauLandmarks.js';
 export * from './plateauViewer.js';
 export * from './importedEntry.js';
+export * from './galleryMaterialFamily.js';
 export * from './loadImported.js';
 export * from './zip.js';

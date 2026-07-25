@@ -20,17 +20,18 @@ import { installRendererSwitcher } from '../../shared/rendererSwitcher.js';
 import {
   AMBIENTCG_PROXY_API,
   POLYPIZZA_PROXY_API,
+  GALLERY_MATERIAL_FAMILY,
   fetchKayKitIndex,
   fetchOs3dIndex,
   fetchPolyPizzaModel,
   fetchPolyhavenIndex,
+  importedAssetCatalogEntry,
   readZipEntries,
   rewriteAmbientcgDownloadUrl,
   searchAmbientcg,
 } from '@call-me-sensei/toonlab/assetlib';
 import { fileToTextureImage } from '../../texture-lab/ui/imageUpload.js';
 import { setLabHandoff } from '../../shared/labHandoff.js';
-import { importedAssetCatalogEntry } from '@call-me-sensei/toonlab/assetlib';
 import { saveLibraryEntry } from '../../catalog/userLibrary.js';
 import { createAssetEngine } from '../engine/assetEngine.js';
 import { App } from './App.jsx';
@@ -43,6 +44,11 @@ if (!window.__assetLabBooted) {
     backdrop: urlParams.get('backdrop') ?? 'studio',
     compare: urlParams.get('compare') === '1',
     kind: urlParams.get('kind') === 'texture' ? 'texture' : 'model',
+    materialFamily: Object.values(GALLERY_MATERIAL_FAMILY).includes(
+      urlParams.get('materialFamily'),
+    )
+      ? urlParams.get('materialFamily')
+      : null,
     query: urlParams.get('q') ?? '',
     res: urlParams.get('res') ?? '1k',
     source: ['ambientcg', 'polypizza', 'kaykit', 'opensource3d'].includes(urlParams.get('source'))
@@ -74,7 +80,11 @@ if (!window.__assetLabBooted) {
           name: boot.asset ?? 'Generated prop',
           download: { url: boot.url },
         };
-        const result = await engine.show(ref, { resolution: boot.res, stylePreset: boot.style });
+        const result = await engine.show(ref, {
+          materialFamily: boot.materialFamily,
+          resolution: boot.res,
+          stylePreset: boot.style,
+        });
         if (!result.ok && !result.stale) console.error('Asset Browser direct-url load failed:', result.error);
         if (result.ok) window.__assetLabShown = { ref, result };
         return;
@@ -102,7 +112,11 @@ if (!window.__assetLabBooted) {
         console.error(`Asset Browser: unknown asset "${boot.asset}".`);
         return;
       }
-      const result = await engine.show(ref, { resolution: boot.res, stylePreset: boot.style });
+      const result = await engine.show(ref, {
+        materialFamily: boot.materialFamily,
+        resolution: boot.res,
+        stylePreset: boot.style,
+      });
       if (!result.ok && !result.stale) console.error('Asset Browser auto-load failed:', result.error);
       if (result.ok) window.__assetLabShown = { ref, result };
     })

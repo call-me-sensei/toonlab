@@ -275,35 +275,16 @@ Applications may ship recipes when runtime re-rolling is a feature, or resolve
 and check in presets when exact art direction is required. Both paths use the
 same npm implementation.
 
-## Engine practices adopted
+## ToonLab architecture
 
-The architecture follows useful patterns from established engines while
-remaining native to Three.js:
+The runtime and authoring tools share one native design:
 
-- Unreal Engine's Procedural Content Generation framework separates reusable
-  graphs, subgraphs, inspection/debugging, and editor/runtime generation. The
-  ToonLab equivalent is an extensible recipe domain plus a flat inspected
-  result.
-- Unreal Engine MetaSounds treats audio as a procedural runtime graph with
-  reusable patches and parameterized inputs. Soundscape uses the same graph and
-  registry mindset with explicit Web Audio budgets.
-- Unity Volume profiles separate reusable effect settings from local runtime
-  overrides. ToonLab recipes, resolved presets, locks, and quality overrides
-  serve the same separation.
-- Unity Cinemachine composes camera behaviors and provides separate impulse and
-  noise systems. ToonLab's camera domain uses an operator stack with event-driven impulses
-  and deterministic noise.
-- Unity Audio Mixer snapshots support controlled transitions between mixes;
-  Soundscape transitions buses and layers rather than hard-switching graphs.
-- Unity's Input System makes haptic support an optional device capability;
-  Game Feel uses adapters and capability checks rather than assuming a gamepad.
+- reusable recipe graphs stay separate from their inspected, resolved output;
+- portable settings remain separate from scene-owned overrides;
+- camera behavior uses a deterministic operator stack with event-driven
+  impulses and noise;
+- Soundscape transitions buses and layers instead of hard-switching graphs;
+- input and haptics remain optional capabilities behind host-provided adapters.
 
-Primary references:
-
-- [Unreal Engine Procedural Content Generation Framework](https://dev.epicgames.com/documentation/en-us/unreal-engine/procedural-content-generation-framework-in-unreal-engine)
-- [Unreal Engine MetaSounds](https://dev.epicgames.com/documentation/unreal-engine/metasounds-the-next-generation-sound-sources-in-unreal-engine?lang=en-US)
-- [Unity URP Volumes](https://docs.unity3d.com/ja/Packages/com.unity.render-pipelines.universal%4014.0/manual/Volumes.html)
-- [Unity Cinemachine](https://docs.unity3d.com/ja/current/Manual/com.unity.cinemachine.html)
-- [Unity Cinemachine Impulse](https://docs.unity3d.com/ja/Packages/com.unity.cinemachine%402.6/manual/CinemachineImpulse.html)
-- [Unity Audio Mixer snapshot transitions](https://docs.unity3d.com/jp/current/ScriptReference/Audio.AudioMixer.TransitionToSnapshots.html)
-- [Unity Input System gamepad haptics](https://docs.unity3d.com/ja/Packages/com.unity.inputsystem%401.4/api/UnityEngine.InputSystem.Gamepad.html)
+These contracts are implemented directly by ToonLab and documented alongside
+the corresponding runtime modules.

@@ -436,7 +436,7 @@ function packSplat(splat, offset) {
  * Paints one pointer sample of splat weight toward `layer` (0-3). Weights are
  * renormalized so each texel's channels always sum to 255. Negative
  * `strength` erases the layer instead (its weight redistributes to the other
- * channels, UE-style Shift-erase).
+ * channels, ToonLab-style Shift-erase).
  */
 export function applySplatSample(field, stroke, {
   layer = 0,

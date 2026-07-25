@@ -424,6 +424,7 @@ check('style bundles keep IP-wide styles separate from asset presets', () => {
         features: legacyEnvironment.features,
         parameters: legacyEnvironment.parameters,
       }),
+      materialLook: legacyEnvironment.materialLook,
       style: 'default',
     },
   );

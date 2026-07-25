@@ -1,5 +1,5 @@
 // Lighting contract verification: documents, presets, photometry helpers,
-// deterministic runtime budgets, capability truthfulness, and Unreal handoff.
+// deterministic runtime budgets, capability truthfulness, and ToonLab handoff.
 
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
@@ -17,7 +17,7 @@ function check(label, callback) {
 
 check('lighting API is available from the root export', () => {
   assert.equal(root.createLightingManager, lighting.createLightingManager);
-  assert.equal(root.exportLightingRecipeToUnreal58, lighting.exportLightingRecipeToUnreal58);
+  assert.equal(root.exportLightingRecipeToToonLab, lighting.exportLightingRecipeToToonLab);
 });
 
 const selfImport = await import('@call-me-sensei/toonlab/lighting');
@@ -143,25 +143,25 @@ check('quality presets expose explicit deterministic budgets', () => {
 check('capability reports do not claim engine-native renderer features', () => {
   const report = lighting.createLightingCapabilityReport({ backend: 'webgpu' });
   assert.equal(report.backend, 'webgpu');
-  assert.equal(report.features.megaLights, false);
-  assert.equal(report.features.lumen, false);
+  assert.equal(report.features.manyLights, false);
+  assert.equal(report.features.globalIllumination, false);
   assert.equal(report.features.manyLightRenderer, false);
   assert.equal(report.features.iesProfiles, 'metadata-only');
 });
 
-const unreal = lighting.exportLightingRecipeToUnreal58(recipe, {
-  lumen: 'prefer',
-  megaLights: 'require',
+const toonlab = lighting.exportLightingRecipeToToonLab(recipe, {
+  globalIllumination: 'prefer',
+  manyLights: 'require',
 });
 
-check('Unreal 5.8 export preserves local-light MegaLights and Lumen intent', () => {
-  assert.equal(unreal.engine.targetVersion, '5.8');
-  assert.equal(unreal.rendererIntent.megaLights.intent, 'require');
-  assert.equal(unreal.rendererIntent.lumen.intent, 'prefer');
-  assert.equal(unreal.lights.find((light) => light.toonlabType === 'spot').megaLights.eligibleIntent, true);
-  assert.equal(unreal.lights.find((light) => light.toonlabType === 'directional').megaLights.eligibleIntent, false);
-  assert.deepEqual(lighting.threePositionToUnreal([1, 2, 3]), [-300, 100, 200]);
-  assert.equal(JSON.parse(lighting.serializeUnrealLightingManifest(unreal)).type, lighting.UNREAL_LIGHTING_MANIFEST_TYPE);
+check('ToonLab export preserves local-light Many Lights and Dynamic GI intent', () => {
+  assert.equal(toonlab.platform.name, 'ToonLab');
+  assert.equal(toonlab.rendererIntent.manyLights.intent, 'require');
+  assert.equal(toonlab.rendererIntent.globalIllumination.intent, 'prefer');
+  assert.equal(toonlab.lights.find((light) => light.toonlabType === 'spot').manyLights.eligibleIntent, true);
+  assert.equal(toonlab.lights.find((light) => light.toonlabType === 'directional').manyLights.eligibleIntent, false);
+  assert.deepEqual(lighting.threePositionToToonLab([1, 2, 3]), [-300, 100, 200]);
+  assert.equal(JSON.parse(lighting.serializeToonLabLightingManifest(toonlab)).type, lighting.TOONLAB_LIGHTING_MANIFEST_TYPE);
 });
 
 const manyLights = lighting.createLightingRecipe({

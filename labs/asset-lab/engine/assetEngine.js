@@ -29,15 +29,22 @@ import {
 } from '@call-me-sensei/toonlab/environment';
 import {
   fetchPolyhavenFiles,
+  GALLERY_MATERIAL_FAMILY,
   loadAmbientcgTextureMaterial,
   loadImportedModel,
   loadImportedTextureMaterial,
+  resolveGalleryMaterialFamily,
   resolveAmbientcgDownload,
   resolvePolyhavenModelDownload,
   resolvePolyhavenTextureDownload,
   rewriteAmbientcgDownloadUrl,
   rewritePolyPizzaDownloadUrl,
 } from '@call-me-sensei/toonlab/assetlib';
+import {
+  classifyUrbanPropSurface,
+  createUrbanAnimePropNodeMaterial,
+  createUrbanPropShaderControls,
+} from '../../../examples/urban-prop-shader/urbanPropMaterial.js';
 
 function cloneWithMaterials(object) {
   const clone = object.clone(true);
@@ -129,6 +136,7 @@ export function createAssetEngine({ mount }) {
   let channelMesh = null; // flat unlit quad showing the selected raw map
   let viewMode = '3d'; // '3d' orbit | '2d' straight-on, rotation locked
   let lastKind = null;
+  let lastMaterialFamily = GALLERY_MATERIAL_FAMILY.environment;
   let lastStylePreset = 'default';
   let viewWidth = 0;
   let viewHeight = 0;
@@ -177,19 +185,51 @@ export function createAssetEngine({ mount }) {
     sun.shadow.camera.updateProjectionMatrix();
   }
 
-  async function stylize(object, stylePreset) {
-    const preset = resolveEnvironmentPreset(stylePreset);
-    await applyEnvironmentShader(object, {
-      bakeVertexAo: false,
-      features: preset.features,
-      hasSun: true,
-      parameters: { saturation: 1.1, ...preset.parameters },
-      // Everything browsed here is a photoscan/photo texture; the 'auto'
-      // heuristic only recognizes Megascans/Fab naming, so force the
-      // painterly simplify pass (photo grain → gradients, detail-map
-      // compression) — without it imports read as posterized photos.
-      scanStylize: true,
+  function applyUrbanObjectShader(object) {
+    const controls = createUrbanPropShaderControls('source');
+    object.traverse((child) => {
+      if (!child.isMesh || !child.material) return;
+      const materialWasArray = Array.isArray(child.material);
+      const sourceMaterials = materialWasArray ? child.material : [child.material];
+      const urbanMaterials = sourceMaterials.map((sourceMaterial) => {
+        const isTranslucent = sourceMaterial.transparent
+          || Number(sourceMaterial.opacity ?? 1) < 0.999
+          || Number(sourceMaterial.transmission ?? 0) > 0;
+        if (isTranslucent) {
+          sourceMaterial.userData = {
+            ...sourceMaterial.userData,
+            galleryUrbanShaderExcluded: 'translucent-material-family',
+          };
+          return sourceMaterial;
+        }
+        return createUrbanAnimePropNodeMaterial(sourceMaterial, {
+          controls,
+          surface: classifyUrbanPropSurface(child, sourceMaterial),
+        });
+      });
+      child.material = materialWasArray ? urbanMaterials : urbanMaterials[0];
     });
+  }
+
+  async function stylize(object, stylePreset, {
+    materialFamily = GALLERY_MATERIAL_FAMILY.environment,
+  } = {}) {
+    if (materialFamily === GALLERY_MATERIAL_FAMILY.urban) {
+      applyUrbanObjectShader(object);
+    } else {
+      const preset = resolveEnvironmentPreset(stylePreset);
+      await applyEnvironmentShader(object, {
+        bakeVertexAo: false,
+        features: preset.features,
+        hasSun: true,
+        parameters: { saturation: 1.1, ...preset.parameters },
+        // Everything browsed here is a photoscan/photo texture; the 'auto'
+        // heuristic only recognizes Megascans/Fab naming, so force the
+        // painterly simplify pass (photo grain → gradients, detail-map
+        // compression) — without it imports read as posterized photos.
+        scanStylize: true,
+      });
+    }
     // The sun-shadow pass flips FrontSide casters to BackSide (three's acne
     // guard), but converted materials default to DoubleSide — their own
     // front faces land in the depth map and the whole model self-shadows.
@@ -377,7 +417,9 @@ export function createAssetEngine({ mount }) {
       if (targets.length === 0) return { error: 'part not found', ok: false };
       for (const mesh of targets) {
         mesh.material = material.clone();
-        await stylize(mesh, lastStylePreset);
+        await stylize(mesh, lastStylePreset, {
+          materialFamily: lastMaterialFamily,
+        });
       }
       sunShadowPass.invalidate(); // cutout silhouettes may have changed
       return { ok: true };
@@ -391,7 +433,12 @@ export function createAssetEngine({ mount }) {
    * stale calls (superseded by a newer show) resolve ok:false without
    * touching the scene.
    */
-  async function show(ref, { resolution = '1k', stylePreset = 'default', repeat = 3 } = {}) {
+  async function show(ref, {
+    materialFamily = null,
+    resolution = '1k',
+    stylePreset = 'default',
+    repeat = 3,
+  } = {}) {
     const myToken = ++token;
     // Downloads can take a while — flag the flight so hosts (e.g. the pro
     // asset page) can show a loader for every show, not just the first boot.
@@ -399,6 +446,7 @@ export function createAssetEngine({ mount }) {
     try {
       if (ref.kind === 'model') {
         lastKind = 'model';
+        lastMaterialFamily = materialFamily ?? resolveGalleryMaterialFamily(ref);
         lastStylePreset = stylePreset;
         const cacheKey = `${ref.source}/${ref.id}@${resolution}`;
         if (!modelCache.has(cacheKey)) {
@@ -430,16 +478,20 @@ export function createAssetEngine({ mount }) {
         const box = new THREE.Box3().setFromObject(styledDisplay);
         styledDisplay.position.y -= box.min.y;
         originalDisplay.position.y -= box.min.y;
-        await stylize(styledDisplay, stylePreset);
+        await stylize(styledDisplay, stylePreset, {
+          materialFamily: lastMaterialFamily,
+        });
         if (myToken !== token) return { ok: false, stale: true };
         mountSubject(originalDisplay, styledDisplay);
         document.body.dataset.modelReady = 'true';
         document.body.dataset.assetShown = `${ref.source}/${ref.id}@${stylePreset}`;
+        document.body.dataset.assetMaterialFamily = lastMaterialFamily;
         return { download, ok: true };
       }
 
       if (ref.kind === 'texture') {
         lastKind = 'texture';
+        lastMaterialFamily = GALLERY_MATERIAL_FAMILY.environment;
         lastStylePreset = stylePreset;
         const { material, textureSet, download } = await loadTextureMaterialCached(ref, resolution);
         if (myToken !== token) return { ok: false, stale: true };
@@ -450,6 +502,7 @@ export function createAssetEngine({ mount }) {
         mountSubject(originalDisplay, styledDisplay);
         document.body.dataset.modelReady = 'true';
         document.body.dataset.assetShown = `${ref.source}/${ref.id}@${stylePreset}`;
+        document.body.dataset.assetMaterialFamily = lastMaterialFamily;
         return { download, ok: true, textureSet };
       }
 

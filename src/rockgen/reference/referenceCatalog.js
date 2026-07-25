@@ -1,4 +1,4 @@
-// Audited source-mesh catalog for the So Stylized rock library. Entries keep
+// Audited source-mesh catalog for the ToonLab rock library. Entries keep
 // stable identities, taxonomy, and exact authored LOD counts. Licensed mesh
 // data stays in the gitignored local reference library; `generatorRecipe` is
 // retained only as legacy editor-placeholder metadata and is never used to
@@ -221,7 +221,7 @@ function parametersFor(series, index, seed) {
 
 function entryFor(series, index) {
   const indexText = String(index).padStart(2, '0');
-  const id = `so-stylized/${series.family}/${series.key}/${indexText}`;
+  const id = `toonlab/${series.family}/${series.key}/${indexText}`;
   const sourceAssetName = sourceNameFor(series, index);
   const seed = rockReferenceSeedForId(id);
   const target = AUDITED_LOD0_TRIANGLE_TARGETS[sourceAssetName];
@@ -304,7 +304,7 @@ for (const entry of ROCK_REFERENCE_CATALOG) {
     entry.sourceAssetName.replace(/^SM_/, ''),
     `${entry.family}/${entry.series}/${entry.index}`,
     `${entry.family}/${entry.series}/${indexText}`,
-    `so-stylized/${entry.family}/${entry.series}/${entry.index}`,
+    `toonlab/${entry.family}/${entry.series}/${entry.index}`,
   ];
   for (const alias of aliases) {
     ID_ALIASES.set(String(alias).trim().toLowerCase(), entry.id);

@@ -178,7 +178,7 @@ a replacement renderer. Use `createLightingManager({ scene, camera, renderer,
 recipe, quality })`, call `update()` as the focus/camera moves, and save JSON
 with the recipe/look serializers. Luminaire, rig, look, and quality presets
 come from `getLightingPresetOptions(kind)`. Disc/tube area lights, IES, tag
-linking, and Unreal Engine 5.8 MegaLights/Lumen are explicit adapter intent;
+linking, and ToonLab Many Lights/Dynamic GI are explicit adapter intent;
 the capability report and diagnostics state each runtime fallback. Author and
 stress-test them in `/lighting-lab/`.
 

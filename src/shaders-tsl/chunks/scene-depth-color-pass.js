@@ -106,8 +106,8 @@ export function createSceneDepthColorPass({ scene } = {}) {
     depthMaterial.userData.sceneDepthColorPass = {
       coupled: typeof coupledFactory === 'function',
       exact: Boolean(
-        depthMaterial.userData?.soStylizedUnityPassCoupling?.exact
-        || material?.userData?.soStylizedUnityPassCoupling?.exact,
+        depthMaterial.userData?.toonLabPassCoupling?.exact
+        || material?.userData?.toonLabPassCoupling?.exact,
       ),
       maskSource: depthMaterial.maskNode?.isNode ? 'source-node' : 'opaque-or-alpha-test',
       positionSource: depthMaterial.positionNode?.isNode ? 'source-node' : 'authored-position',

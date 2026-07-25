@@ -8,7 +8,7 @@ export const LANDSCAPE_GUIDE_SECTIONS = Object.freeze([
     id: 'overview',
     title: 'Overview',
     blocks: [
-      { p: 'Landscape Lab is a UE-style terrain editor: a tiled heightfield you sculpt with brushes, paint with surface materials, and dress with foliage — your own generated assets included. Everything is undoable (⌘Z), autosaves to this browser, and exports as a single project file.' },
+      { p: 'Landscape Lab is a ToonLab-style terrain editor: a tiled heightfield you sculpt with brushes, paint with surface materials, and dress with foliage — your own generated assets included. Everything is undoable (⌘Z), autosaves to this browser, and exports as a single project file.' },
       { p: 'The left rail picks what you are doing: Camera (navigate safely, nothing edits), then the three edit modes — Sculpt, Paint, and Foliage (keys 1/2/3). Each mode shows its tools in the floating strip beside the rail; clicking the active tool puts it down again.' },
       { list: ['[ and ] resize the brush', 'Shift inverts most tools (lower / erase / restore)', 'Right-drag orbits while a tool is armed', 'Esc cancels the Ramp gesture'] },
     ],

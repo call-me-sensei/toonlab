@@ -58,29 +58,52 @@ Persist anything worth keeping with `save_creation` (or write the JSON into
 the repo); `.toonlab/creations/` is the shared surface labs and later
 sessions read.
 
-## Urban prop material contract
+## Manufactured environment material contract
 
-For generated or imported urban props, classify each material once with glTF
-extras / Three.js `userData.urbanSurface`. Use only:
-`paintedMetal`, `paintedTrim`, `bareMetal`, `rubber`, `lid`,
-`graphicPanel`, or `technicalSurface`.
+For generated or imported props, vehicles, buildings, furniture, and interior
+assets, classify each material once with glTF extras / Three.js
+`userData.urbanMaterial`. Author the versioned object with these axes:
 
-- Preserve source color and PBR maps. A role describes what the surface is; it
-  does not replace its albedo, roughness, metalness, normal, AO, or emissive
-  data.
-- Put the role on the material when a mesh has multiple materials. A node role
-  is a default for every material below it.
-- Split materials or provide a mask when readable graphics and reconstructed
-  paint occupy the same material.
-- Use a canonical role token in the material name only as a fallback, such as
-  `MAT_solar_technicalSurface`; explicit metadata is the production contract.
+- `baseMaterial`: `metal`, `mineral`, `wood`, `polymer`, `rubber`, `glass`,
+  `ceramic`, `textile`, `leather`, `paper`, `composite`, `fluid`, or
+  `genericDielectric`.
+- `finish`: `raw`, `painted`, `varnished`, `clearCoated`, `polished`,
+  `brushed`, `glazed`, `anodized`, `mirror`, or `matte`.
+- `renderMode`: `opaque`, `alphaCutout`, `translucent`, `transmissive`, or
+  `unlit`.
+- `structuralRole`: `primaryMass`, `secondaryStructure`, `trim`, `fastener`,
+  `cavity`, `window`, `graphic`, or `lightEmitter`.
+- `contentFlags`: any of `graphic`, `display`, and `emissive`.
+
+Preserve source color and every available PBR map. Classification supplies
+stable meaning and fallback priors; it never replaces albedo, roughness,
+metalness, normal, AO, emissive, clearcoat, transmission, opacity, or UV data.
+
+- Put classification on the material when a mesh has multiple materials. A
+  node classification is a default for every material below it.
+- Split materials or provide a material-ID mask when one atlas spans
+  incompatible classes such as masonry, wood, metal, and window glass.
+- Keep wear, dirt, rust, chipped coating, wetness, burn, snow, and similar
+  conditions in continuous masks rather than inventing material classes.
 - Never encode pastel amount, palette overrides, cel thresholds, reflection
-  strength, or time-of-day values in the model. Those belong to shader and
-  scene settings.
-- Never reclassify the model to suit a new shader. Custom shaders consume the
-  stable role and define global settings plus sparse per-role profiles.
-- Reload the exported GLB and inspect the resolved roles before judging only a
-  beauty render.
+  strength, or time-of-day values in the model.
+- Never reclassify a model to suit a shader. Custom shaders consume the stable
+  axes and define global settings plus sparse per-axis profiles.
+- Accept the old `urbanSurface` IDs only through the documented compatibility
+  map; do not author `lid`, `roof`, or `trim` as physical material classes.
+- Reload the exported GLB and inspect classifications, fallback warnings, and
+  mixed-atlas boundaries before judging only a beauty render.
+- Run `analyzeManufacturedAsset(root)` as the code-first audit. Names, PBR
+  slots, alpha/transmission, emission, and metalness can cover clean assets;
+  never guess material identity from RGB alone. Use visual analysis only as
+  offline assistance for mixed/anonymous atlases and approve its proposal into
+  a material split, ID mask, or explicit assignment.
+- For FBX, OBJ/MTL, USDZ, VRM, PMX/PMD, third-party GLB, and other sources
+  that cannot safely carry custom properties, write a versioned
+  `*.toonlab-materials.json` sidecar and apply it after loading. The runtime
+  classification layer never edits geometry, UVs, or texture pixels.
+- Review and temporarily switch tags in the Manufactured Material Lab; export
+  its sidecar to make the result durable.
 
 ## Sample and compare (vision-capable agents)
 

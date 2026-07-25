@@ -2,12 +2,12 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 import {
-  applySoStylizedSourceMaterials,
-  createSoStylizedSourceEnvironmentState,
-  loadSoStylizedSourceLibrary,
+  applyToonLabSourceMaterials,
+  createToonLabSourceEnvironmentState,
+  loadToonLabSourceLibrary,
 } from '@call-me-sensei/toonlab/environment';
 
-export const SOURCE_CATALOG_BASE_URL = '/assets-local/sostylized/catalog-meshes';
+export const SOURCE_CATALOG_BASE_URL = '/assets-local/toonlab/catalog-meshes';
 
 function joinUrl(baseUrl, path) {
   return `${String(baseUrl).replace(/\/$/, '')}/${String(path).replace(/^\//, '')}`;
@@ -34,14 +34,14 @@ export async function loadSourceCatalogManifest({
 export async function createSourceCatalogContext(options = {}) {
   const [manifest, library] = await Promise.all([
     loadSourceCatalogManifest(options),
-    loadSoStylizedSourceLibrary({ baseUrl: options.materialBaseUrl }),
+    loadToonLabSourceLibrary({ baseUrl: options.materialBaseUrl }),
   ]);
   return {
     baseUrl: options.assetBaseUrl ?? SOURCE_CATALOG_BASE_URL,
     library,
     loader: new GLTFLoader(),
     manifest,
-    state: options.state ?? createSoStylizedSourceEnvironmentState(library),
+    state: options.state ?? createToonLabSourceEnvironmentState(library),
   };
 }
 
@@ -117,29 +117,29 @@ export async function loadSourceCatalogAsset(entryOrName, {
   const root = gltf.scene;
   root.name = entry.sourceAssetName;
   if (useBaked) {
-    root.userData.soStylizedBakedMaterialCount = prepareBakedMaterials(root);
-    root.userData.soStylizedMaterialMode = 'baked';
+    root.userData.toonLabBakedMaterialCount = prepareBakedMaterials(root);
+    root.userData.toonLabMaterialMode = 'baked';
   } else if (materialMode === 'source' || materialMode === 'baked') {
     const importedMaterials = new Set();
     root.traverse((object) => {
       if (!object.isMesh) return;
       for (const material of materialArray(object.material)) importedMaterials.add(material);
     });
-    const report = await applySoStylizedSourceMaterials(root, {
+    const report = await applyToonLabSourceMaterials(root, {
       library: context.library,
       sourceAssetName: entry.sourceAssetName,
       state: context.state,
     });
     for (const material of importedMaterials) material?.dispose?.();
-    root.userData.soStylizedSourceReport = report;
-    root.userData.soStylizedMaterialMode = materialMode === 'baked'
+    root.userData.toonLabSourceReport = report;
+    root.userData.toonLabMaterialMode = materialMode === 'baked'
       ? 'live-fallback'
       : 'live';
   } else {
     applyNeutralMaterials(root);
-    root.userData.soStylizedMaterialMode = 'neutral';
+    root.userData.toonLabMaterialMode = 'neutral';
   }
-  root.userData.soStylizedCatalogEntry = entry;
+  root.userData.toonLabCatalogEntry = entry;
   return { entry, lod: lodRecord.lod, root };
 }
 
@@ -176,7 +176,7 @@ export async function loadSourceCatalogLodObject(entryOrName, {
   levels.forEach((level, index) => {
     lodObject.addLevel(level.root, index === 0 ? 0 : radius * (index === 1 ? 8 : 18));
   });
-  lodObject.userData.soStylizedCatalogEntry = entry;
+  lodObject.userData.toonLabCatalogEntry = entry;
   return lodObject;
 }
 

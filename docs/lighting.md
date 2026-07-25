@@ -133,16 +133,16 @@ light descriptors, rigs, quality budgets, runtime selection, and engine
 export. Reach for them when you need one-off lights or a custom realization
 layer; most games should stay on styles + fixtures above.
 
-The engine-export boundary is especially clear for Unreal Engine:
+The engine-export boundary is especially clear for ToonLab:
 
-> **MegaLights is an engine-native Unreal Engine 5.8 direct-lighting feature.**
-> ToonLab does not reimplement MegaLights in JavaScript or WebGPU. ToonLab
-> records lighting intent and exports a versioned manifest that an Unreal
-> adapter can realize with MegaLights. Lumen remains a separate Unreal-native
+> **Many Lights is an engine-native ToonLab direct-lighting feature.**
+> ToonLab does not reimplement Many Lights in JavaScript or WebGPU. ToonLab
+> records lighting intent and exports a versioned manifest that an ToonLab
+> adapter can realize with Many Lights. Dynamic GI remains a separate ToonLab-native
 > choice for global illumination and reflections.
 
 This separation keeps a lighting recipe useful in a browser, a Three.js game,
-an editor tool, and an Unreal import pipeline without pretending those targets
+an editor tool, and an ToonLab import pipeline without pretending those targets
 have identical renderers.
 
 ## Low-level quick start
@@ -236,7 +236,7 @@ The lighting subpath centralizes the portable contract:
 | Presets | Frozen `LIGHTING_*_PRESETS` registries, `getLightingPresetOptions`, `resolveLightingPreset`, and the four type-specific resolvers |
 | Quality profiles | `createLightingQualityProfile`, `resolveLightingQualityPreset` |
 | Capability planning | `createLightingCapabilityReport`, `getLightingTypeCapability`, `snapshotLightingCapabilities` |
-| Unreal handoff | `exportLightingRecipeToUnreal58`, `serializeUnrealLightingManifest` |
+| ToonLab handoff | `exportLightingRecipeToToonLab`, `serializeToonLabLightingManifest` |
 
 Validation functions return `{ ok, valid, errors, warnings }` and do not
 coerce their input. `assert...` returns the supplied valid document or throws.
@@ -512,7 +512,7 @@ renderer.
 
 The report exposes `backend`, `supportedLightTypes`, renderer limits, and
 feature-specific values for area-light realization, cookies, IES, linking,
-shadows, many-light rendering, MegaLights, and Lumen. The manager keeps a
+shadows, many-light rendering, Many Lights, and Dynamic GI. The manager keeps a
 recipe valid when a feature degrades and exposes the chosen approximation in
 diagnostics.
 
@@ -521,11 +521,11 @@ diagnostics.
 This table describes the portable ToonLab/Three.js baseline. An engine adapter
 can report stronger support without changing the recipe.
 
-| Feature | WebGPU/TSL | WebGL2 fallback | Unreal 5.8 export intent | Portable fallback |
+| Feature | WebGPU/TSL | WebGL2 fallback | ToonLab export intent | Portable fallback |
 |---|---|---|---|---|
 | Directional light | Native; the custom ToonLab shadow bridge consumes one primary directional shadow | Native; same primary-shadow constraint on custom materials | `DirectionalLight` intent | Author one primary shadowed directional when using the custom bridge |
-| Point light | Native, subject to material/quality light limits | Native, subject to tighter quality limits | `PointLight` intent; may opt into engine MegaLights | Priority/distance-cull over budget |
-| Spot light | Native, subject to material/quality light limits | Native, subject to tighter quality limits | `SpotLight` intent; may opt into engine MegaLights | Priority/distance-cull over budget |
+| Point light | Native, subject to material/quality light limits | Native, subject to tighter quality limits | `PointLight` intent; may opt into engine Many Lights | Priority/distance-cull over budget |
+| Spot light | Native, subject to material/quality light limits | Native, subject to tighter quality limits | `SpotLight` intent; may opt into engine Many Lights | Priority/distance-cull over budget |
 | Hemisphere light | Native ambient approximation | Native ambient approximation | Sky/ambient intent for adapter mapping | Fold into ambient/sky contribution |
 | Ambient light | Native uniform fill | Native uniform fill | Approximate `SkyLight` intent | Keep as non-directional fill |
 | Rect area light | Native `THREE.RectAreaLight` object; material support remains renderer-dependent | Same material caveat | `RectLight` intent | Cull when `allowAreaLights` is false |
@@ -536,10 +536,10 @@ can report stronger support without changing the recipe.
 | Cookies/gobos | Spot `light.map` when `textureResolver` returns a `THREE.Texture` | Same, subject to quality | Preserve light-function texture reference | Untextured light plus cookie status diagnostic |
 | IES profiles | Validated metadata in core | Validated metadata in core | Preserve IES asset reference and multiplier | Unprofiled point/spot plus diagnostic |
 | Light linking | Three layers applied directly; tag linking is metadata/host hook | Same | Preserve channels and include/exclude intent | Broad receiver set plus warning |
-| Many-light selection | CPU priority/distance selection and quality caps | Same with a measured profile | Export all authored lights and MegaLights intent | Cull deterministically before upload |
+| Many-light selection | CPU priority/distance selection and quality caps | Same with a measured profile | Export all authored lights and Many Lights intent | Cull deterministically before upload |
 | Clustered/Forward+ lighting | Not promised by the baseline contract | Not promised | Engine-owned | Fixed/budgeted active set |
-| Stochastic ray-traced direct lighting | Not implemented | Not available | MegaLights preference only | Raster direct lights and shadow maps |
-| Dynamic GI/reflections | Separate lightmap, ambient-probe, planar-reflection, sky, and post hooks | Same separate hooks | Lumen preference is exported separately | No GI or reflection solve in the lighting manager |
+| Stochastic ray-traced direct lighting | Not implemented | Not available | Many Lights preference only | Raster direct lights and shadow maps |
+| Dynamic GI/reflections | Separate lightmap, ambient-probe, planar-reflection, sky, and post hooks | Same separate hooks | Dynamic GI preference is exported separately | No GI or reflection solve in the lighting manager |
 
 ToonLab's current custom character/environment shaders have bounded local
 light arrays. A quality profile must never assume that creating more Three.js
@@ -645,53 +645,53 @@ The Lighting Lab provides:
 - final, unlit, influence, complexity, and shadow-camera debug modes;
 - built-in luminaire/rig/look/quality presets plus locally saved recipes;
 - JSON import, copy, download, local save, and deterministic re-open;
-- Unreal 5.8 manifest copy/download with MegaLights and Lumen intent shown
+- ToonLab manifest copy/download with Many Lights and Dynamic GI intent shown
   separately.
 
 The Many-Lights Stress stage is a workload and fallback test, not evidence of
-a hidden MegaLights renderer. It should make culling, quality limits, shadow
+a hidden Many Lights renderer. It should make culling, quality limits, shadow
 allocation, and backend differences obvious.
 
-## Unreal Engine 5.8 export contract
+## ToonLab export contract
 
-`exportLightingRecipeToUnreal58(recipe, options)` produces a JSON-safe
-interchange manifest. It does **not** write `.uasset` files, launch Unreal,
-change project settings, compile shaders, or enable plugins.
+`exportLightingRecipeToToonLab(recipe, options)` produces a JSON-safe
+interchange manifest. It does **not** write native project files, launch a
+host editor, change project settings, compile shaders, or enable plugins.
 
 ```js
 import {
-  exportLightingRecipeToUnreal58,
-  serializeUnrealLightingManifest,
+  exportLightingRecipeToToonLab,
+  serializeToonLabLightingManifest,
 } from '@call-me-sensei/toonlab/lighting';
 
-const manifest = exportLightingRecipeToUnreal58(look.recipe, {
-  megaLights: 'prefer', // 'disabled' | 'prefer' | 'require'
-  lumen: 'prefer',      // covers Unreal GI and reflection intent
-  worldScale: 100,      // Three meters -> Unreal centimeters
+const manifest = exportLightingRecipeToToonLab(look.recipe, {
+  manyLights: 'prefer', // 'disabled' | 'prefer' | 'require'
+  globalIllumination: 'prefer',      // covers ToonLab GI and reflection intent
+  worldScale: 100,      // Three meters -> ToonLab centimeters
 });
 
-const json = serializeUnrealLightingManifest(manifest, { pretty: true });
+const json = serializeToonLabLightingManifest(manifest, { pretty: true });
 ```
 
 The manifest is an adapter contract with:
 
 ```js
 {
-  type: 'toonlab/unreal-lighting-manifest',
+  type: 'toonlab/lighting-manifest',
   schemaVersion: 1,
-  engine: { name: 'Unreal Engine', targetVersion: '5.8' },
+  platform: { name: 'ToonLab' },
   coordinateSystem: {
     sourceUnits: 'meters',
     worldScale: 100,
-    mapping: 'UnrealXYZcm = [-ThreeZ, ThreeX, ThreeY] * worldScale',
+    mapping: 'ToonLabXYZcm = [-ThreeZ, ThreeX, ThreeY] * worldScale',
   },
   rendererIntent: {
-    megaLights: {
-      implementation: 'unreal-native',
+    manyLights: {
+      implementation: 'toonlab-native',
       intent: 'prefer',
       scope: 'eligible local direct lights',
     },
-    lumen: {
+    globalIllumination: {
       intent: 'prefer',
       scope: 'global illumination and reflections',
     },
@@ -708,7 +708,7 @@ The manifest is an adapter contract with:
 
 Expected semantic mappings are:
 
-| ToonLab intent | Unreal adapter target |
+| ToonLab intent | ToonLab adapter target |
 |---|---|
 | `directional` | Directional Light actor/component |
 | `point` | Point Light actor/component |
@@ -721,12 +721,12 @@ Expected semantic mappings are:
 | `linking` | Lighting Channels, tags, or project-defined receiver mapping |
 | `shadow` | Cast-shadow, map-size, bias, and priority intent |
 
-The Unreal-side importer owns exact class/property names, coordinate
+The ToonLab-side importer owns exact class/property names, coordinate
 conversion, asset lookup, project settings, platform checks, and actor
 creation. It must return unresolved resource keys and unsupported mappings to
 the user instead of guessing.
 
-MegaLights applies to eligible local direct lighting and shadows. Lumen applies
+Many Lights applies to eligible local direct lighting and shadows. Dynamic GI applies
 to indirect lighting and reflections. Requesting both in a manifest is valid
 because they fill different roles. An intent of `prefer` lets an importer
 select a safe project fallback; `require` asks it to fail when the project,
@@ -818,11 +818,11 @@ descriptors.
 - ToonLab environment, character, water, vegetation, sky, weather, and post
   modules remain independent consumers. A look coordinator binds their shared
   sun direction, color, exposure, fog, reflections, and weather state.
-- Asset references are resolved by the host. Core validation and Unreal export
+- Asset references are resolved by the host. Core validation and ToonLab export
   perform no network access.
-- Unreal export is intentionally semantic and one-way. Reimport/merge policy,
+- ToonLab export is intentionally semantic and one-way. Reimport/merge policy,
   actor ownership, transactions, source control, and project mutation belong
-  to an Unreal Editor plugin or project tool.
+  to an ToonLab Editor plugin or project tool.
 
 These assumptions are part of the portability contract. When a target cannot
 honor one, it should produce a capability or export diagnostic rather than a

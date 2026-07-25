@@ -1,5 +1,5 @@
 // Public lighting-authoring surface. Kept as a subpath-ready cluster so hosts
-// can use JSON documents and Unreal export without constructing a renderer.
+// can use JSON documents and ToonLab export without constructing a renderer.
 
 export {
   LIGHT_INTENSITY_UNITS,
@@ -153,9 +153,9 @@ export {
 } from './lightingGenerator.js';
 
 export {
-  UNREAL_LIGHTING_MANIFEST_SCHEMA_VERSION,
-  UNREAL_LIGHTING_MANIFEST_TYPE,
-  exportLightingRecipeToUnreal58,
-  serializeUnrealLightingManifest,
-  threePositionToUnreal,
-} from './unrealExport.js';
+  TOONLAB_LIGHTING_MANIFEST_SCHEMA_VERSION,
+  TOONLAB_LIGHTING_MANIFEST_TYPE,
+  exportLightingRecipeToToonLab,
+  serializeToonLabLightingManifest,
+  threePositionToToonLab,
+} from './toonLabExport.js';

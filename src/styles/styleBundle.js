@@ -212,18 +212,22 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
   environment: Object.freeze({
     documentType: ENVIRONMENT_PRESET_DOCUMENT_TYPE,
     label: 'Environment',
-    // Environment preset documents carry { features, parameters } at the
-    // validated top level (not .settings like toon/water/weather).
+    // Environment preset documents carry { features, materialLook,
+    // parameters } at the validated top level (not .settings like
+    // toon/water/weather).
     parseDocument: (input) => validateEnvironmentPresetDocument(input),
     selectionKind: 'style',
     resolve: (payload) => {
       if (payload.document) {
         const parsed = validateEnvironmentPresetDocument(payload.document);
         if (!parsed.ok) throw new Error(parsed.errors.join(' '));
-        return createEnvironmentSettings({
-          features: parsed.value.features,
-          parameters: parsed.value.parameters,
-        });
+        return {
+          ...createEnvironmentSettings({
+            features: parsed.value.features,
+            parameters: parsed.value.parameters,
+          }),
+          materialLook: parsed.value.materialLook,
+        };
       }
       if (payload.style) {
         const styleIdentity = ENVIRONMENT_PRESET_ALIASES[payload.style]?.preset
@@ -234,7 +238,13 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
       const styleIdentity = ENVIRONMENT_PRESET_ALIASES[payload.preset]?.preset
         ?? normalizeEnvironmentPresetName(payload.preset);
       return withStyleIdentity(
-        createEnvironmentSettings({ features: preset.features, parameters: preset.parameters }),
+        {
+          ...createEnvironmentSettings({
+            features: preset.features,
+            parameters: preset.parameters,
+          }),
+          materialLook: preset.materialLook,
+        },
         styleIdentity,
       );
     },

@@ -103,8 +103,8 @@ export function createLandscapeField({
     waterData = new Uint8Array(splatW * splatD).fill(1);
   }
 
-  // Terrain holes, Unity convention: one byte per quad, 1 = solid, 0 = hole.
-  // Holes are how caves/tunnels work on a heightfield (the UE approach):
+  // Terrain holes, ToonLab convention: one byte per quad, 1 = solid, 0 = hole.
+  // Holes are how caves/tunnels work on a heightfield (the ToonLab approach):
   // punch through the surface, then build the interior from placed meshes.
   let holeData;
   if (holes instanceof Uint8Array) {

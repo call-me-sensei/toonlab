@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
 import * as lighting from '../src/lighting/index.js';
-import { createLabLight, exportUnrealManifest, normalizeRecipe } from '../labs/lighting-lab/lightingApi.js';
+import { createLabLight, exportToonLabManifest, normalizeRecipe } from '../labs/lighting-lab/lightingApi.js';
 import { SCENES } from '../labs/lighting-lab/scenes.js';
 
 const TYPES = ['ambient', 'hemisphere', 'directional', 'point', 'spot', 'rectArea', 'discArea', 'tubeArea'];
@@ -132,16 +132,16 @@ check('advanced descriptor metadata survives normalization', () => {
   assert.equal(light.shadow.extent, 72);
 });
 
-check('the Unreal manifest exports a rig built from placement descriptors', () => {
+check('the ToonLab manifest exports a rig built from placement descriptors', () => {
   const fixture = lighting.resolveLightFixture('cms-street-lamp');
   const placement = lighting.resolveFixturePlacement(fixture, { position: [4, 4.6, -8], seed: 7 });
-  const manifest = JSON.parse(exportUnrealManifest({
+  const manifest = JSON.parse(exportToonLabManifest({
     id: 'lab-rig',
     name: 'Lighting Lab Rig',
     lights: [placement.descriptor],
   }));
-  assert.equal(manifest.type, lighting.UNREAL_LIGHTING_MANIFEST_TYPE);
-  assert.equal(manifest.engine.targetVersion, '5.8');
+  assert.equal(manifest.type, lighting.TOONLAB_LIGHTING_MANIFEST_TYPE);
+  assert.equal(manifest.platform.name, 'ToonLab');
   assert.equal(manifest.lights.length, 1);
   assert.equal(manifest.lights[0].toonlabType, 'point');
 });

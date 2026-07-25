@@ -41,7 +41,7 @@ if (!window.__landscapeLabBooted) {
     if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
     const key = event.key;
     if (key === '[' || key === ']') {
-      // UE convention: [ and ] step the brush radius.
+      // ToonLab convention: [ and ] step the brush radius.
       const radius = store.getState().settings.brushRadius;
       const next = key === '[' ? radius / 1.15 : radius * 1.15;
       store.actions.setSetting('brushRadius', Math.round(next * 10) / 10);

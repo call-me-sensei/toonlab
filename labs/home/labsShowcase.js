@@ -29,12 +29,20 @@ export const SHADER_LABS_SHOWCASE = Object.freeze([
     desc: 'Define the environment-material treatment — feature paths, light response, interior occlusion, and surface styling',
     href: '/environment-lab/',
   }),
+  Object.freeze({
+    id: 'manufactured-material',
+    i: '04',
+    title: 'Manufactured Material Lab',
+    jp: '人工物',
+    desc: 'Classify and tune one IP-wide treatment for props, vehicles, buildings, interiors, furniture, and infrastructure',
+    href: '/manufactured-material-lab/',
+  }),
 ]);
 
 export const ASSET_LABS_SHOWCASE = Object.freeze([
   Object.freeze({
     id: 'rock',
-    i: '04',
+    i: '05',
     title: 'Rock Lab',
     jp: '岩石',
     desc: 'Procedural cliffs & mesas — sculpt, erode, export GLB',
@@ -42,7 +50,7 @@ export const ASSET_LABS_SHOWCASE = Object.freeze([
   }),
   Object.freeze({
     id: 'tree',
-    i: '05',
+    i: '06',
     title: 'Tree Lab',
     jp: '樹木',
     desc: 'Grow trees & bushes — sketch silhouettes, add canopy blossoms, export GLB',
@@ -50,7 +58,7 @@ export const ASSET_LABS_SHOWCASE = Object.freeze([
   }),
   Object.freeze({
     id: 'flower',
-    i: '06',
+    i: '07',
     title: 'Flower Lab',
     jp: '花',
     desc: 'Author standalone flowers — stems, leaves, blooms, recipes, and GLB export',
@@ -58,7 +66,7 @@ export const ASSET_LABS_SHOWCASE = Object.freeze([
   }),
   Object.freeze({
     id: 'grass',
-    i: '07',
+    i: '08',
     title: 'Grass Lab',
     jp: '草',
     desc: 'Design grass from a single blade to a meadow — shape, wind, lighting',
@@ -66,7 +74,7 @@ export const ASSET_LABS_SHOWCASE = Object.freeze([
   }),
   Object.freeze({
     id: 'debris',
-    i: '08',
+    i: '09',
     title: 'Debris Lab',
     jp: '残骸',
     desc: 'Scatter-ready debris & litter — recipes to GLB',
@@ -74,7 +82,7 @@ export const ASSET_LABS_SHOWCASE = Object.freeze([
   }),
   Object.freeze({
     id: 'texture',
-    i: '09',
+    i: '10',
     title: 'Texture Lab',
     jp: '質感',
     desc: 'Stylized seamless textures — layers, dials, instant export',
@@ -85,7 +93,7 @@ export const ASSET_LABS_SHOWCASE = Object.freeze([
 export const WORLD_SYSTEMS_SHOWCASE = Object.freeze([
   Object.freeze({
     id: 'sky',
-    i: '10',
+    i: '11',
     title: 'Sky Lab',
     jp: '空',
     desc: 'Author the complete sky system — gradients, sun, painterly clouds, stars, and cloud motion',
@@ -93,7 +101,7 @@ export const WORLD_SYSTEMS_SHOWCASE = Object.freeze([
   }),
   Object.freeze({
     id: 'water',
-    i: '11',
+    i: '12',
     title: 'Water Lab',
     jp: '水面',
     desc: 'Author the complete water system — waves, surface, foam, lighting, ripples, splashes, and quality',
@@ -101,10 +109,10 @@ export const WORLD_SYSTEMS_SHOWCASE = Object.freeze([
   }),
   Object.freeze({
     id: 'landscape',
-    i: '18',
+    i: '19',
     title: 'Landscape Lab',
     jp: '地形',
-    desc: 'Sculpt terrain, paint splat materials, and brush foliage — a UE-style landscape editor',
+    desc: 'Sculpt terrain, paint splat materials, and brush foliage — a ToonLab-style landscape editor',
     href: '/landscape-lab/',
   }),
 ]);
@@ -120,7 +128,7 @@ export const LABS_SHOWCASE = Object.freeze([
 export const DEMOS_SHOWCASE = Object.freeze([
   Object.freeze({
     id: 'playground',
-    i: '12',
+    i: '13',
     title: 'Playground',
     jp: '遊び場',
     desc: 'Walk a character through your stylized world',
@@ -128,7 +136,7 @@ export const DEMOS_SHOWCASE = Object.freeze([
   }),
   Object.freeze({
     id: 'water-playground',
-    i: '13',
+    i: '14',
     title: 'Water Playground',
     jp: '渚',
     desc: 'Wade into the beach diorama — the water systems, walkable',
@@ -136,7 +144,7 @@ export const DEMOS_SHOWCASE = Object.freeze([
   }),
   Object.freeze({
     id: 'outdoor-world',
-    i: '14',
+    i: '15',
     title: 'Outdoor World',
     jp: '世界',
     desc: 'Paths, bridges, villages — the world systems at scale',
@@ -144,7 +152,7 @@ export const DEMOS_SHOWCASE = Object.freeze([
   }),
   Object.freeze({
     id: 'vfx-arena',
-    i: '15',
+    i: '16',
     title: 'VFX Arena',
     jp: '闘技場',
     desc: 'Combat VFX in a walkable arena',
@@ -152,7 +160,7 @@ export const DEMOS_SHOWCASE = Object.freeze([
   }),
   Object.freeze({
     id: 'fauna',
-    i: '16',
+    i: '17',
     title: 'Fauna Demo',
     jp: '動物',
     desc: 'Birds, fish & critters roaming a demo biome',
@@ -160,7 +168,7 @@ export const DEMOS_SHOWCASE = Object.freeze([
   }),
   Object.freeze({
     id: 'ambientfx',
-    i: '17',
+    i: '18',
     title: 'Ambient VFX Demo',
     jp: '気配',
     desc: 'Fireflies, motes, falling leaves — ambient atmosphere',

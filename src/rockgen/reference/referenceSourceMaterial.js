@@ -1,5 +1,5 @@
-// Runtime reconstruction of the licensed So Stylized Unreal rock material.
-// Parameters and textures come from scripts/unreal/audit-rock-reference-materials.py
+// Runtime reconstruction of the licensed ToonLab rock material.
+// Parameters and textures come from scripts/toonlab/audit-rock-reference-materials.py
 // and export-rock-material-source.py. This path intentionally remains
 // separate from ToonLab's environment shader: it is the source-look baseline.
 
@@ -36,7 +36,7 @@ import {
   vec2,
   vec3,
 } from 'three/tsl';
-import { ueSourceDitherTemporalAA } from '../../environment/ueSourceTemporal.js';
+import { toonLabSourceDitherTemporalAA } from '../../environment/toonLabSourceTemporal.js';
 import {
   SURFACE_MATERIAL_MODE,
   copySurfaceMaterialModes,
@@ -50,33 +50,34 @@ const manifestPromises = new Map();
 const materialTemplatePromises = new Map();
 const temporalMaterialTemplatePromises = new WeakMap();
 const texturePromises = new Map();
+const manifestTextureIndexes = new WeakMap();
 
 const MOUNTAIN_TEXTURES = Object.freeze({
-  grass: '/Game/SoStylized/Environment/Landscape/Textures/T_Grass1_BC.T_Grass1_BC',
-  noise: '/Game/SoStylized/Textures/Noise/T_NoiseStylized.T_NoiseStylized',
-  rock: '/Game/SoStylized/Environment/Rocks/Textures/Classic/T_RockClassic_BC.T_RockClassic_BC',
-  snow: '/Game/SoStylized/Environment/Landscape/Textures/T_Snow_BC.T_Snow_BC',
+  grass: '/Game/ToonLab/Environment/Landscape/Textures/T_Grass1_BC.T_Grass1_BC',
+  noise: '/Game/ToonLab/Textures/Noise/T_NoiseStylized.T_NoiseStylized',
+  rock: '/Game/ToonLab/Environment/Rocks/Textures/Classic/T_RockClassic_BC.T_RockClassic_BC',
+  snow: '/Game/ToonLab/Environment/Landscape/Textures/T_Snow_BC.T_Snow_BC',
 });
 
 const ROCK_FUNCTION_TEXTURES = Object.freeze({
-  grassVariance: '/Game/SoStylized/Textures/Noise/T_NoiseRough.T_NoiseRough',
-  sandNormal: '/Game/SoStylized/Environment/Landscape/Textures/T_DesertSand_N.T_DesertSand_N',
-  sandRoughness: '/Game/SoStylized/Textures/Noise/T_ChromaNoise_Bilinear.T_ChromaNoise_Bilinear',
-  sandVariance: '/Game/SoStylized/Textures/Noise/T_NoiseRough_HighContrast.T_NoiseRough_HighContrast',
-  snowSpecular: '/Game/SoStylized/Textures/Noise/T_ChromaNoise_Blurred.T_ChromaNoise_Blurred',
+  grassVariance: '/Game/ToonLab/Textures/Noise/T_NoiseRough.T_NoiseRough',
+  sandNormal: '/Game/ToonLab/Environment/Landscape/Textures/T_DesertSand_N.T_DesertSand_N',
+  sandRoughness: '/Game/ToonLab/Textures/Noise/T_ChromaNoise_Bilinear.T_ChromaNoise_Bilinear',
+  sandVariance: '/Game/ToonLab/Textures/Noise/T_NoiseRough_HighContrast.T_NoiseRough_HighContrast',
+  snowSpecular: '/Game/ToonLab/Textures/Noise/T_ChromaNoise_Blurred.T_ChromaNoise_Blurred',
 });
 
-const SNOWPINES_SOURCE_ASSET = 'Demonstration_SnowPines';
-const SNOWPINES_COLORMAP =
-  '/Game/SoStylized/Environment/Landscape/Textures/T_Grass_ColormapSnow.T_Grass_ColormapSnow';
+const TOONLAB_SHOWCASE_SOURCE_ASSET = 'Demonstration_ToonLabShowcase';
+const TOONLAB_SHOWCASE_COLORMAP =
+  '/Game/ToonLab/Environment/Landscape/Textures/T_Grass_ColormapSnow.T_Grass_ColormapSnow';
 
-function snowPinesRockProfile(profile, sourceAssetName) {
-  if (sourceAssetName !== SNOWPINES_SOURCE_ASSET
+function toonLabShowcaseRockProfile(profile, sourceAssetName) {
+  if (sourceAssetName !== TOONLAB_SHOWCASE_SOURCE_ASSET
     || !profile?.path?.includes('/Environment/Rocks/Materials/Classic/')) {
     return profile;
   }
   const next = structuredClone(profile);
-  next.parameters.texture['Color Map'] = SNOWPINES_COLORMAP;
+  next.parameters.texture['Color Map'] = TOONLAB_SHOWCASE_COLORMAP;
   next.parameters.scalar['Grass Colormap ScaleX'] = 50000;
   next.parameters.scalar['Grass Colormap ScaleY'] = 50000;
   return next;
@@ -128,12 +129,12 @@ function sourceCheapContrast(value, contrast) {
 }
 
 function sourcePixelDepth() {
-  // Unreal PixelDepth is positive view-axis depth, not radial camera distance.
+  // ToonLab PixelDepth is positive view-axis depth, not radial camera distance.
   return positionView.z.negate();
 }
 
 function sourceIorFromSpecular(specularNode) {
-  // UE Default Lit dielectric F0 is 0.08 * Specular. Three's physical shader
+  // ToonLab Default Lit dielectric F0 is 0.08 * Specular. Three's physical shader
   // derives F0 from IOR, so solve IOR=(1+sqrt(F0))/(1-sqrt(F0)) and leave
   // specularIntensity at one. This also supports texture/layer-varying values.
   const rootF0 = sqrt(clamp(float(specularNode).mul(0.08), 0.0, 0.99));
@@ -150,7 +151,7 @@ async function loadManifest(baseUrl) {
         const manifest = await response.json();
         if (![
           'toonlab.rock-material-source',
-          'toonlab.sostylized-environment-material-source',
+          'toonlab.environment-material-source',
         ].includes(manifest?.schema)) {
           throw new Error('Invalid source material manifest.');
         }
@@ -164,15 +165,49 @@ async function loadManifest(baseUrl) {
   return manifestPromises.get(baseUrl);
 }
 
-async function loadSourceTexture(manifest, unrealPath, baseUrl) {
-  if (!unrealPath) return null;
-  const record = manifest.textures?.[unrealPath];
-  if (!record?.file) throw new Error(`Source texture is missing from the manifest: ${unrealPath}`);
-  const key = `${baseUrl}|${unrealPath}`;
+function migratedSourceAssetIdentity(path) {
+  return String(path)
+    .replace(/\\/g, '/')
+    .replace(/^\/Game\/[^/]+(?=\/)/i, '/Game')
+    .toLowerCase();
+}
+
+function resolveManifestTexture(manifest, requestedPath) {
+  const exact = manifest.textures?.[requestedPath];
+  if (exact?.file) return { path: requestedPath, record: exact };
+
+  let index = manifestTextureIndexes.get(manifest);
+  if (!index) {
+    index = new Map();
+    for (const [path, record] of Object.entries(manifest.textures ?? {})) {
+      const identity = migratedSourceAssetIdentity(path);
+      const matches = index.get(identity) ?? [];
+      matches.push({ path, record });
+      index.set(identity, matches);
+    }
+    manifestTextureIndexes.set(manifest, index);
+  }
+
+  const matches = index.get(migratedSourceAssetIdentity(requestedPath)) ?? [];
+  if (matches.length === 1 && matches[0].record?.file) return matches[0];
+  if (matches.length > 1) {
+    throw new Error(
+      `Source texture migration is ambiguous for ${requestedPath}: `
+      + matches.map((entry) => entry.path).join(', '),
+    );
+  }
+  throw new Error(`Source texture is missing from the manifest: ${requestedPath}`);
+}
+
+async function loadSourceTexture(manifest, toonLabPath, baseUrl) {
+  if (!toonLabPath) return null;
+  const resolved = resolveManifestTexture(manifest, toonLabPath);
+  const { record } = resolved;
+  const key = `${baseUrl}|${resolved.path}`;
   if (!texturePromises.has(key)) {
     texturePromises.set(key, new THREE.TextureLoader().loadAsync(joinUrl(baseUrl, record.file))
       .then((result) => {
-        result.name = unrealPath.split('.').at(-1) ?? unrealPath;
+        result.name = toonLabPath.split('.').at(-1) ?? toonLabPath;
         result.colorSpace = record.srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
         result.flipY = false;
         result.wrapS = /CLAMP/i.test(record.addressX ?? '')
@@ -206,8 +241,8 @@ function sourceTriplanar(map, scaleMeters, {
   const weightY = sideOnly ? float(0.0) : weights.y;
   const weightZ = weights.z;
   const weightSum = max(weightX.add(weightY).add(weightZ), 0.0001);
-  // Unreal world X/Y/Z is converted by glTF to Three X/Z/-Y. Rebuild the
-  // original Unreal projection axes before sampling the source textures.
+  // ToonLab world X/Y/Z is converted by glTF to Three X/Z/-Y. Rebuild the
+  // original ToonLab projection axes before sampling the source textures.
   return mapNode.sample(vec2(positionWorld.z.negate(), positionWorld.y).div(scale)).rgb.mul(weightX)
     .add(mapNode.sample(vec2(positionWorld.x, positionWorld.z.negate()).div(scale)).rgb.mul(weightY))
     .add(mapNode.sample(positionWorld.xy.div(scale)).rgb.mul(weightZ))
@@ -215,7 +250,7 @@ function sourceTriplanar(map, scaleMeters, {
 }
 
 function unpackSourceNormal(sampleNode, { invertGreen = true } = {}) {
-  // Unreal normal maps use the DirectX (+Y) convention. The source PNGs are
+  // ToonLab normal maps use the DirectX (+Y) convention. The source PNGs are
   // loaded without vertical flipping, so invert the sampled green component
   // before projection-basis reconstruction.
   return vec3(
@@ -234,33 +269,33 @@ function sourceWorldAlignedNormal(map, scaleMeters, {
 } = {}) {
   const mapNode = texture(map);
   const scale = max(float(scaleMeters), 0.001);
-  // Literal UE 5.8 WorldAlignedNormal high-quality branch reconstruction.
+  // Literal ToonLab WorldAlignedNormal high-quality branch reconstruction.
   // WorldAlignedNormals_HighQuality builds an orthonormal frame around the
   // vertex normal for the side pair and another for the Z projection. That
   // frame is the part the low-quality branch omits; without it, the projected
   // crack map tears into horizontal bands at face/projection transitions.
-  // Reconstruct in UE coordinates, then convert UE X/Y/Z to Three's glTF
+  // Reconstruct in ToonLab coordinates, then convert ToonLab X/Y/Z to Three's glTF
   // X/Z/-Y basis.
-  const positionUe = vec3(positionWorld.x, positionWorld.z.negate(), positionWorld.y);
-  const geometryNormalUe = normalize(vec3(
+  const positionToonLab = vec3(positionWorld.x, positionWorld.z.negate(), positionWorld.y);
+  const geometryNormalToonLab = normalize(vec3(
     normalWorldGeometry.x,
     normalWorldGeometry.z.negate(),
     normalWorldGeometry.y,
   ));
-  const negativeUv = positionUe.div(scale).negate();
-  const decodeUeNormal = (sampleNode) => vec3(
+  const negativeUv = positionToonLab.div(scale).negate();
+  const decodeToonLabNormal = (sampleNode) => vec3(
     sampleNode.r.mul(2.0).sub(1.0),
     sampleNode.g.mul(2.0).sub(1.0),
     sampleNode.b.mul(2.0).sub(1.0),
   );
-  const sampleX = decodeUeNormal(mapNode.sample(negativeUv.yz).rgb);
-  const sampleY = decodeUeNormal(mapNode.sample(negativeUv.xz).rgb);
-  const sampleZ = decodeUeNormal(mapNode.sample(negativeUv.xy).rgb);
+  const sampleX = decodeToonLabNormal(mapNode.sample(negativeUv.yz).rgb);
+  const sampleY = decodeToonLabNormal(mapNode.sample(negativeUv.xz).rgb);
+  const sampleZ = decodeToonLabNormal(mapNode.sample(negativeUv.xy).rgb);
 
   // Node-for-node sign vectors from WorldAlignedNormals_HighQuality.T3D.
-  const signX = step(0.0, geometryNormalUe.x).mul(2.0).sub(1.0);
-  const signY = step(0.0, geometryNormalUe.y).mul(2.0).sub(1.0);
-  const signZ = step(0.0, geometryNormalUe.z).mul(2.0).sub(1.0);
+  const signX = step(0.0, geometryNormalToonLab.x).mul(2.0).sub(1.0);
+  const signY = step(0.0, geometryNormalToonLab.y).mul(2.0).sub(1.0);
+  const signZ = step(0.0, geometryNormalToonLab.z).mul(2.0).sub(1.0);
   const projectedX = sampleX.mul(vec3(
     signX,
     -1.0,
@@ -283,15 +318,15 @@ function sourceWorldAlignedNormal(map, scaleMeters, {
   //   transformed = V3*x + V2*y + N*z
   const safeNormalize = (value) => value.div(max(length(value), 0.000001));
   const transformAroundNormal = (value, axis) => {
-    const rawThird = cross(geometryNormalUe, axis);
+    const rawThird = cross(geometryNormalToonLab, axis);
     const basisX = safeNormalize(rawThird);
-    const basisY = safeNormalize(cross(rawThird, geometryNormalUe));
+    const basisY = safeNormalize(cross(rawThird, geometryNormalToonLab));
     return basisX.mul(value.x)
       .add(basisY.mul(value.y))
-      .add(geometryNormalUe.mul(value.z));
+      .add(geometryNormalToonLab.mul(value.z));
   };
-  const xAlpha = sourceCheapContrast(abs(geometryNormalUe.x), contrast);
-  const zAlpha = sourceCheapContrast(abs(geometryNormalUe.z), contrast);
+  const xAlpha = sourceCheapContrast(abs(geometryNormalToonLab.x), contrast);
+  const zAlpha = sourceCheapContrast(abs(geometryNormalToonLab.z), contrast);
   const projectedXY = transformAroundNormal(
     mix(projectedY, projectedX, xAlpha),
     vec3(0, 0, 1),
@@ -301,13 +336,13 @@ function sourceWorldAlignedNormal(map, scaleMeters, {
     vec3(0, 1, 0),
   );
   const projectedXyz = mix(projectedXY, projectedZWorld, zAlpha);
-  const projectedFlatTop = mix(projectedXY, geometryNormalUe, zAlpha);
-  const selectedUe = sideOnly
+  const projectedFlatTop = mix(projectedXY, geometryNormalToonLab, zAlpha);
+  const selectedToonLab = sideOnly
     ? projectedXY
     : flatTop
       ? projectedFlatTop
       : projectedXyz;
-  return vec3(selectedUe.x, selectedUe.z, selectedUe.y.negate());
+  return vec3(selectedToonLab.x, selectedToonLab.z, selectedToonLab.y.negate());
 }
 
 function sourceWorldNormalToTangent(worldNormal) {
@@ -319,7 +354,7 @@ function sourceTangentNormalToView(tangentNormal) {
   return normalize(TBNViewMatrix.mul(tangentNormal));
 }
 
-// UE 5.8 /Engine/Functions/Engine_MaterialFunctions02/Utility/
+// ToonLab /Engine/Functions/Engine_MaterialFunctions02/Utility/
 // BlendAngleCorrectedNormals, transcribed node-for-node from the exported T3D:
 //   t = (Base.xy, Base.z + 1)
 //   u = (-Additional.xy, Additional.z)
@@ -528,16 +563,16 @@ function buildMountainMaterial(profile, maps) {
   colorNode = mix(colorNode, distantShaded, distantFade);
 
   const material = new MeshPhysicalNodeMaterial();
-  material.name = `SoStylizedSource_${profile.path.split('.').at(-1)}`;
+  material.name = `ToonLabSource_${profile.path.split('.').at(-1)}`;
   material.colorNode = colorNode;
   material.metalnessNode = float(0.0);
   material.roughnessNode = clamp(float(scalar(profile, 'Roughness', 0.7)), 0.0, 1.0);
   material.iorNode = sourceIorFromSpecular(scalar(profile, 'Specular', 0.7));
   material.specularIntensityNode = float(1.0);
-  // Preserve UE's literal per-pixel Specular graph separately from Three's
-  // IOR remap. Renderer adapters such as UE Default Lit must consume this
+  // Preserve ToonLab's literal per-pixel Specular graph separately from Three's
+  // IOR remap. Renderer adapters such as ToonLab Default Lit must consume this
   // node directly (F0 = 0.08 * Specular), including top-layer variation.
-  material.ueSourceSpecularNode = float(scalar(profile, 'Specular', 0.7));
+  material.toonLabSourceSpecularNode = float(scalar(profile, 'Specular', 0.7));
   return material;
 }
 
@@ -578,7 +613,7 @@ function buildRockNormals(profile, maps, {
       float(authoredStylizedStrength),
     ));
   }
-  // UE's Normal sampler and deferred lighting preserve the broad sculpted
+  // ToonLab's Normal sampler and deferred lighting preserve the broad sculpted
   // planes in this atlas with a softer response than the same unit tangent
   // vector receives at the WebGPU renderer boundary. Keep this correction on
   // the authored atlas *before* RNM so the separately restored world-aligned
@@ -623,7 +658,7 @@ function buildRockNormals(profile, maps, {
       1.0,
     );
     distanceFlatness = mix(closeFlatness, farFlatness, normalFade);
-    // UE FlattenNormal is exactly lerp(Normal, float3(0,0,1), Flatness)
+    // ToonLab FlattenNormal is exactly lerp(Normal, float3(0,0,1), Flatness)
     // without an intermediate normalize. Apply it in tangent space before
     // BlendAngleCorrectedNormals, exactly as M_Rock/MF_Rock do.
     const crackTangent = mix(
@@ -636,9 +671,9 @@ function buildRockNormals(profile, maps, {
       : crackTangent;
   }
 
-  // UE's graph flattens the detail normal before RNM. Three's physical-light
+  // ToonLab's graph flattens the detail normal before RNM. Three's physical-light
   // response gives the surviving baked stylized atlas substantially more
-  // contrast than UE's deferred path in the SnowPines acceptance frame. This
+  // contrast than ToonLab's deferred path in the ToonLabShowcase acceptance frame. This
   // optional renderer-boundary bridge attenuates that surviving atlas normal
   // consistently at every distance. The source distance fade has already
   // been evaluated on the crack normal above; multiplying the bridge by that
@@ -850,7 +885,7 @@ function buildRockMaterial(profile, maps, temporalState = null, {
   }
 
   const material = new MeshPhysicalNodeMaterial();
-  material.name = `SoStylizedSource_${profile.path.split('.').at(-1)}`;
+  material.name = `ToonLabSource_${profile.path.split('.').at(-1)}`;
   material.colorNode = colorNode;
   material.roughnessNode = clamp(roughnessNode, 0.0, 1.0);
   material.metalnessNode = clamp(metalnessNode, 0.0, 1.0);
@@ -858,15 +893,15 @@ function buildRockMaterial(profile, maps, temporalState = null, {
   material.specularIntensityNode = float(1.0);
   material.emissiveNode = emissiveNode;
   material.normalNode = surfaceNormal;
-  // UE's material Specular input is not Three's IOR control. Preserve the
+  // ToonLab's material Specular input is not Three's IOR control. Preserve the
   // literal graph output for the Default Lit adapter, including any top-layer
   // blend, so the renderer does not silently fall back to Specular=0.5.
-  material.ueSourceSpecularNode = specularNode;
+  material.toonLabSourceSpecularNode = specularNode;
   if (temporalState) {
     // M_Rock's only opacity is DitherTemporalAA(PerInstanceFadeAmount).
     // Exported source meshes are fully visible here, so the exact input is 1;
     // evaluated cull/LOD fades remain a renderer-system bridge.
-    const temporalFade = ueSourceDitherTemporalAA(float(1), temporalState);
+    const temporalFade = toonLabSourceDitherTemporalAA(float(1), temporalState);
     material.opacityNode = temporalFade;
     material.alphaTestNode = float(1 / 3);
     material.maskShadowNode = temporalFade.greaterThan(float(1 / 3));
@@ -903,7 +938,7 @@ async function buildProfileTemplate(
   stylizedNormalStrength = 1,
   stylizedNormalUvChannel = 0,
 ) {
-  profile = snowPinesRockProfile(profile, sourceAssetName);
+  profile = toonLabShowcaseRockProfile(profile, sourceAssetName);
   const materialPath = profile?.path;
   if (!profile) throw new Error(`No source rock material profile for ${materialPath ?? sourceAssetName}.`);
   const isMountain = profile.chain.some((path) => path.includes('/M_Mountain.'));
@@ -976,7 +1011,7 @@ async function buildProfileTemplate(
     stylizedNormalStrength,
     stylizedNormalUvChannel,
     temporalDither: temporalState
-      ? 'UE DitherTemporalAA; fully-visible PerInstanceFadeAmount=1'
+      ? 'ToonLab DitherTemporalAA; fully-visible PerInstanceFadeAmount=1'
       : 'not-bound',
   };
   return material;
@@ -990,7 +1025,7 @@ async function buildTemplate(sourceAssetName, manifest, baseUrl) {
   return buildProfileTemplate(profile, manifest, baseUrl, sourceAssetName);
 }
 
-/** Loads an authored M_Rock/M_Mountain profile directly by Unreal object path. */
+/** Loads an authored M_Rock/M_Mountain profile directly by ToonLab object path. */
 export async function loadRockReferenceSourceMaterialProfile(materialPath, {
   baseUrl = DEFAULT_ROCK_REFERENCE_MATERIAL_SOURCE_BASE_URL,
   normalResponseBridge = 0,
@@ -1058,7 +1093,7 @@ export async function loadRockReferenceSourceMaterialProfile(materialPath, {
   const material = template.clone();
   material.name = template.name;
   material.userData = structuredClone(template.userData);
-  material.ueSourceSpecularNode = template.ueSourceSpecularNode;
+  material.toonLabSourceSpecularNode = template.toonLabSourceSpecularNode;
   copySurfaceMaterialModes(template, material);
   return material;
 }

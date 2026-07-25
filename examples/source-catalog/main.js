@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
-import { advanceSoStylizedSourceEnvironmentState } from '@call-me-sensei/toonlab/environment';
+import { advanceToonLabSourceEnvironmentState } from '@call-me-sensei/toonlab/environment';
 
 import {
   createSourceCatalogContext,
@@ -167,10 +167,6 @@ async function main() {
   document.getElementById('mode-neutral').addEventListener('click', () => setQuery({ mode: 'neutral' }));
   document.getElementById('category').addEventListener('change', (event) =>
     setQuery({ category: event.target.value === 'all' ? null : event.target.value }));
-  document.getElementById('showcase').addEventListener('click', () => {
-    location.href = '/examples/source-showcase/';
-  });
-
   const renderer = new WebGPURenderer({
     antialias: true,
     forceWebGL: params.get('renderer') === 'webgl',
@@ -204,7 +200,7 @@ async function main() {
   if (limit > 0) entries = entries.slice(0, limit);
 
   const stage = new THREE.Group();
-  stage.name = 'SoStylizedCompleteSourceCatalog';
+  stage.name = 'ToonLabCompleteSourceCatalog';
   scene.add(stage);
   const layout = buildLayout(entries, stage);
   const floorDepth = Math.max(layout.maxZ - layout.minZ + 50, 120);
@@ -235,8 +231,8 @@ async function main() {
       normalizeToCell(asset.root, cell);
       stage.add(asset.root);
       visibleBounds.union(new THREE.Box3().setFromObject(asset.root));
-      if (asset.root.userData.soStylizedMaterialMode === 'baked') nativeBakedCount += 1;
-      if (asset.root.userData.soStylizedMaterialMode === 'live-fallback') liveFallbackCount += 1;
+      if (asset.root.userData.toonLabMaterialMode === 'baked') nativeBakedCount += 1;
+      if (asset.root.userData.toonLabMaterialMode === 'live-fallback') liveFallbackCount += 1;
     } catch (error) {
       failures.push(`${entry.sourceAssetName}: ${error.message}`);
       console.warn('[sourceCatalog]', entry.sourceAssetName, error);
@@ -257,12 +253,12 @@ async function main() {
     pointer.y = -(event.clientY / innerHeight) * 2 + 1;
     raycaster.setFromCamera(pointer, camera);
     const hit = raycaster.intersectObjects(stage.children, true)
-      .find((candidate) => candidate.object.userData.soStylizedSourceAsset
-        || candidate.object.parent?.userData.soStylizedCatalogEntry);
+      .find((candidate) => candidate.object.userData.toonLabSourceAsset
+        || candidate.object.parent?.userData.toonLabCatalogEntry);
     if (!hit) return;
     let object = hit.object;
-    while (object && !object.userData.soStylizedCatalogEntry) object = object.parent;
-    const entry = object?.userData.soStylizedCatalogEntry;
+    while (object && !object.userData.toonLabCatalogEntry) object = object.parent;
+    const entry = object?.userData.toonLabCatalogEntry;
     if (!entry) return;
     const sourceMesh = context.library.resolveMesh(entry.sourceAssetName);
     document.getElementById('info').textContent = [
@@ -285,7 +281,7 @@ async function main() {
   renderer.setAnimationLoop(() => {
     const delta = clock.getDelta();
     if (params.get('animate') === '1') {
-      advanceSoStylizedSourceEnvironmentState(context.state, delta);
+      advanceToonLabSourceEnvironmentState(context.state, delta);
     }
     controls.update();
     renderer.render(scene, camera);

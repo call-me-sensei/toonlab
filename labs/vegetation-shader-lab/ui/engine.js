@@ -96,7 +96,7 @@ function flowerPlacements() {
   }));
 }
 
-export function createVegetationShaderLabEngine({ mount, store }) {
+export function createVegetationMaterialLabEngine({ mount, store }) {
   const renderer = createLabRenderer({ antialias: true });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);

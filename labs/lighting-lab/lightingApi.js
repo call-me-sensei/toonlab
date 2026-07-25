@@ -4,12 +4,12 @@
 // everything through createLightingSystem, so presets come exclusively from
 // the src/lighting registries — the old lab-side fallback preset catalogs are
 // gone. What remains here is the thin recipe-normalization surface the verify
-// scripts (and the Unreal handoff) share with the lab.
+// scripts (and the ToonLab handoff) share with the lab.
 
 import {
   createLightDescriptor,
   createLightingRecipe,
-  exportLightingRecipeToUnreal58,
+  exportLightingRecipeToToonLab,
 } from '../../src/lighting/index.js';
 
 const TYPE_DEFAULTS = Object.freeze({
@@ -144,8 +144,8 @@ export function normalizeRecipe(input, fallbackId = 'custom-rig') {
   });
 }
 
-/** Unreal 5.8 manifest for a rig built from live descriptors (lab placements). */
-export function exportUnrealManifest(recipe, options = {}) {
-  const value = exportLightingRecipeToUnreal58(normalizeRecipe(recipe), options);
+/** ToonLab manifest for a rig built from live descriptors (lab placements). */
+export function exportToonLabManifest(recipe, options = {}) {
+  const value = exportLightingRecipeToToonLab(normalizeRecipe(recipe), options);
   return JSON.stringify(value, null, 2);
 }

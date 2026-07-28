@@ -1,4 +1,4 @@
-// Shared readers for canonical records in the exported ToonLab Mega manifest.
+// Shared readers for canonical records in the exported environment reference manifest.
 // Kept independent of the scene dispatcher so family builders can consume
 // records without creating an import cycle.
 
@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { assertToonLabTextureUploadReady } from './toonLabTextureReadiness.js';
 
 export const DEFAULT_TOONLAB_SCENE_RECORD_BASE_URL =
-  '/assets-local/toonlab/mega-scene';
+  '/assets-local/reference-environment/environment-scene';
 
 const texturePromises = new Map();
 

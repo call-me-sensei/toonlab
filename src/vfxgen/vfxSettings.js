@@ -10,12 +10,21 @@
 // each effect; per-spawn options (position, direction, power, follow target)
 // are runtime arguments to createVfxSystem().spawn — see vfxSystem.js.
 
+import { resolveVfxEnergyMotionSettings } from './vfxEnergyMotion.js';
+
 /** Effect ids in backbone kind order where applicable. */
-export const VFX_EFFECT_IDS = Object.freeze(['slash', 'impact', 'fireball', 'footstep', 'landing']);
+export const VFX_EFFECT_IDS = Object.freeze([
+  'slash',
+  'impact',
+  'fireball',
+  'chargedShot',
+  'footstep',
+  'landing',
+]);
 
 /** Gameplay categories — the organizing axis for docs, panels, and presets. */
 export const VFX_CATEGORIES = Object.freeze({
-  magic: Object.freeze(['fireball']),
+  magic: Object.freeze(['fireball', 'chargedShot']),
   movement: Object.freeze(['footstep', 'landing']),
   weapon: Object.freeze(['slash', 'impact']),
 });
@@ -38,6 +47,7 @@ export const DEFAULT_VFX_SETTINGS = Object.freeze({
   shared: Object.freeze({
     maxParticles: 4096,
     maxProjectiles: 8,
+    maxLayeredProjectiles: 8,
     maxTrails: 8,
     timeScale: 1.0,
   }),
@@ -78,6 +88,40 @@ export const DEFAULT_VFX_SETTINGS = Object.freeze({
     explosionPower: 1.6,
     scorchRing: true,
     ringColor: Object.freeze([1.0, 0.55, 0.2]),
+  }),
+  chargedShot: Object.freeze({
+    enabled: true,
+    length: 1.8,
+    radius: 0.46,
+    coreIntensity: 2.4,
+    shellIntensity: 1.35,
+    filamentDensity: 1.25,
+    filamentSpeed: 1.2,
+    turbulence: 0.7,
+    trailLength: 1.15,
+    particleRate: 160,
+    impactPower: 2.2,
+    coreColor: Object.freeze([0.9, 0.98, 1.0]),
+    edgeColor: Object.freeze([0.28, 0.62, 1.0]),
+    accentColor: Object.freeze([0.55, 0.82, 1.0]),
+    lightIntensity: 2.4,
+    bloomContribution: 0.8,
+    circulationEnabled: true,
+    energyMotionTheme: 'electric-orbit',
+    circulationCount: 6,
+    circulationSpeed: 1.6,
+    circulationDirection: 'alternating',
+    circulationCoverage: 0.3,
+    circulationIrregularity: 0.72,
+    circulationBranching: 0.42,
+    circulationThickness: 0.022,
+    circulationSurfaceOffset: 1.68,
+    circulationAxialWander: 0.52,
+    circulationPlaneVariation: 0.78,
+    circulationFlicker: 0.68,
+    releaseDepth: 0.28,
+    releaseIrregularity: 0.38,
+    releaseLobes: 3,
   }),
   // --- movement ---------------------------------------------------------------
   footstep: Object.freeze({
@@ -124,6 +168,12 @@ export const VFX_SETTING_GROUPS = Object.freeze([
     description: 'Projectile: a flame-shaded core billboard shedding embers in flight; explodes into an impact burst, smoke puffs, and an expanding scorch ring.',
   }),
   Object.freeze({
+    id: 'chargedShot',
+    label: 'Charged Energy Shot',
+    category: 'magic',
+    description: 'Template-backed layered projectile: directional mesh core, animated energy shell and filaments, internal motes, boundary sparks, travel trail, local light, and impact presentation.',
+  }),
+  Object.freeze({
     id: 'footstep',
     label: 'Footstep Dust',
     category: 'movement',
@@ -158,7 +208,12 @@ const FIELD_DEFINITIONS = Object.freeze({
     },
     maxProjectiles: {
       label: 'Max Projectiles',
-      description: 'Pooled projectile core meshes (fireballs in flight). Spawns beyond this reuse the oldest. Construction-only.',
+      description: 'Pooled legacy billboard projectile cores (fireballs in flight). Spawns beyond this reuse the oldest. Construction-only.',
+      range: { min: 1, max: 32, step: 1 },
+    },
+    maxLayeredProjectiles: {
+      label: 'Max Layered Projectiles',
+      description: 'Pooled template-backed layered projectile roots. Spawns beyond this reuse the oldest. Construction-only.',
       range: { min: 1, max: 32, step: 1 },
     },
     maxTrails: {
@@ -255,6 +310,164 @@ const FIELD_DEFINITIONS = Object.freeze({
     },
     scorchRing: { label: 'Scorch Ring', description: 'Expanding ground ring on detonation.', type: 'boolean' },
     ringColor: { label: 'Ring Color', description: 'Scorch-ring glow color.', type: 'color' },
+  }),
+  chargedShot: Object.freeze({
+    enabled: enabledField,
+    length: {
+      label: 'Length',
+      description: 'Projectile length in meters at full charge.',
+      range: { min: 0.6, max: 4, step: 0.01 },
+    },
+    radius: {
+      label: 'Radius',
+      description: 'Projectile radius in meters at full charge.',
+      range: { min: 0.12, max: 1.2, step: 0.01 },
+    },
+    coreIntensity: {
+      label: 'Core Intensity',
+      description: 'Emission multiplier for the directional inner body.',
+      range: { min: 0, max: 5, step: 0.05 },
+    },
+    shellIntensity: {
+      label: 'Shell Intensity',
+      description: 'Emission multiplier for the outer energy volume.',
+      range: { min: 0, max: 4, step: 0.05 },
+    },
+    filamentDensity: {
+      label: 'Filament Density',
+      description: 'Density of animated veins across the outer shell.',
+      range: { min: 0.25, max: 3, step: 0.05 },
+    },
+    filamentSpeed: {
+      label: 'Filament Speed',
+      description: 'Flow speed of shell veins and internal streaks.',
+      range: { min: 0, max: 4, step: 0.05 },
+    },
+    circulationEnabled: {
+      label: 'Circulating Energy',
+      description: 'Procedural seeded energy arcs that move over the projectile volume.',
+      type: 'boolean',
+    },
+    energyMotionTheme: {
+      label: 'Energy Motion Theme',
+      description: 'Authored starting theme or custom parameter set.',
+      type: 'text',
+    },
+    circulationCount: {
+      label: 'Circulation Arc Count',
+      description: 'Primary surface arcs before branch forks.',
+      range: { min: 1, max: 12, step: 1 },
+    },
+    circulationSpeed: {
+      label: 'Circulation Speed',
+      description: 'Cycles per authored motion unit.',
+      range: { min: 0, max: 4, step: 0.01 },
+    },
+    circulationDirection: {
+      label: 'Circulation Direction',
+      description: 'Clockwise, counter-clockwise, or alternating per arc.',
+      type: 'text',
+    },
+    circulationCoverage: {
+      label: 'Arc Length',
+      description: 'Fraction of a full orbit covered by each arc.',
+      range: { min: 0.08, max: 1, step: 0.01 },
+    },
+    circulationIrregularity: {
+      label: 'Arc Irregularity',
+      description: 'Seeded angular and axial deviation from a uniform orbit.',
+      range: { min: 0, max: 1, step: 0.01 },
+    },
+    circulationBranching: {
+      label: 'Arc Branching',
+      description: 'Frequency and reach of connected lightning forks.',
+      range: { min: 0, max: 1, step: 0.01 },
+    },
+    circulationThickness: {
+      label: 'Arc Thickness',
+      description: 'Normalized width of the bright surface ribbon.',
+      range: { min: 0.006, max: 0.08, step: 0.001 },
+    },
+    circulationSurfaceOffset: {
+      label: 'Orbit Clearance',
+      description: 'Visible gap between the main projectile body and the circulating lightning.',
+      range: { min: 1.05, max: 2.4, step: 0.01 },
+    },
+    circulationAxialWander: {
+      label: 'Front–Rear Wander',
+      description: 'How far an arc travels between nose and tail.',
+      range: { min: 0, max: 1, step: 0.01 },
+    },
+    circulationPlaneVariation: {
+      label: '3D Plane Variation',
+      description: 'Tilts arcs onto different seeded planes and adds non-planar depth wobble.',
+      range: { min: 0, max: 1, step: 0.01 },
+    },
+    circulationFlicker: {
+      label: 'Arc Reformation',
+      description: 'Seeded disappearance and reformation instead of continuous uniform bands.',
+      range: { min: 0, max: 1, step: 0.01 },
+    },
+    releaseDepth: {
+      label: 'Release Ring Depth',
+      description: 'Out-of-plane depth along the firing axis.',
+      range: { min: 0.05, max: 0.65, step: 0.01 },
+    },
+    releaseIrregularity: {
+      label: 'Release Ring Irregularity',
+      description: 'Restrained seeded variation around the loop.',
+      range: { min: 0, max: 0.75, step: 0.01 },
+    },
+    releaseLobes: {
+      label: 'Release Ring Ripples',
+      description: 'Gentle undulations around the closed loop.',
+      range: { min: 2, max: 7, step: 1 },
+    },
+    turbulence: {
+      label: 'Turbulence',
+      description: 'Internal-particle motion and boundary instability.',
+      range: { min: 0, max: 2, step: 0.05 },
+    },
+    trailLength: {
+      label: 'Trail Length',
+      description: 'Lifetime and visual reach of particles shed behind the projectile.',
+      range: { min: 0, max: 3, step: 0.05 },
+    },
+    particleRate: {
+      label: 'Particle Amount',
+      description: 'Internal motes and boundary sparks emitted per second.',
+      range: { min: 0, max: 500, step: 5 },
+    },
+    impactPower: {
+      label: 'Impact Power',
+      description: 'Presentation power of the contact flash, shockwave, sparks, and smoke.',
+      range: { min: 0, max: 5, step: 0.05 },
+    },
+    coreColor: {
+      label: 'Core Color',
+      description: 'Hot inner energy color.',
+      type: 'color',
+    },
+    edgeColor: {
+      label: 'Edge Color',
+      description: 'Outer shell and travel-trail color.',
+      type: 'color',
+    },
+    accentColor: {
+      label: 'Accent Color',
+      description: 'Filament, compression-ring, and impact accent color.',
+      type: 'color',
+    },
+    lightIntensity: {
+      label: 'Local Light',
+      description: 'Optional local point-light intensity at full charge.',
+      range: { min: 0, max: 8, step: 0.1 },
+    },
+    bloomContribution: {
+      label: 'Bloom Contribution',
+      description: 'Authored bloom recommendation exposed to compatible host post stacks.',
+      range: { min: 0, max: 2, step: 0.05 },
+    },
   }),
   footstep: Object.freeze({
     enabled: enabledField,
@@ -364,6 +577,7 @@ export function createVfxSettings(overrides = {}) {
   const shared = result.shared;
   shared.maxParticles = Math.round(clampNumber(shared.maxParticles, 4096, 64, 131072));
   shared.maxProjectiles = Math.round(clampNumber(shared.maxProjectiles, 8, 1, 64));
+  shared.maxLayeredProjectiles = Math.round(clampNumber(shared.maxLayeredProjectiles, 8, 1, 64));
   shared.maxTrails = Math.round(clampNumber(shared.maxTrails, 8, 1, 64));
   shared.timeScale = clampNumber(shared.timeScale, 1, 0, 8);
   for (const id of VFX_EFFECT_IDS) {
@@ -378,6 +592,22 @@ export function createVfxSettings(overrides = {}) {
   result.impact.sparkCount = Math.round(clampNumber(result.impact.sparkCount, 26, 0, 500));
   result.fireball.emberRate = clampNumber(result.fireball.emberRate, 90, 0, 2000);
   result.fireball.emberLifetime = clampNumber(result.fireball.emberLifetime, 0.55, 0.05, 5);
+  result.chargedShot.length = clampNumber(result.chargedShot.length, 1.8, 0.1, 10);
+  result.chargedShot.radius = clampNumber(result.chargedShot.radius, 0.46, 0.03, 3);
+  result.chargedShot.coreIntensity = clampNumber(result.chargedShot.coreIntensity, 2.4, 0, 20);
+  result.chargedShot.shellIntensity = clampNumber(result.chargedShot.shellIntensity, 1.35, 0, 20);
+  result.chargedShot.filamentDensity = clampNumber(result.chargedShot.filamentDensity, 1.25, 0.05, 8);
+  result.chargedShot.filamentSpeed = clampNumber(result.chargedShot.filamentSpeed, 1.2, 0, 12);
+  result.chargedShot.turbulence = clampNumber(result.chargedShot.turbulence, 0.7, 0, 8);
+  result.chargedShot.trailLength = clampNumber(result.chargedShot.trailLength, 1.15, 0, 8);
+  result.chargedShot.particleRate = clampNumber(result.chargedShot.particleRate, 160, 0, 4000);
+  result.chargedShot.impactPower = clampNumber(result.chargedShot.impactPower, 2.2, 0, 12);
+  result.chargedShot.lightIntensity = clampNumber(result.chargedShot.lightIntensity, 2.4, 0, 30);
+  result.chargedShot.bloomContribution = clampNumber(result.chargedShot.bloomContribution, 0.8, 0, 4);
+  Object.assign(
+    result.chargedShot,
+    resolveVfxEnergyMotionSettings(result.chargedShot),
+  );
   result.footstep.puffCount = Math.round(clampNumber(result.footstep.puffCount, 5, 0, 100));
   result.landing.puffCount = Math.round(clampNumber(result.landing.puffCount, 14, 0, 200));
   return result;

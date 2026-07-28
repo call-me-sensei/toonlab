@@ -9,6 +9,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 import {
   createPlantFromRecipe,
+  compileTreeLodLevels,
   deriveCanopyPalette,
   disposeExportGroup,
   prepareTreeForExport,
@@ -106,9 +107,92 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
   let bakedPreview = null;
 
   let plant = null;
+  let lodCompilation = null;
+  let lodPreviewRoot = null;
+  let lodPreviewTimer = 0;
   let rebuildCount = 0;
   let rebuildTimer = 0;
   const rebuildListeners = new Set();
+  const previewListeners = new Set();
+
+  function recipeFromStore() {
+    const {
+      animation, flowers, leafShape, leafStyle, roots, settings, sketch, trunkProfile,
+      woodDetails,
+    } = store.getState();
+    return mergeSketchIntoRecipe(
+      recipeFromSettings(settings), sketch,
+      { animation, flowers, leafShape, leafStyle, roots, trunkProfile, woodDetails });
+  }
+
+  function disposeLodCompilation() {
+    window.clearTimeout(lodPreviewTimer);
+    if (lodPreviewRoot) scene.remove(lodPreviewRoot);
+    lodPreviewRoot = null;
+    lodCompilation?.dispose();
+    lodCompilation = null;
+  }
+
+  function stampPreviewStats(level = null, report = null, error = null) {
+    document.body.dataset.treePreviewLod = level === null ? 'edit' : `lod${level}`;
+    if (report) {
+      document.body.dataset.treePreviewTriangles = String(report.triangles);
+      document.body.dataset.treePreviewMaterials = String(report.materials);
+      document.body.dataset.treePreviewTriangleCap = String(report.triangleCap);
+      document.body.dataset.treePreviewValid =
+        String(report.triangles <= report.triangleCap);
+    } else {
+      delete document.body.dataset.treePreviewTriangles;
+      delete document.body.dataset.treePreviewMaterials;
+      delete document.body.dataset.treePreviewTriangleCap;
+      delete document.body.dataset.treePreviewValid;
+    }
+    if (error) document.body.dataset.treePreviewError = error;
+    else delete document.body.dataset.treePreviewError;
+    for (const listener of [...previewListeners]) listener({
+      error, level, report,
+    });
+  }
+
+  function refreshLodPreview({ recompile = false } = {}) {
+    const requested = store.getState().previewLod;
+    if (requested === null) {
+      disposeLodCompilation();
+      if (plant) plant.visible = true;
+      if (bakedPreview) bakedPreview.visible = true;
+      stampPreviewStats();
+      return;
+    }
+    try {
+      if (recompile || !lodCompilation) {
+        disposeLodCompilation();
+        lodCompilation = compileTreeLodLevels(recipeFromStore());
+      } else if (lodPreviewRoot) {
+        scene.remove(lodPreviewRoot);
+      }
+      lodPreviewRoot = lodCompilation.levels[requested];
+      scene.add(lodPreviewRoot);
+      if (plant) plant.visible = false;
+      if (bakedPreview) bakedPreview.visible = false;
+      stampPreviewStats(requested, lodCompilation.report.levels[requested]);
+    } catch (error) {
+      console.warn(`LOD${requested} preview failed:`, error);
+      disposeLodCompilation();
+      if (plant) plant.visible = true;
+      if (bakedPreview) bakedPreview.visible = true;
+      const message = error instanceof Error ? error.message : String(error);
+      stampPreviewStats(requested, null, message);
+      store.actions.setStatus(`LOD${requested} preview failed: ${message}`);
+    }
+  }
+
+  function scheduleLodPreviewRefresh() {
+    window.clearTimeout(lodPreviewTimer);
+    lodPreviewTimer = window.setTimeout(
+      () => refreshLodPreview({ recompile: true }),
+      REBUILD_DEBOUNCE_MS,
+    );
+  }
 
   function applyLiveColor() {
     if (!plant) return;
@@ -139,6 +223,7 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
 
   function rebuild() {
     window.clearTimeout(rebuildTimer);
+    disposeLodCompilation();
     const {
       animation, flowers, glbMode, leafShape, leafStyle, roots, settings, sketch, trunkProfile,
       woodDetails,
@@ -167,6 +252,7 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
       bakedPreview.position.x = -settings.plant.size * 4;
       scene.add(bakedPreview);
     }
+    refreshLodPreview({ recompile: store.getState().previewLod !== null });
     rebuildCount += 1;
     document.body.dataset.treeRebuildCount = String(rebuildCount);
     document.body.dataset.treeSeed = String(settings.plant.seed);
@@ -220,6 +306,7 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
   // ---- store subscription: revisions drive rebuilds ------------------------
   let lastDoc = store.getState().docRevision;
   let lastLive = store.getState().liveRevision;
+  let lastPreviewLod = store.getState().previewLod;
   store.subscribe(() => {
     const state = store.getState();
     if (state.docRevision !== lastDoc) {
@@ -232,6 +319,11 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
       lastLive = state.liveRevision;
       applyLiveColor();
       applyLiveWind();
+      if (state.previewLod !== null) scheduleLodPreviewRefresh();
+    }
+    if (state.previewLod !== lastPreviewLod) {
+      lastPreviewLod = state.previewLod;
+      refreshLodPreview();
     }
   });
 
@@ -280,6 +372,10 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
     onRebuilt: (listener) => {
       rebuildListeners.add(listener);
       return () => rebuildListeners.delete(listener);
+    },
+    onPreviewChanged: (listener) => {
+      previewListeners.add(listener);
+      return () => previewListeners.delete(listener);
     },
     projectToScreen: (point) => {
       const projected = new THREE.Vector3(...point).project(camera);

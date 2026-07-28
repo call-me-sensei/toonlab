@@ -45,8 +45,9 @@ lighting.attachWorld(world);
 
 The coordinator automatically adapts the world sky, sun rig, scene fog,
 ambient lights, cloud shadows, grass, flowers, trees, fauna, ambient VFX,
-and water when those systems are present. `followTarget` centers the GPU
-precipitation window; otherwise it follows the camera.
+and water when those systems are present. The visible weather fields follow
+the render camera; `followTarget` supplies the local ground/impact center when
+present.
 
 Without a Lighting system, Weather writes the world sun/ambient/fog fallback
 directly. `lighting.attachWorld(world)` calls `weather.setLightingSystem()`
@@ -87,10 +88,23 @@ The historical `call_me_sensei` "condition" id keeps resolving byte-stable —
 it now names the style's ambient base — and remains the default when no
 preset is given.
 
-Precipitation is a single instanced draw with static seeded attributes and
-GPU-looped motion. The renderer supports `rain`, `snow`, `sleet`, `hail`,
-and `dust`; preset intensity changes the instance count without per-particle
-CPU updates.
+`WeatherSystem` renders through `WeatherFieldRenderer`, the same field stack
+used by Atmospheric Condition Lab:
+
+- rain is a velocity-aligned camera-local drop field with a separate
+  collision-splash draw;
+- snow uses the turbulent flake volume;
+- sleet combines rain streaks with ice pellets;
+- hail uses the fast pellet topology;
+- dust uses normal-blended airborne particulate so dark particles remain
+  visible;
+- fog conditions can add depth-tested local mist, high wind adds world-space
+  flow streaks, and storms use separate lightning branches and cloud flashes.
+
+The fields use static seeded attributes and GPU-looped TSL motion, with
+WebGPU and TSL WebGL2 sharing the same material graphs. The old
+`WeatherPrecipitation` single-mesh emitter remains only as a compatibility
+low-level export; no first-party system or lab constructs it.
 
 ## Standalone coordinator and lab adapters
 
@@ -187,7 +201,8 @@ claim texel-identical registration.
 
 ## Lightning, thunder, and surface events
 
-Lightning timing is seeded. The visual flash stays inside the renderer;
+Lightning timing is seeded. Branch geometry and the short cloud-flash pulse
+stay inside the renderer;
 thunder is emitted as a delayed host event based on strike distance so a
 game can choose and spatialize its own audio:
 

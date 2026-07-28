@@ -1,0 +1,16 @@
+@import '../../grass-lab/ui/app.css';
+
+.cloud-boundary-note {
+  margin: 12px 8px 14px;
+  padding: 10px 11px;
+  border: 1px solid color-mix(in srgb, var(--tk-accent, #e6b34a) 48%, transparent);
+  border-radius: 6px;
+  color: var(--tk-text-muted, #9aa3b2);
+  font-size: 11px;
+  line-height: 1.45;
+  background: color-mix(in srgb, var(--tk-accent, #e6b34a) 8%, transparent);
+}
+
+.cloud-boundary-note strong {
+  color: var(--tk-text, #edf2f7);
+}

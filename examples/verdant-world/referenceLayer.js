@@ -1,5 +1,5 @@
 // Private reference layer (?ref=1): places ToonLab pack assets exported
-// from the ToonLab project (assets-local/toonlab — gitignored, dev-served,
+// from the private reference archive (assets-local/reference-materials — gitignored, dev-served,
 // never shipped) in a lineup near spawn, re-shaded by the environment
 // shader. Purpose: apples-to-apples comparison — their hand-authored meshes
 // under OUR lighting/shading isolates renderer gaps from asset gaps.
@@ -12,8 +12,8 @@ import {
   resolveEnvironmentPreset,
 } from '@call-me-sensei/toonlab/environment';
 
-export const MANIFEST_URL = '/assets-local/toonlab/manifest.json';
-export const REFERENCE_TEXTURES_BASE = '/assets-local/toonlab/textures';
+export const MANIFEST_URL = '/assets-local/reference-materials/manifest.json';
+export const REFERENCE_TEXTURES_BASE = '/assets-local/reference-materials/textures';
 
 export function toServedUrl(file) {
   // Manifest paths are absolute on-disk; everything under the repo root is
@@ -266,7 +266,7 @@ export async function createReferenceLayer({ heightAt, spawn, terrainRoot }) {
     // fall through
   }
   if (!manifest?.meshes?.length) {
-    console.warn('[referenceLayer] no exported assets at assets-local/toonlab — run the ToonLab export first.');
+    console.warn('[referenceLayer] no exported assets at assets-local/reference-materials.');
     return null;
   }
 

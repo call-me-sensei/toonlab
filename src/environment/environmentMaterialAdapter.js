@@ -180,7 +180,7 @@ function createConvertedEnvironmentMaterial(mat, options) {
 //   normal rendering; setEnvironmentDebugOutput can enable them later).
 // - scanStylize: 'auto' | true | false — photoscan stylization pass
 //   (albedo simplify + detail-map compression, see scanAssetStylize.js).
-//   'auto' applies it only to materials that detect as Megascans/Fab scans;
+//   'auto' applies it only to materials that detect as photoscan/Fab scans;
 //   material.userData.envScanStylize overrides detection per material.
 // - scanStylizeParams: overrides merged over DEFAULT_SCAN_STYLIZE_PARAMS.
 // - materialLook: sparse IP-owned profiles resolved over the global catch-all

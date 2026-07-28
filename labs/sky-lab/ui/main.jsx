@@ -33,8 +33,17 @@ if (!window.__skyLabBooted) {
   });
 
   engine.start().catch((error) => {
-    console.error('Sky Lab failed to start:', error);
+    console.error('Sky Shader Lab failed to start:', error);
     document.body.dataset.modelReady = 'error';
+    document.body.dataset.skyLabReady = 'error';
+    const message = error?.message
+      ?? error?.type
+      ?? (typeof error === 'string' ? error : null)
+      ?? 'Unknown startup failure';
+    store.actions.adoptEngineState({
+      engineReady: false,
+      status: `Sky preview failed to load: ${message}`,
+    });
   });
 
   if (hudHidden) {

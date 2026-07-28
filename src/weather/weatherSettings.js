@@ -1,6 +1,8 @@
-// Canonical, serializable settings for the weather coordinator. Weather is
-// deliberately not a shader: it drives the sky, light rig, fog, precipitation,
-// water, vegetation, fauna, and ambient effects through their public setters.
+// Canonical, serializable settings for the weather-state coordinator. This
+// document is deliberately not a shader: it drives current sky, light, fog,
+// precipitation, water, vegetation, fauna, accumulation, and ambient state.
+// Portable rendered surface appearance is owned separately by modules such as
+// snowSurfaceShader.js under the same public weather package.
 
 export const WEATHER_PRECIPITATION_TYPES = Object.freeze([
   'none',

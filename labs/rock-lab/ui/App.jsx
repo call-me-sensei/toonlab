@@ -17,17 +17,19 @@ import { ENVIRONMENT_DEBUG_MODES } from '../../../src/environment/environmentSet
 import {
   ROCKGEN_SETTING_FIELD_SCHEMA,
   ROCKGEN_SETTING_GROUPS,
-  ROCK_REFERENCE_CATALOG,
-  ROCK_REFERENCE_FAMILIES,
   ROCK_SURFACE_TEXTURE_PRESETS,
-  getRockReferenceEntry,
   getRockgenPresetOptions,
   getRockgenStyleOptions,
   isRockHelperPiece,
-  listRockReferenceEntries,
   resolveRockgenPreset,
   serializeRockDocument,
 } from '../../../src/rockgen/index.js';
+import {
+  getRockReferenceEntry,
+  listRockReferenceEntries,
+  ROCK_REFERENCE_CATALOG,
+  ROCK_REFERENCE_FAMILIES,
+} from '../../../src/rockgen/reference/index.js';
 import { WEATHER_PRESETS } from '../engine/rockSky.js';
 import { downloadBlob, pickFile } from '../../shared/download.js';
 import { exportRockDocumentToFile } from '../exportGlb.js';
@@ -114,9 +116,9 @@ const REFERENCE_GEOMETRY_OPTIONS = [
   { label: 'Variation', value: 'variation' },
 ];
 const REFERENCE_MATERIAL_OPTIONS = [
-  { label: 'ToonLab', title: 'Original textures and reconstructed ToonLab material graph', value: 'source' },
-  { label: 'ToonLab', title: 'ToonLab rock shader baseline using the native S_Rock material model', value: 'toonlab' },
-  { label: 'ToonLab bake', title: 'ToonLab glTF material bake for this mesh', value: 'authored' },
+  { label: 'Source graph', title: 'Original textures and reconstructed source material graph', value: 'source' },
+  { label: 'Call Me Sensei', title: 'The project-default rock shader profile', value: 'toonlab' },
+  { label: 'Source bake', title: 'Per-mesh PBR bake supplied with this reference mesh', value: 'authored' },
   { label: 'Neutral', title: 'Neutral PBR material with no source stylization', value: 'neutral' },
   { label: 'Legacy', title: 'Previous generic ToonLab environment-shader comparison', value: 'legacy' },
 ];
@@ -965,7 +967,7 @@ function PresetSection({ actions, state }) {
     <section className="tk-section" data-testid="preset-section">
       <div className="tk-section-title">Document</div>
       <div className="tk-field">
-        <span className="tk-field-label"><span className="tk-field-label-text">Style</span></span>
+        <span className="tk-field-label"><span className="tk-field-label-text">Surface base</span></span>
         <Select
           onChange={(value) => actions.setStyle(value)}
           options={getRockgenStyleOptions().map((option) => ({ label: option.label, value: option.value }))}
@@ -973,6 +975,11 @@ function PresetSection({ actions, state }) {
           value={state.styleName}
         />
         <span />
+      </div>
+      <div className="tk-section-caption">
+        Surface base only seeds asset-authored color and AO. The reusable Call Me Sensei
+        material is previewed here but configured independently in{' '}
+        <a href="/rock-shader-lab/" target="_blank" rel="noreferrer">Rock Shader Lab</a>.
       </div>
       <div className="tk-field">
         <span className="tk-field-label"><span className="tk-field-label-text">Preset</span></span>
@@ -1144,9 +1151,9 @@ function ReferenceVariationSection({ actions, state }) {
         <span />
       </div>
       <div className="tk-section-caption rk-reference-material-note">
-        ToonLab is the default rock renderer and uses the native S_Rock material model.
-        ToonLab bake is the per-mesh PBR bake; Neutral removes stylization; Legacy retains
-        the previous generic shader.
+        Call Me Sensei is the default reusable rock renderer. Source graph and Source bake
+        are reference comparisons; Neutral removes stylization; Legacy retains the previous
+        generic environment shader.
       </div>
       <div className="tk-field">
         <span className="tk-field-label"><span className="tk-field-label-text">Variation strength</span></span>

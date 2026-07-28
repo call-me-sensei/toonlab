@@ -16,18 +16,42 @@ export const SCENE_HUB_OPTIONS = Object.freeze([
     path: '/shader-lab/',
     search: '',
   }),
-  // Specialized vegetation authoring surfaces. Asset/species labs stay
-  // separate from the one cross-asset IP shader profile.
+  // Vegetation is one renderer family with separate Tree, Grass, and Flower
+  // shader profiles. Asset/species generation labs remain separate below.
   Object.freeze({
     id: 'grassLab',
-    label: 'Grass Lab',
+    label: 'Grass Generation Lab',
     path: '/grass-lab/',
     search: '',
   }),
   Object.freeze({
     id: 'vegetationMaterialLab',
-    label: 'Vegetation Shader Lab',
+    label: 'Vegetation Shader · Legacy aggregate',
     path: '/vegetation-shader-lab/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'treeShaderLab',
+    label: 'Tree Shader Lab',
+    path: '/tree-shader-lab/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'grassShaderLab',
+    label: 'Grass Shader Lab',
+    path: '/grass-shader-lab/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'flowerShaderLab',
+    label: 'Flower Shader Lab',
+    path: '/flower-shader-lab/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'groundShaderLab',
+    label: 'Ground Shader Lab',
+    path: '/ground-shader-lab/',
     search: '',
   }),
   Object.freeze({
@@ -58,8 +82,14 @@ export const SCENE_HUB_OPTIONS = Object.freeze([
   // Lab's "Preview in scene" target).
   Object.freeze({
     id: 'skyLab',
-    label: 'Sky Lab',
+    label: 'Sky Shader Lab',
     path: '/sky-lab/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'atmosphericConditionLab',
+    label: 'Atmospheric Condition Lab',
+    path: '/atmospheric-condition-lab/',
     search: '',
   }),
   Object.freeze({
@@ -84,13 +114,13 @@ export const SCENE_HUB_OPTIONS = Object.freeze([
   // the hub select there, and resolveSceneHubId recognizes them by pathname.
   Object.freeze({
     id: 'treeLab',
-    label: 'Tree Lab',
+    label: 'Tree Generation Lab',
     path: '/tree-lab/',
     search: '',
   }),
   Object.freeze({
     id: 'flowerLab',
-    label: 'Flower Lab',
+    label: 'Flower Generation Lab',
     path: '/flower-lab/',
     search: '',
   }),
@@ -143,6 +173,12 @@ export const SCENE_HUB_OPTIONS = Object.freeze([
     id: 'ambientFxDemo',
     label: 'Ambient VFX Demo',
     path: '/examples/ambientfx-demo/',
+    search: '',
+  }),
+  Object.freeze({
+    id: 'vfxLab',
+    label: 'VFX Lab',
+    path: '/vfx-lab/',
     search: '',
   }),
   Object.freeze({
@@ -206,15 +242,20 @@ export function resolveSceneHubId(params = new URLSearchParams(window.location.s
     return (params.has('env') || params.has('environment')) ? 'environmentLab' : 'character';
   }
   if (pathname.startsWith('/tree-lab') || pathname.startsWith('/tree-designer')) return 'treeLab';
+  if (pathname.startsWith('/tree-shader-lab')) return 'treeShaderLab';
   if (pathname.startsWith('/flower-lab')) return 'flowerLab';
+  if (pathname.startsWith('/flower-shader-lab')) return 'flowerShaderLab';
   if (pathname.startsWith('/debris-lab')) return 'debrisLab';
   if (pathname.startsWith('/texture-lab')) return 'textureLab';
   if (pathname.startsWith('/sky-lab')) return 'skyLab';
+  if (pathname.startsWith('/atmospheric-condition-lab')) return 'atmosphericConditionLab';
   if (pathname.startsWith('/water-lab')) return 'waterLab';
   if (pathname.startsWith('/lighting-lab')) return 'lightingLab';
   if (pathname.startsWith('/weather-lab')) return 'weatherLab';
   if (pathname.startsWith('/environment-lab')) return 'environmentLab';
   if (pathname.startsWith('/grass-lab')) return 'grassLab';
+  if (pathname.startsWith('/grass-shader-lab')) return 'grassShaderLab';
+  if (pathname.startsWith('/ground-shader-lab')) return 'groundShaderLab';
   if (pathname.startsWith('/vegetation-shader-lab')) return 'vegetationMaterialLab';
   if (pathname.startsWith('/prop-lab')) return 'propLab';
   if (pathname.startsWith('/building-lab')) return 'buildingLab';

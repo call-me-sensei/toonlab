@@ -1,5 +1,5 @@
 // Exact ToonLab reference renderer Gaussian bloom path used by the supplied
-// M_Demonstration_Mega project. This is a renderer pass, not a material look:
+// EnvironmentReferenceScene project. This is a renderer pass, not a material look:
 // keep it independent from the source shader-family adapters.
 
 import {

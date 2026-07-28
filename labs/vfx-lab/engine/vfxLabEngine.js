@@ -1,9 +1,8 @@
-// Three.js half of VFX Lab: the arena, a REAL weapon performing authored
-// moves from the vfxgen move library (the VFX rides the actual swept path —
-// what you tune here is what a game gets), the pooled vfx system rebuilt
-// (debounced) when the designed settings change, and the optional auto loop
-// that cycles every move. Camera, weapon, and actors survive rebuilds — only
-// the vfx system is torn down, so tuning feels live.
+// Three.js half of the single-effect VFX editor. It previews only the active
+// Effect document, resolves that effect's procedural/uploaded Source textures,
+// and repeats only that effect when loop is enabled. Source/seed changes
+// rebuild bounded renderer resources; macro changes atomically re-register the
+// compiled document so unrelated project effects never enter this workspace.
 //
 // Automation contract (capture scripts assert these, do not rename):
 //   document.body.dataset.vfxLabReady          — 'true' after the first frame
@@ -14,17 +13,18 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 import {
-  createMoveController,
-  createStylizedWeapon,
+  createVfxSourceRuntime,
   createVfxSystem,
-  MOVE_IDS,
-  moveDuration,
-  getMove,
 } from '../../../src/vfxgen/index.js';
+import {
+  createPostProcessingPipeline,
+  createPostProcessingSettings,
+} from '../../../src/post/postProcessing.js';
 import { createLabRenderer, whenRendererReady } from '../../shared/rendererFactory.js';
+import { applyLabPreviewEnvironment } from '../../shared/previewEnvironmentRig.js';
 
 const REBUILD_DEBOUNCE_MS = 90;
-const GROUND = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+const PREVIEW_SOURCE = Object.freeze([3.4, 1.15, 0]);
 
 export function createVfxLabEngine({ mount, store }) {
   document.body.dataset.scene = 'vfx';
@@ -47,102 +47,173 @@ export function createVfxLabEngine({ mount, store }) {
   controls.minDistance = 3;
   controls.maxDistance = 30;
 
+  // Universal preview illumination. The selected hour is host/preview state;
+  // it never enters the portable VFX Effect document.
+  const hemisphereLight = new THREE.HemisphereLight(0xc7dcff, 0x647fbd, 0.65);
+  const sun = new THREE.DirectionalLight(0xfff0d2, 1.4);
+  sun.position.set(-6, 9, 5);
+  scene.add(hemisphereLight, sun);
+
   // Arena dressing.
   const floor = new THREE.Mesh(
     new THREE.CircleGeometry(11, 48).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: 0x2a3242 }),
+    new THREE.MeshStandardMaterial({ color: 0x273247, metalness: 0.08, roughness: 0.9 }),
   );
   scene.add(floor);
   const inner = new THREE.Mesh(
     new THREE.CircleGeometry(6.5, 48).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ color: 0x333d51 }),
+    new THREE.MeshStandardMaterial({ color: 0x364663, metalness: 0.12, roughness: 0.82 }),
   );
   inner.position.y = 0.005;
   scene.add(inner);
   const dummy = new THREE.Mesh(
     new THREE.CapsuleGeometry(0.32, 1.0, 4, 12),
-    new THREE.MeshBasicMaterial({ color: 0x4a5670 }),
+    new THREE.MeshStandardMaterial({ color: 0x526789, metalness: 0.25, roughness: 0.62 }),
   );
   dummy.position.set(-2.4, 0.85, 0);
   scene.add(dummy);
-  const runner = new THREE.Mesh(
-    new THREE.SphereGeometry(0.2, 12, 8),
-    new THREE.MeshBasicMaterial({ color: 0x5a6a8a }),
-  );
-  runner.position.set(4.6, 0.2, 0);
-  scene.add(runner);
-
-  // The wielder: an actor anchor the weapon performs moves around. Moves are
-  // authored facing −X, which points at the dummy from here.
-  const actor = new THREE.Group();
-  actor.position.set(1.4, 0, 0.2);
-  scene.add(actor);
-
-  let weapon = null;
-  let weaponId = null;
-  let attack = null;
-
-  const disposeWeapon = () => {
-    if (!weapon) return;
-    weapon.root.traverse((node) => {
-      if (node.isMesh) {
-        node.geometry.dispose();
-        node.material.dispose();
-      }
-    });
-    actor.remove(weapon.root);
-    weapon = null;
-  };
+  // Effect-local bloomContribution remains portable advice. The actual post
+  // stack is host-owned preview infrastructure and is intentionally fixed.
+  const post = createPostProcessingPipeline({
+    camera,
+    pixelRatio: Math.min(window.devicePixelRatio, 2),
+    renderer,
+    scene,
+    settings: createPostProcessingSettings({
+      preset: 'custom',
+      features: { bloom: true, enabled: true, vignette: true },
+      parameters: {
+        bloomLevels: 4,
+        bloomMode: 'pyramid',
+        bloomRadius: 0.3,
+        bloomStrength: 0.24,
+        bloomThreshold: 0.88,
+        strength: 1,
+        vignetteStrength: 0.035,
+      },
+    }),
+  });
+  document.body.dataset.vfxPostProcessing = post.enabled ? 'true' : 'false';
 
   // --- vfx system lifecycle ----------------------------------------------------
   let vfx = null;
+  let sourceRuntime = null;
   const rebuiltListeners = new Set();
 
-  const rebuildAttack = () => {
-    attack?.stop();
-    attack = weapon && vfx ? createMoveController({ groundY: 0, vfx, weapon }) : null;
-  };
-
-  const setWeapon = (type) => {
-    if (type === weaponId && weapon) return;
-    disposeWeapon();
-    weapon = createStylizedWeapon({ type });
-    weaponId = weapon.type;
-    actor.add(weapon.root);
-    rebuildAttack();
-  };
+  function retireSystem(previousVfx, previousSourceRuntime) {
+    previousVfx?.root?.parent?.remove(previousVfx.root);
+    const dispose = () => {
+      previousVfx?.dispose();
+      previousSourceRuntime?.dispose();
+    };
+    const queue = renderer.backend?.device?.queue;
+    if (queue?.onSubmittedWorkDone) {
+      queue.onSubmittedWorkDone()
+        .then(() => queue.onSubmittedWorkDone())
+        .then(dispose)
+        .catch(() => requestAnimationFrame(() => requestAnimationFrame(dispose)));
+      return;
+    }
+    requestAnimationFrame(() => requestAnimationFrame(dispose));
+  }
 
   function buildSystem() {
     const state = store.getState();
-    vfx?.dispose();
+    const previousVfx = vfx;
+    const previousSourceRuntime = sourceRuntime;
+    sourceRuntime = createVfxSourceRuntime({
+      runtimeUrls: state.sourceRuntimeUrls,
+      sourceAssets: state.sourceAssets,
+    });
     vfx = createVfxSystem({
+      effectDocuments: [state.effectDocument],
       heightAt: () => 0,
       seed: state.seed,
       settings: state.overrides,
+      sourceTextures: sourceRuntime.textures,
       style: state.styleId,
     });
     scene.add(vfx.root);
-    rebuildAttack();
+    retireSystem(previousVfx, previousSourceRuntime);
     for (const listener of [...rebuiltListeners]) listener();
   }
 
   let lastSignature = null;
+  let lastEffectSignature = null;
   let rebuildTimer = null;
   function signatureOf(state) {
-    return `${state.seed}|${state.styleId}|${JSON.stringify(state.overrides)}`;
+    return `${state.seed}|${state.styleId}|${state.sourceRevision}|${JSON.stringify(state.overrides)}`;
+  }
+  function effectSignatureOf(state) {
+    return JSON.stringify(state.effectDocument);
   }
   store.subscribe(() => {
-    const signature = signatureOf(store.getState());
-    if (signature === lastSignature) return;
-    lastSignature = signature;
-    clearTimeout(rebuildTimer);
-    rebuildTimer = setTimeout(buildSystem, REBUILD_DEBOUNCE_MS);
+    const state = store.getState();
+    const signature = signatureOf(state);
+    const effectSignature = effectSignatureOf(state);
+    if (signature !== lastSignature) {
+      lastSignature = signature;
+      lastEffectSignature = effectSignature;
+      clearTimeout(rebuildTimer);
+      rebuildTimer = setTimeout(buildSystem, REBUILD_DEBOUNCE_MS);
+      return;
+    }
+    if (effectSignature !== lastEffectSignature) {
+      lastEffectSignature = effectSignature;
+      try {
+        vfx?.registerEffectDocument(state.effectDocument, { overwrite: true });
+      } catch (error) {
+        store.actions.setStatus(`Effect update rejected: ${error.message}`);
+      }
+    }
   });
 
-  // --- gameplay triggers ---------------------------------------------------------
+  // --- isolated effect preview -------------------------------------------------
   let clockTime = 0;
-  let runnerActive = 0;
-  let lastStep = -1;
+  const liveChargedPreviews = [];
+  let displayedPhase = '';
+  let displayedPhaseUntil = 0;
+  let previewAutoHour = store.getState().previewHour;
+  let previewStateCommit = 0;
+
+  function launchChargedShot(segment = store.getState().previewSegment ?? 'sequence') {
+    if (!vfx) return;
+    const state = store.getState();
+    const isSequence = segment === 'sequence';
+    const from = segment === 'impact'
+      ? [dummy.position.x + 0.35, 1.15, dummy.position.z]
+      : PREVIEW_SOURCE;
+    const handle = vfx.spawn(state.effectDocument.id, {
+      charge: state.chargePreview,
+      chargeDuration: isSequence
+        ? THREE.MathUtils.lerp(0.35, 0.85, state.chargePreview)
+        : segment === 'charge' ? 999 : 0,
+      from,
+      maxLife: segment === 'expire' ? 0.08 : 1.6,
+      velocity: [-7.4, 0, 0],
+    });
+    if (!handle) return;
+
+    if (segment === 'impact') {
+      handle.explode(
+        [dummy.position.x + 0.35, 1.15, dummy.position.z],
+        [1, 0, 0],
+      );
+      displayedPhase = 'impact';
+      displayedPhaseUntil = clockTime + 0.55;
+      return;
+    }
+
+    liveChargedPreviews.push({
+      handle,
+      segment,
+      stopAt: segment === 'charge'
+        ? clockTime + 1.25
+        : segment === 'release' ? clockTime + 0.34 : Infinity,
+    });
+    displayedPhase = isSequence ? 'charge' : segment;
+    displayedPhaseUntil = Infinity;
+  }
 
   const api = {
     onRebuilt(listener) {
@@ -150,139 +221,124 @@ export function createVfxLabEngine({ mount, store }) {
       return () => rebuiltListeners.delete(listener);
     },
     get system() { return vfx; },
-    get weaponId() { return weaponId; },
-    setWeapon,
-    /** Plays a weapon move by id, or fires a non-weapon effect. */
-    trigger(type) {
-      if (!vfx) return;
-      if (MOVE_IDS.includes(type)) {
-        attack?.play(type);
-        return;
-      }
-      switch (type) {
-        case 'fireball':
-          vfx.spawn('fireball', {
-            from: [4.5, 1.6, -3.5],
-            gravity: 4.5,
-            velocity: [-4.2, 3.2, 2.6],
-          });
-          break;
-        case 'footstep':
-          runnerActive = 2.2;
-          break;
-        case 'landing':
-          vfx.spawn('landing', { at: [runner.position.x, 0, runner.position.z], power: 1.5 });
-          break;
-        default:
-          break;
-      }
-    },
-    /** Click-to-aim fireball at an arena point (NDC from the canvas). */
-    throwAt(ndcX, ndcY) {
-      if (!vfx) return;
-      const ray = new THREE.Raycaster();
-      ray.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
-      const target = new THREE.Vector3();
-      if (!ray.ray.intersectPlane(GROUND, target)) return;
-      vfx.spawn('fireball', {
-        from: [camera.position.x, 1.8, camera.position.z - 2],
-        gravity: 6,
-        velocity: [
-          (target.x - camera.position.x) * 0.9,
-          3.4,
-          (target.z - camera.position.z + 2) * 0.9,
-        ],
-      });
+    /** Preview only the active effect document. */
+    trigger(type = 'activeEffect', segment = store.getState().previewSegment ?? 'sequence') {
+      if (type === 'activeEffect' || type === 'chargedShot') launchChargedShot(segment);
     },
   };
 
-  renderer.domElement.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
-    const startX = event.clientX;
-    const startY = event.clientY;
-    const onUp = (up) => {
-      renderer.domElement.removeEventListener('pointerup', onUp);
-      if (Math.hypot(up.clientX - startX, up.clientY - startY) > 6) return;
-      api.throwAt(
-        (up.clientX / window.innerWidth) * 2 - 1,
-        -(up.clientY / window.innerHeight) * 2 + 1,
-      );
-    };
-    renderer.domElement.addEventListener('pointerup', onUp);
-  });
-
-  // --- auto loop: cycle every move with breathing room between ------------------
-  let loopMoveIndex = 0;
-  let nextMoveAt = 0.8;
-  let lastBolt = -1;
+  // --- auto loop: repeat only the active effect --------------------------------
+  let lastChargedShot = -1;
 
   function runLoop(t) {
-    if (!attack?.playing && t >= nextMoveAt) {
-      const moveId = MOVE_IDS[loopMoveIndex % MOVE_IDS.length];
-      loopMoveIndex += 1;
-      attack?.play(moveId);
-      nextMoveAt = t + moveDuration(getMove(moveId), weapon?.profile?.weight ?? 1) + 0.7;
-    }
-    const boltId = Math.floor(t / 3.2);
-    if (boltId !== lastBolt) {
-      lastBolt = boltId;
-      const side = boltId % 2 === 0 ? 1 : -1;
-      vfx.spawn('fireball', {
-        from: [4.8 * side, 1.6, -3.8],
-        gravity: 4.5,
-        velocity: [-4.0 * side, 3.2, 2.8],
-      });
-    }
-    runnerActive = 0.5;
-  }
-
-  function updateRunner(t, delta) {
-    if (runnerActive <= 0) return;
-    runnerActive -= delta;
-    const lapT = t * 0.55;
-    runner.position.set(Math.cos(lapT) * 4.6, 0.2, Math.sin(lapT) * 4.6);
-    const stepId = Math.floor(t / 0.22);
-    if (stepId !== lastStep) {
-      lastStep = stepId;
-      vfx.spawn('footstep', {
-        at: [runner.position.x, 0, runner.position.z],
-        dir: [-Math.sin(lapT), 0, Math.cos(lapT)],
-      });
+    const chargedId = Math.floor((t + 0.5) / 2.8);
+    if (chargedId !== lastChargedShot) {
+      lastChargedShot = chargedId;
+      launchChargedShot(store.getState().previewSegment ?? 'sequence');
     }
   }
 
   // --- loop ------------------------------------------------------------------------
-  const clock = new THREE.Clock();
+  const timer = new THREE.Timer();
+  timer.connect(document);
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    post.setSize(window.innerWidth, window.innerHeight, Math.min(window.devicePixelRatio, 2));
   });
 
   async function start() {
     await whenRendererReady(renderer);
     lastSignature = signatureOf(store.getState());
-    setWeapon(new URLSearchParams(window.location.search).get('weapon') || 'sword');
+    lastEffectSignature = effectSignatureOf(store.getState());
     buildSystem();
-    renderer.setAnimationLoop(() => {
-      const delta = Math.min(clock.getDelta(), 0.1);
+    renderer.setAnimationLoop((timestamp) => {
+      timer.update(timestamp);
+      const delta = Math.min(timer.getDelta(), 0.1);
       clockTime += delta;
+      const labState = store.getState();
+      if (labState.previewAutoCycle) {
+        previewAutoHour = (previewAutoHour + delta * 0.35) % 24;
+        previewStateCommit += delta;
+        if (previewStateCommit >= 0.2) {
+          previewStateCommit = 0;
+          store.actions.setPreviewHour(previewAutoHour);
+        }
+      } else {
+        previewAutoHour = labState.previewHour;
+      }
+      const preview = applyLabPreviewEnvironment(previewAutoHour, {
+        background: true,
+        hemisphereIntensity: 0.85,
+        hemisphereLight,
+        renderer,
+        scene,
+        sun,
+        sunDistance: 12,
+        sunIntensity: 1.45,
+      });
+      if (vfx) {
+        const fog = preview.timeState.fogColor;
+        vfx.setDistanceFog({
+          color: [fog.r, fog.g, fog.b],
+          density: 0.008,
+          falloff: 55,
+          floorY: 0,
+        });
+      }
       controls.update();
       if (vfx) {
-        if (store.getState().loop) runLoop(clockTime);
-        attack?.update(delta);
-        updateRunner(clockTime, delta);
+        if (labState.loop) runLoop(clockTime);
+        sourceRuntime?.update(clockTime);
         vfx.update(delta, camera);
+        for (let i = liveChargedPreviews.length - 1; i >= 0; i -= 1) {
+          const previewEntry = liveChargedPreviews[i];
+          const shot = previewEntry.handle;
+          if (!shot.alive) {
+            if (previewEntry.segment === 'expire') {
+              displayedPhase = 'expire';
+              displayedPhaseUntil = clockTime + 0.25;
+            }
+            liveChargedPreviews.splice(i, 1);
+          } else if (clockTime >= previewEntry.stopAt) {
+            shot.cancel();
+            displayedPhase = '';
+            displayedPhaseUntil = clockTime;
+            liveChargedPreviews.splice(i, 1);
+          } else if (shot.position.x <= dummy.position.x + 0.45) {
+            if (previewEntry.segment === 'travel') {
+              shot.cancel();
+              displayedPhase = '';
+              displayedPhaseUntil = clockTime;
+            } else {
+              shot.explode(
+                [dummy.position.x + 0.35, 1.15, dummy.position.z],
+                [1, 0, 0],
+              );
+              displayedPhase = 'impact';
+              displayedPhaseUntil = clockTime + 0.55;
+            }
+            liveChargedPreviews.splice(i, 1);
+          } else {
+            displayedPhase = previewEntry.segment === 'sequence'
+              ? (shot.phase || 'travel')
+              : previewEntry.segment;
+          }
+        }
+        if (clockTime >= displayedPhaseUntil && liveChargedPreviews.length === 0) {
+          displayedPhase = '';
+        }
       }
-      renderer.render(scene, camera);
+      post.render(delta);
       if (vfx) {
         const stats = vfx.stats;
         document.body.dataset.vfxLabReady = 'true';
         document.body.dataset.vfxLiveGlow = String(stats.live.glow);
         document.body.dataset.vfxLivePuff = String(stats.live.puff);
+        document.body.dataset.vfxLiveChargedShots = String(stats.live.chargedShots);
         document.body.dataset.vfxDrawCalls = String(stats.drawCalls);
         document.body.dataset.vfxSpawns = String(stats.spawnsTotal);
-        document.body.dataset.vfxMovePhase = attack?.playing ? attack.phase : '';
+        document.body.dataset.vfxMovePhase = displayedPhase;
       }
     });
   }

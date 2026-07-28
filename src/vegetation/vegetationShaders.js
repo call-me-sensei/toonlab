@@ -1,19 +1,30 @@
-// Vegetation shader authoring has two public layers:
+// Vegetation shader authoring has three public layers:
 //
-// 1. VEGETATION_SHADER is the canonical, IP-wide treatment profile consumed by
-//    every vegetation material role. It deliberately excludes albedo/textures,
-//    current light/weather/wind values, construction settings, and interaction
-//    field geometry.
-// 2. FOLIAGE_SHADER / GRASS_SHADER / FLOWER_SHADER / BARK_SHADER are the
+// 1. TREE_SHADER_PROFILE / GRASS_SHADER_PROFILE / FLOWER_SHADER_PROFILE are
+//    the canonical authoring profiles. They share one implementation and
+//    semantic material contract, but serialize independently so a style bundle
+//    can tune trees, grass, and flowers without replacing each other.
+// 2. VEGETATION_SHADER is the shared family foundation and compatibility
+//    aggregate. Three historical global foliage-palette fields remain only so
+//    v1 aggregate documents can load; canonical Tree/Flower profiles exclude
+//    them. Current light/weather/wind values, construction settings, textures,
+//    and interaction-field geometry never enter the shader profiles.
+// 3. FOLIAGE_SHADER / GRASS_SHADER / FLOWER_SHADER / BARK_SHADER are the
 //    original family APIs. They remain as compatibility adapters for existing
-//    applications and saved documents, but new authoring should use one
-//    VegetationShaderProfile instead of four unrelated presets.
+//    applications and saved documents.
 
 import * as THREE from 'three';
 
 export const VEGETATION_SHADER_DOCUMENT_TYPE = 'toonlab/vegetation-shader-preset';
 export const VEGETATION_SHADER_SCHEMA_VERSION = 1;
 export const VEGETATION_MATERIAL_CONTRACT_VERSION = 1;
+
+export const TREE_SHADER_DOCUMENT_TYPE = 'toonlab/tree-shader-preset';
+export const GRASS_SHADER_PROFILE_DOCUMENT_TYPE = 'toonlab/grass-shader-preset';
+export const FLOWER_SHADER_PROFILE_DOCUMENT_TYPE = 'toonlab/flower-shader-preset';
+export const TREE_SHADER_SCHEMA_VERSION = 2;
+export const GRASS_SHADER_PROFILE_SCHEMA_VERSION = 1;
+export const FLOWER_SHADER_PROFILE_SCHEMA_VERSION = 3;
 
 export const VEGETATION_MATERIAL_ROLES = Object.freeze({
   foliageCard: 'foliageCard',
@@ -206,14 +217,14 @@ const GROUP_DEFINITIONS = Object.freeze({
       }),
       snowTint: field({
         defaultValue: [0.92, 0.96, 1],
-        description: 'IP snow tint blended over retained snow coverage.',
-        label: 'Snow Tint',
+        description: 'Vegetation-domain multiplier over the selected shared Snow Surface profile. The Snow Surface shader owns the base powder and shadow colors.',
+        label: 'Snow Tint Multiplier',
         type: 'color',
       }),
       snowShadowStrength: field({
         defaultValue: 0.65,
-        description: 'Shadow response retained by snow-covered vegetation.',
-        label: 'Snow Shadow Strength',
+        description: 'Vegetation-domain light visibility retained over the shared Snow Surface shadow body.',
+        label: 'Snow Light Visibility',
         range: { max: 1, min: 0, step: 0.01 },
       }),
       snowEdgeSoftness: field({
@@ -225,9 +236,17 @@ const GROUP_DEFINITIONS = Object.freeze({
     }),
   }),
   grass: Object.freeze({
-    description: 'Grass-only lighting, gradient, dense-field, gust, and bend treatment.',
+    description: 'Grass-only color, surface, lighting, dense-field, gust, and bend treatment.',
     label: 'Grass',
     fields: Object.freeze({
+      styleColorStrength: field({ defaultValue: 0, description: 'Blend from asset-authored blade color to the style-owned root and tip treatment.', label: 'Style Color Strength', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
+      baseColor: field({ defaultValue: [0.172518, 0.317708, 0.052621], description: 'Style-owned grass-root color. Call Me Sensei uses the accepted P18 MI_Grass Base Color.', label: 'Root Color', type: 'color', roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
+      tipBrightness: field({ defaultValue: 0.1, description: 'Brightness added to root color before the blade-tip saturation and hue treatment.', label: 'Tip Brightness', range: { max: 1, min: -1, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
+      tipDesaturation: field({ defaultValue: -0.5, description: 'Tip desaturation. Negative values increase saturation, matching the accepted P18 graph convention.', label: 'Tip Desaturation', range: { max: 1, min: -1, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
+      tipHueShift: field({ defaultValue: -0.06, description: 'Normalized HSV hue rotation applied to blade tips.', label: 'Tip Hue Shift', range: { max: 1, min: -1, step: 0.005 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
+      roughness: field({ defaultValue: 0.5, description: 'Grass surface roughness used by the stylized highlight response.', label: 'Roughness', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
+      specularStrength: field({ defaultValue: 0.04, description: 'Grass direct-light highlight strength.', label: 'Specular', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
+      emissiveStrength: field({ defaultValue: 0, description: 'Albedo-relative emission before scene exposure.', label: 'Emission', range: { max: 2, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
       backlitStrength: field({ defaultValue: 0.4, description: 'Grass transmission multiplier.', label: 'Backlit Strength', range: { max: 1.5, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
       sceneShadowResponse: field({ defaultValue: 0.7, description: 'Grass response to renderer shadow visibility.', label: 'Scene Shadow Response', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
       cloudShadowResponse: field({ defaultValue: 0.35, description: 'Grass response to the scene cloud-shadow field.', label: 'Cloud Shadow Response', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
@@ -246,9 +265,25 @@ const GROUP_DEFINITIONS = Object.freeze({
     }),
   }),
   foliage: Object.freeze({
-    description: 'Leaf-card and canopy-volume treatment.',
+    description: 'Leaf-card gradient shaping, surface, subsurface, and canopy-volume treatment over the asset-authored foliage palette.',
     label: 'Foliage',
     fields: Object.freeze({
+      // These three fields remain in the aggregate v1 compatibility schema so
+      // older vegetation documents can still be read. Canonical Tree/Flower
+      // scope documents explicitly exclude them below: species/asset recipes
+      // own the foliage palette and the shader owns only its rendition.
+      styleColorStrength: field({ defaultValue: 0, description: 'Legacy aggregate-only blend into a global replacement palette. Canonical Tree and Flower Shader profiles preserve asset-authored foliage colors.', label: 'Legacy Style Color Strength', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.foliageCard] }),
+      mainColor: field({ defaultValue: [0.040915, 0.135633, 0.015209], description: 'Legacy aggregate-only replacement color. Canonical profiles read the primary foliage color from the asset or species recipe.', label: 'Legacy Main Color', type: 'color', roles: [VEGETATION_MATERIAL_ROLES.foliageCard] }),
+      gradientColor: field({ defaultValue: [0.076185, 0.198069, 0.016807], description: 'Legacy aggregate-only replacement color. Canonical profiles read the secondary foliage color from the asset or species recipe.', label: 'Legacy Gradient Color', type: 'color', roles: [VEGETATION_MATERIAL_ROLES.foliageCard] }),
+      gradientOffset: field({ defaultValue: 0.088, description: 'Offsets the normalized height transfer applied over the asset-authored foliage palette.', label: 'Gradient Offset', range: { max: 1, min: -1, step: 0.001 }, roles: [VEGETATION_MATERIAL_ROLES.foliageCard] }),
+      gradientContrast: field({ defaultValue: 0.821665, description: 'Shapes the normalized height transfer applied over the asset-authored foliage palette.', label: 'Gradient Contrast', range: { max: 4, min: -1, step: 0.001 }, roles: [VEGETATION_MATERIAL_ROLES.foliageCard] }),
+      hueVariation: field({ defaultValue: 0.1, description: 'Style-owned hue-variation amplitude; the stable per-card seed remains asset or instance data.', label: 'Hue Variation Amount', range: { max: 1, min: 0, step: 0.005 }, roles: [VEGETATION_MATERIAL_ROLES.foliageCard] }),
+      hueShift: field({ defaultValue: 0, description: 'Style-wide normalized HSV rotation applied after resolving the asset-authored foliage palette.', label: 'Style Hue Shift', range: { max: 1, min: -1, step: 0.005 }, roles: [VEGETATION_MATERIAL_ROLES.foliageCard] }),
+      roughness: field({ defaultValue: 0.75, description: 'Roughness of the stylized leaf highlight response over any asset-authored surface inputs.', label: 'Highlight Roughness', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.foliageCard] }),
+      specularStrength: field({ defaultValue: 0.1, description: 'Leaf direct-light highlight strength.', label: 'Specular', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.foliageCard] }),
+      emissiveStrength: field({ defaultValue: 0.25, description: 'Albedo-relative leaf emission before scene exposure.', label: 'Emission', range: { max: 2, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.foliageCard] }),
+      subsurfaceStrength: field({ defaultValue: 0.8, description: 'Strength of foliage back-light transmission.', label: 'Subsurface Strength', range: { max: 2, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.foliageCard] }),
+      subsurfaceOpacity: field({ defaultValue: 0.3, description: 'Opacity retained by foliage transmission.', label: 'Subsurface Opacity', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.foliageCard] }),
       backlitStrength: field({ defaultValue: 0.35, description: 'Foliage transmission multiplier.', label: 'Backlit Strength', range: { max: 1.5, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.foliageCard] }),
       sceneShadowResponse: field({ defaultValue: 0.55, description: 'Foliage response to renderer shadow visibility.', label: 'Scene Shadow Response', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.foliageCard] }),
       cloudShadowResponse: field({ defaultValue: 0, description: 'Foliage response to the scene cloud-shadow field.', label: 'Cloud Shadow Response', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.foliageCard] }),
@@ -263,9 +298,16 @@ const GROUP_DEFINITIONS = Object.freeze({
     }),
   }),
   flower: Object.freeze({
-    description: 'Shared petal/center treatment across mesh, cutout, procedural, and billboard flowers.',
+    description: 'Shared petal/center cutout, surface, lighting, and subsurface treatment across flower variants.',
     label: 'Flower',
     fields: Object.freeze({
+      textureTint: field({ defaultValue: [1, 1, 1], description: 'Legacy aggregate-only replacement tint. Canonical Flower Shader profiles preserve the asset/species petal and center palette.', label: 'Legacy Flower Tint', type: 'color', roles: [VEGETATION_MATERIAL_ROLES.flowerPetal, VEGETATION_MATERIAL_ROLES.flowerCenter] }),
+      tintStrength: field({ defaultValue: 1, description: 'Legacy aggregate-only strength for the replacement flower tint.', label: 'Legacy Flower Tint Strength', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.flowerPetal, VEGETATION_MATERIAL_ROLES.flowerCenter] }),
+      roughness: field({ defaultValue: 0.5, description: 'Flower surface roughness used by the stylized highlight response.', label: 'Roughness', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.flowerPetal, VEGETATION_MATERIAL_ROLES.flowerCenter] }),
+      specularStrength: field({ defaultValue: 0.05, description: 'Flower direct-light highlight strength.', label: 'Specular', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.flowerPetal, VEGETATION_MATERIAL_ROLES.flowerCenter] }),
+      emissiveStrength: field({ defaultValue: 0, description: 'Albedo-relative flower emission before scene exposure.', label: 'Emission', range: { max: 2, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.flowerPetal, VEGETATION_MATERIAL_ROLES.flowerCenter] }),
+      subsurfaceStrength: field({ defaultValue: 0.3, description: 'Strength of petal back-light transmission.', label: 'Subsurface Strength', range: { max: 2, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.flowerPetal] }),
+      subsurfaceOpacity: field({ defaultValue: 0.08, description: 'Opacity retained by petal transmission.', label: 'Subsurface Opacity', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.flowerPetal] }),
       backlitStrength: field({ defaultValue: 0.35, description: 'Petal transmission multiplier.', label: 'Backlit Strength', range: { max: 1.5, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.flowerPetal] }),
       sceneShadowResponse: field({ defaultValue: 0.85, description: 'Flower response to renderer shadow visibility.', label: 'Scene Shadow Response', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.flowerPetal, VEGETATION_MATERIAL_ROLES.flowerCenter] }),
       bandThreshold: field({ defaultValue: 0.5, description: 'Center of the flower direct-light toon transition.', label: 'Band Threshold', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.flowerPetal, VEGETATION_MATERIAL_ROLES.flowerCenter] }),
@@ -278,9 +320,14 @@ const GROUP_DEFINITIONS = Object.freeze({
     }),
   }),
   bark: Object.freeze({
-    description: 'Opaque woody treatment for trunks, branches, and roots.',
+    description: 'Opaque woody color, texture projection, surface, and lighting treatment for trunks, branches, and roots.',
     label: 'Bark / Woody Surface',
     fields: Object.freeze({
+      tint: field({ defaultValue: [0.938, 0.3752, 0], description: 'Style tint mixed over the asset-authored bark color.', label: 'Tint', type: 'color', roles: [VEGETATION_MATERIAL_ROLES.woodySurface] }),
+      tintStrength: field({ defaultValue: 0, description: 'Strength of the bark style tint.', label: 'Tint Strength', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.woodySurface] }),
+      roughness: field({ defaultValue: 1, description: 'Bark roughness used by the stylized highlight response.', label: 'Roughness', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.woodySurface] }),
+      normalFlatness: field({ defaultValue: 0, description: 'Amount of asset-authored bark normal detail flattened by the style.', label: 'Normal Flatness', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.woodySurface] }),
+      emissiveStrength: field({ defaultValue: 0, description: 'Albedo-relative bark emission before scene exposure.', label: 'Emission', range: { max: 2, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.woodySurface] }),
       bandCount: field({ defaultValue: 3, description: 'Cel bands across the woody light-to-shadow ramp.', integer: true, label: 'Band Count', range: { max: 6, min: 2, step: 1 }, roles: [VEGETATION_MATERIAL_ROLES.woodySurface] }),
       bandSoftness: field({ defaultValue: 0, description: 'Continuous softness of woody toon-band transitions.', label: 'Band Softness', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.woodySurface] }),
       shadowFloor: field({ defaultValue: 0.35, description: 'Minimum brightness of a fully shadowed woody surface.', label: 'Shadow Floor', range: { max: 0.9, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.woodySurface] }),
@@ -292,9 +339,14 @@ const GROUP_DEFINITIONS = Object.freeze({
     }),
   }),
   stem: Object.freeze({
-    description: 'Smooth herbaceous stem treatment, intentionally separate from woody bark.',
+    description: 'Smooth herbaceous stem surface and lighting treatment, intentionally separate from woody bark.',
     label: 'Herbaceous Stem',
     fields: Object.freeze({
+      color: field({ defaultValue: [0.155926, 0.332452, 0.066626], description: 'Legacy aggregate-only replacement color. Canonical Flower Shader profiles read herbaceous stem color from the plant asset/species recipe.', label: 'Legacy Stem Color', type: 'color', roles: [VEGETATION_MATERIAL_ROLES.herbaceousStem] }),
+      colorStrength: field({ defaultValue: 0, description: 'Legacy aggregate-only blend into the replacement stem color.', label: 'Legacy Stem Color Strength', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.herbaceousStem] }),
+      roughness: field({ defaultValue: 0.5, description: 'Stem surface roughness used by the stylized highlight response.', label: 'Roughness', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.herbaceousStem] }),
+      specularStrength: field({ defaultValue: 0.05, description: 'Stem direct-light highlight strength.', label: 'Specular', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.herbaceousStem] }),
+      emissiveStrength: field({ defaultValue: 0, description: 'Albedo-relative stem emission before scene exposure.', label: 'Emission', range: { max: 2, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.herbaceousStem] }),
       bandCount: field({ defaultValue: 3, description: 'Cel bands across herbaceous stems.', integer: true, label: 'Band Count', range: { max: 6, min: 2, step: 1 }, roles: [VEGETATION_MATERIAL_ROLES.herbaceousStem] }),
       bandSoftness: field({ defaultValue: 0.08, description: 'Softness of herbaceous stem toon bands.', label: 'Band Softness', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.herbaceousStem] }),
       shadowFloor: field({ defaultValue: 0.42, description: 'Minimum brightness of a fully shadowed stem.', label: 'Shadow Floor', range: { max: 0.9, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.herbaceousStem] }),
@@ -304,6 +356,166 @@ const GROUP_DEFINITIONS = Object.freeze({
     }),
   }),
 });
+
+/**
+ * Vegetation is one implementation family with three authored surface
+ * profiles. Lighting, thin-surface response, and weather response come from
+ * one shared base by default. Scope documents still carry a portable snapshot
+ * of those groups; a future explicit split/override mode may replace that
+ * snapshot for one profile without changing the base ownership model.
+ */
+export const VEGETATION_SHADER_SCOPES = Object.freeze({
+  tree: Object.freeze({
+    description: 'Tree canopy foliage plus bark, trunks, branches, and other woody surfaces.',
+    documentType: TREE_SHADER_DOCUMENT_TYPE,
+    excludedFields: Object.freeze([
+      'foliage.styleColorStrength',
+      'foliage.mainColor',
+      'foliage.gradientColor',
+    ]),
+    groups: Object.freeze([
+      'lighting',
+      'thinSurface',
+      'weatherResponse',
+      'foliage',
+      'bark',
+    ]),
+    id: 'tree',
+    label: 'Tree Shader',
+    previewMode: 'tree',
+    schemaVersion: TREE_SHADER_SCHEMA_VERSION,
+    roles: Object.freeze([
+      VEGETATION_MATERIAL_ROLES.foliageCard,
+      VEGETATION_MATERIAL_ROLES.woodySurface,
+    ]),
+  }),
+  grass: Object.freeze({
+    description: 'Grass blades and groundcover thin surfaces, including dense-field and interaction response.',
+    documentType: GRASS_SHADER_PROFILE_DOCUMENT_TYPE,
+    groups: Object.freeze([
+      'lighting',
+      'thinSurface',
+      'weatherResponse',
+      'grass',
+    ]),
+    id: 'grass',
+    label: 'Grass Shader',
+    previewMode: 'grass',
+    schemaVersion: GRASS_SHADER_PROFILE_SCHEMA_VERSION,
+    roles: Object.freeze([
+      VEGETATION_MATERIAL_ROLES.grassBlade,
+    ]),
+  }),
+  flower: Object.freeze({
+    description: 'Flower petals, centers, leaves, and herbaceous stems.',
+    documentType: FLOWER_SHADER_PROFILE_DOCUMENT_TYPE,
+    excludedFields: Object.freeze([
+      'foliage.styleColorStrength',
+      'foliage.mainColor',
+      'foliage.gradientColor',
+      'flower.textureTint',
+      'flower.tintStrength',
+      'stem.color',
+      'stem.colorStrength',
+    ]),
+    groups: Object.freeze([
+      'lighting',
+      'thinSurface',
+      'weatherResponse',
+      'foliage',
+      'flower',
+      'stem',
+    ]),
+    id: 'flower',
+    label: 'Flower Shader',
+    previewMode: 'flower',
+    schemaVersion: FLOWER_SHADER_PROFILE_SCHEMA_VERSION,
+    roles: Object.freeze([
+      VEGETATION_MATERIAL_ROLES.foliageCard,
+      VEGETATION_MATERIAL_ROLES.flowerPetal,
+      VEGETATION_MATERIAL_ROLES.flowerCenter,
+      VEGETATION_MATERIAL_ROLES.herbaceousStem,
+    ]),
+  }),
+});
+
+export const VEGETATION_SHADER_SCOPE_IDS = Object.freeze(
+  Object.keys(VEGETATION_SHADER_SCOPES),
+);
+
+export const VEGETATION_SHADER_SCOPE_EXCLUDED_FIELDS = Object.freeze({
+  tree: Object.freeze([
+    Object.freeze({
+      owner: 'asset',
+      path: 'foliage.mainColor',
+      replacement: 'tree recipe tree.canopyColor / tree.canopyPalette',
+      reason: 'Primary foliage color identifies the species or authored tree variant.',
+    }),
+    Object.freeze({
+      owner: 'asset',
+      path: 'foliage.gradientColor',
+      replacement: 'tree recipe tree.canopyPalette',
+      reason: 'Secondary foliage color belongs to the asset-authored canopy palette.',
+    }),
+    Object.freeze({
+      owner: 'compatibility',
+      path: 'foliage.styleColorStrength',
+      replacement: 'asset palette plus foliage.hueShift when a style-wide transform is required',
+      reason: 'A global replacement blend silently overwrites every tree species.',
+    }),
+  ]),
+  flower: Object.freeze([
+    Object.freeze({
+      owner: 'asset',
+      path: 'foliage.mainColor',
+      replacement: 'flower/plant recipe foliage palette',
+      reason: 'Attached-leaf color identifies the authored plant asset.',
+    }),
+    Object.freeze({
+      owner: 'asset',
+      path: 'foliage.gradientColor',
+      replacement: 'flower/plant recipe foliage palette',
+      reason: 'Attached-leaf gradient color belongs to the authored plant asset.',
+    }),
+    Object.freeze({
+      owner: 'compatibility',
+      path: 'foliage.styleColorStrength',
+      replacement: 'asset palette plus foliage.hueShift when a style-wide transform is required',
+      reason: 'A global replacement blend silently overwrites every plant species.',
+    }),
+    Object.freeze({
+      owner: 'asset',
+      path: 'flower.textureTint',
+      replacement: 'flower/plant recipe petal and center palette or authored flower texture',
+      reason: 'Petal and center colors identify the flower species or authored plant variant.',
+    }),
+    Object.freeze({
+      owner: 'compatibility',
+      path: 'flower.tintStrength',
+      replacement: 'asset palette plus a future explicit instance/style color-transform layer',
+      reason: 'A global replacement-tint blend silently recolors every flower species.',
+    }),
+    Object.freeze({
+      owner: 'asset',
+      path: 'stem.color',
+      replacement: 'flower/plant recipe stem color or authored stem texture',
+      reason: 'The herbaceous base color is botanical asset data, not a reusable lighting treatment.',
+    }),
+    Object.freeze({
+      owner: 'compatibility',
+      path: 'stem.colorStrength',
+      replacement: 'asset stem color plus a future explicit instance/style color-transform layer',
+      reason: 'A replacement-color blend silently overwrites every plant species.',
+    }),
+  ]),
+  grass: Object.freeze([]),
+});
+
+export const VEGETATION_SHARED_SHADER_GROUP_IDS = Object.freeze([
+  'lighting',
+  'thinSurface',
+  'weatherResponse',
+]);
 
 export const VEGETATION_SHADER_SETTING_GROUPS = Object.freeze(
   Object.entries(GROUP_DEFINITIONS).map(([id, group]) => Object.freeze({
@@ -501,29 +713,304 @@ export function resolveVegetationShaderPreset(id = 'default', overrides = {}) {
   return createVegetationShaderSettings({ ...cleanObject(overrides), preset: normalizePresetId(id) });
 }
 
+function requireVegetationShaderScope(scopeId) {
+  const scope = VEGETATION_SHADER_SCOPES[String(scopeId ?? '')];
+  if (!scope) {
+    throw new Error(
+      `Unknown vegetation shader scope "${scopeId}". Expected ${VEGETATION_SHADER_SCOPE_IDS.join(', ')}.`,
+    );
+  }
+  return scope;
+}
+
+export function getVegetationShaderScopeSettingGroups(scopeId) {
+  const scope = requireVegetationShaderScope(scopeId);
+  return VEGETATION_SHADER_SETTING_GROUPS.filter(({ id }) => scope.groups.includes(id));
+}
+
+export function getVegetationShaderScopeExcludedFields(scopeId) {
+  const scope = requireVegetationShaderScope(scopeId);
+  return VEGETATION_SHADER_SCOPE_EXCLUDED_FIELDS[scope.id] ?? Object.freeze([]);
+}
+
+export function getVegetationShaderScopeFieldSchema(scopeId) {
+  const scope = requireVegetationShaderScope(scopeId);
+  const excluded = new Set(scope.excludedFields ?? []);
+  return Object.freeze(Object.fromEntries(
+    scope.groups.map((groupId) => [groupId, Object.freeze(Object.fromEntries(
+      Object.entries(VEGETATION_SHADER_FIELD_SCHEMA[groupId])
+        .filter(([key]) => !excluded.has(`${groupId}.${key}`)),
+    ))]),
+  ));
+}
+
+/**
+ * Resolve only the settings owned by one canonical vegetation shader profile.
+ * The returned object can be passed directly to vegetation materials because
+ * their uniform layer supplies defaults for groups outside that material role.
+ */
+export function createVegetationShaderScopeSettings(scopeId, options = {}) {
+  const scope = requireVegetationShaderScope(scopeId);
+  const schema = getVegetationShaderScopeFieldSchema(scope.id);
+  const resolved = createVegetationShaderSettings(options);
+  return Object.fromEntries(scope.groups.map((groupId) => [
+    groupId,
+    Object.fromEntries(Object.keys(schema[groupId]).map((key) => (
+      [key, cloneSetting(resolved[groupId][key])]
+    ))),
+  ]));
+}
+
+/** Resolve the editable base shared by Tree, Grass, and Flower shaders. */
+export function createVegetationSharedShaderSettings(options = {}) {
+  const resolved = createVegetationShaderSettings(options);
+  return Object.fromEntries(VEGETATION_SHARED_SHADER_GROUP_IDS.map((groupId) => [
+    groupId,
+    Object.fromEntries(Object.entries(resolved[groupId]).map(([key, value]) => [
+      key,
+      cloneSetting(value),
+    ])),
+  ]));
+}
+
+export function isVegetationSharedShaderGroup(groupId) {
+  return VEGETATION_SHARED_SHADER_GROUP_IDS.includes(String(groupId ?? ''));
+}
+
+/**
+ * Resolve a scope profile against one shared vegetation base.
+ *
+ * Shared values intentionally win over the document's embedded snapshot. The
+ * snapshot keeps exports portable; it is not an implicit per-profile split.
+ */
+export function mergeVegetationSharedShaderSettings(
+  scopeId,
+  profileSettings = {},
+  sharedSettings = {},
+) {
+  const scoped = createVegetationShaderScopeSettings(scopeId, profileSettings);
+  const shared = createVegetationSharedShaderSettings(sharedSettings);
+  return {
+    ...scoped,
+    ...shared,
+  };
+}
+
+export function validateVegetationShaderScopePresetDocument(scopeId, input) {
+  const scope = requireVegetationShaderScope(scopeId);
+  const scopeSchema = getVegetationShaderScopeFieldSchema(scope.id);
+  let source = input;
+  if (typeof source === 'string') {
+    try {
+      source = JSON.parse(source);
+    } catch (error) {
+      return {
+        errors: [`Invalid ${scope.label} preset JSON: ${error.message}`],
+        ok: false,
+        value: null,
+        warnings: [],
+      };
+    }
+  }
+  if (!isPlainObject(source)) {
+    return {
+      errors: [`${scope.label} preset must be a JSON object.`],
+      ok: false,
+      value: null,
+      warnings: [],
+    };
+  }
+
+  const errors = [];
+  const warnings = [];
+  if (source.type !== scope.documentType) {
+    errors.push(`${scope.label} preset type must be "${scope.documentType}".`);
+  }
+  const rawVersion = source.version ?? source.schemaVersion;
+  const version = rawVersion === undefined
+    ? scope.schemaVersion
+    : Math.round(Number(rawVersion));
+  if (rawVersion === undefined) {
+    warnings.push(
+      `${scope.label} preset version was missing and defaulted to ${scope.schemaVersion}.`,
+    );
+  }
+  if (!Number.isFinite(version)) errors.push(`${scope.label} preset version must be a number.`);
+  else if (version > scope.schemaVersion) {
+    errors.push(
+      `${scope.label} preset version ${version} is newer than supported version ${scope.schemaVersion}.`,
+    );
+  }
+
+  const id = String(source.id ?? '').trim();
+  if (!id) errors.push(`${scope.label} preset id is required.`);
+  const settingsInput = cleanObject(source.settings);
+  for (const [groupId, groupInput] of Object.entries(settingsInput)) {
+    if (!scope.groups.includes(groupId)) {
+      warnings.push(
+        `${scope.label} does not own vegetation shader group "${groupId}"; it was ignored.`,
+      );
+      continue;
+    }
+    for (const key of Object.keys(cleanObject(groupInput))) {
+      const path = `${groupId}.${key}`;
+      if (scopeSchema[groupId]?.[key]) continue;
+      const excluded = getVegetationShaderScopeExcludedFields(scope.id)
+        .find((entry) => entry.path === path);
+      if (excluded) {
+        warnings.push(
+          `${scope.label} v${scope.schemaVersion} does not serialize ${path}; ` +
+          `${excluded.owner} owns it. Move it to ${excluded.replacement}.`,
+        );
+      } else {
+        warnings.push(`Unknown ${scope.label} field "${path}" was ignored.`);
+      }
+    }
+  }
+
+  const value = errors.length === 0 ? {
+    description: String(source.description ?? ''),
+    id,
+    label: String(source.label || id),
+    scope: scope.id,
+    settings: createVegetationShaderScopeSettings(scope.id, settingsInput),
+    type: scope.documentType,
+    version: scope.schemaVersion,
+  } : null;
+  return { errors, ok: errors.length === 0, value, warnings };
+}
+
+export function parseVegetationShaderScopePresetDocument(scopeId, input) {
+  return validateVegetationShaderScopePresetDocument(scopeId, input);
+}
+
+export function createVegetationShaderScopePresetDocument(scopeId, id, definition = {}) {
+  const scope = requireVegetationShaderScope(scopeId);
+  const source = cleanObject(definition);
+  const result = validateVegetationShaderScopePresetDocument(scope.id, {
+    description: source.description ?? '',
+    id: id ?? source.id,
+    label: source.label ?? id ?? source.id,
+    scope: scope.id,
+    settings: createVegetationShaderScopeSettings(
+      scope.id,
+      source.settings ?? source,
+    ),
+    type: scope.documentType,
+    version: scope.schemaVersion,
+  });
+  if (!result.ok) throw new Error(result.errors.join(' '));
+  return result.value;
+}
+
+export function serializeVegetationShaderScopePreset(
+  scopeId,
+  idOrDocument,
+  definition = {},
+  { pretty = true } = {},
+) {
+  const scope = requireVegetationShaderScope(scopeId);
+  const document = isPlainObject(idOrDocument) && idOrDocument.type === scope.documentType
+    ? createVegetationShaderScopePresetDocument(scope.id, idOrDocument.id, idOrDocument)
+    : createVegetationShaderScopePresetDocument(scope.id, idOrDocument, definition);
+  return JSON.stringify(document, null, pretty ? 2 : 0);
+}
+
+export const createTreeShaderSettings = (options = {}) => (
+  createVegetationShaderScopeSettings('tree', options)
+);
+export const createGrassShaderProfileSettings = (options = {}) => (
+  createVegetationShaderScopeSettings('grass', options)
+);
+export const createFlowerShaderProfileSettings = (options = {}) => (
+  createVegetationShaderScopeSettings('flower', options)
+);
+export const createTreeShaderPresetDocument = (id, definition = {}) => (
+  createVegetationShaderScopePresetDocument('tree', id, definition)
+);
+export const createGrassShaderProfilePresetDocument = (id, definition = {}) => (
+  createVegetationShaderScopePresetDocument('grass', id, definition)
+);
+export const createFlowerShaderProfilePresetDocument = (id, definition = {}) => (
+  createVegetationShaderScopePresetDocument('flower', id, definition)
+);
+export const parseTreeShaderPresetDocument = (input) => (
+  parseVegetationShaderScopePresetDocument('tree', input)
+);
+export const parseGrassShaderProfilePresetDocument = (input) => (
+  parseVegetationShaderScopePresetDocument('grass', input)
+);
+export const parseFlowerShaderProfilePresetDocument = (input) => (
+  parseVegetationShaderScopePresetDocument('flower', input)
+);
+
 // Register the baseline before resolving any other preset.
 registerVegetationShaderPreset('default', {
   description: 'Complete baseline vegetation shader treatment.',
   label: 'Default',
 });
 registerVegetationShaderPreset('call_me_sensei', {
-  description: 'Studio-managed signature vegetation treatment.',
+  description: 'Studio-managed signature vegetation treatment, initialized from the accepted P18 tree, grass, and daisy material inputs.',
   label: 'Call Me Sensei',
   settings: {
-    bark: { bandCount: 3, shadowFloor: 0.58, skyFillStrength: 0.12 },
-    flower: { unlitPetalLift: 0.4 },
+    bark: {
+      bandCount: 3,
+      emissiveStrength: 0,
+      normalFlatness: 0,
+      roughness: 1,
+      shadowFloor: 0.42,
+      skyFillStrength: 0.04,
+      specularStrength: 0.04,
+      tint: [0.938, 0.3752, 0],
+      tintStrength: 0.08,
+    },
+    flower: {
+      emissiveStrength: 0,
+      roughness: 0.5,
+      specularStrength: 0.05,
+      subsurfaceOpacity: 0.08,
+      subsurfaceStrength: 0.3,
+      textureTint: [1, 1, 1],
+      tintStrength: 1,
+      unlitPetalLift: 0.4,
+    },
     foliage: {
-      backlitStrength: 0.5,
+      backlitStrength: 0.28,
       cloudShadowResponse: 0.68,
-      crownOcclusionStrength: 0.1,
-      sceneShadowResponse: 0.48,
+      crestSoftness: 0.08,
+      crestThreshold: 0.84,
+      crownOcclusionStrength: 0.24,
+      emissiveStrength: 0,
+      gradientColor: [0.076185, 0.198069, 0.016807],
+      gradientContrast: 0.821665,
+      gradientOffset: 0.088,
+      hueShift: 0,
+      // The per-card seed already supplies useful variation. A 0.1 hue
+      // amplitude spans ±36°, turning one botanical palette into lime/cyan
+      // confetti; keep the signature style inside a controlled species range.
+      hueVariation: 0.025,
+      mainColor: [0.040915, 0.135633, 0.015209],
+      roughness: 0.75,
+      sceneShadowResponse: 0.72,
+      specularStrength: 0.1,
+      styleColorStrength: 1,
+      subsurfaceOpacity: 0.42,
+      subsurfaceStrength: 0.48,
     },
     grass: {
       backlitStrength: 0.52,
+      baseColor: [0.172518, 0.317708, 0.052621],
       cloudShadowResponse: 0.62,
+      emissiveStrength: 0,
       rootOcclusionStrength: 0.27,
+      roughness: 0.5,
       sceneShadowResponse: 0.56,
       shadowFloor: 0.52,
+      specularStrength: 0.04,
+      styleColorStrength: 1,
+      tipBrightness: 0.1,
+      tipDesaturation: -0.5,
+      tipHueShift: -0.06,
     },
     lighting: {
       rimStrength: 0.16,
@@ -531,7 +1018,15 @@ registerVegetationShaderPreset('call_me_sensei', {
       shadowTintStrength: 0.42,
       skyFillStrength: 0.16,
     },
-    stem: { shadowFloor: 0.56, skyFillStrength: 0.1 },
+    stem: {
+      color: [0.155926, 0.332452, 0.066626],
+      colorStrength: 1,
+      emissiveStrength: 0,
+      roughness: 0.5,
+      shadowFloor: 0.56,
+      skyFillStrength: 0.1,
+      specularStrength: 0.05,
+    },
     thinSurface: { transmissionShadowFloor: 0.55 },
   },
 });
@@ -540,7 +1035,7 @@ export const VEGETATION_SHADER = Object.freeze({
   createDocument: createVegetationShaderPresetDocument,
   createSettings: createVegetationShaderSettings,
   defaults: DEFAULT_VEGETATION_SHADER_SETTINGS,
-  description: 'One IP-wide vegetation treatment composed by semantic material role.',
+  description: 'Shared vegetation-family implementation and compatibility aggregate.',
   documentType: VEGETATION_SHADER_DOCUMENT_TYPE,
   fieldSchema: VEGETATION_SHADER_FIELD_SCHEMA,
   getPresetOptions: getVegetationShaderPresetOptions,
@@ -548,6 +1043,46 @@ export const VEGETATION_SHADER = Object.freeze({
   label: 'Vegetation Shader',
   registerPreset: registerVegetationShaderPreset,
   validateDocument: validateVegetationShaderPresetDocument,
+});
+
+function defineScopedVegetationShaderMaster(scopeId) {
+  const scope = requireVegetationShaderScope(scopeId);
+  return Object.freeze({
+    createDocument: (id, definition = {}) => (
+      createVegetationShaderScopePresetDocument(scope.id, id, definition)
+    ),
+    createSettings: (options = {}) => (
+      createVegetationShaderScopeSettings(scope.id, options)
+    ),
+    defaults: createVegetationShaderScopeSettings(scope.id),
+    description: scope.description,
+    documentType: scope.documentType,
+    fieldSchema: getVegetationShaderScopeFieldSchema(scope.id),
+    getPresetOptions: getVegetationShaderPresetOptions,
+    groups: getVegetationShaderScopeSettingGroups(scope.id),
+    id: scope.id,
+    label: scope.label,
+    roles: scope.roles,
+    schemaVersion: scope.schemaVersion,
+    excludedFields: getVegetationShaderScopeExcludedFields(scope.id),
+    validateDocument: (input) => validateVegetationShaderScopePresetDocument(scope.id, input),
+  });
+}
+
+export const TREE_SHADER_PROFILE = defineScopedVegetationShaderMaster('tree');
+export const GRASS_SHADER_PROFILE = defineScopedVegetationShaderMaster('grass');
+export const FLOWER_SHADER_PROFILE = defineScopedVegetationShaderMaster('flower');
+
+export const VEGETATION_SHADER_FAMILY = Object.freeze({
+  description:
+    'Shared vegetation renderer family with independently authored tree, grass, and flower profiles.',
+  id: 'vegetation',
+  label: 'Vegetation Shader Family',
+  profiles: Object.freeze([
+    TREE_SHADER_PROFILE,
+    GRASS_SHADER_PROFILE,
+    FLOWER_SHADER_PROFILE,
+  ]),
 });
 
 /**
@@ -683,8 +1218,18 @@ export function resolveVegetationShaderRoleSettings(role, profile = {}) {
  * material arrays. Unsupported fields are reported rather than silently
  * pretending that a material consumed them.
  */
-export function applyVegetationShader(rootOrArray, profile = {}) {
+export function applyVegetationShader(
+  rootOrArray,
+  profile = {},
+  { fields = null, roles = null } = {},
+) {
   const resolved = createVegetationShaderSettings(profile);
+  const allowedFields = fields === null
+    ? null
+    : new Set((Array.isArray(fields) ? fields : [fields]).map(String));
+  const allowedRoles = roles === null
+    ? null
+    : new Set((Array.isArray(roles) ? roles : [roles]).map(String));
   const materials = new Set();
   collectMaterials(rootOrArray, materials);
   const report = {
@@ -713,6 +1258,14 @@ export function applyVegetationShader(rootOrArray, profile = {}) {
       report.warnings.push(`Material "${material.name || material.uuid || 'unnamed'}" has an invalid vegetation role contract.`);
       continue;
     }
+    if (allowedRoles && contract.roles.some((role) => !allowedRoles.has(role))) {
+      report.skipped += 1;
+      report.warnings.push(
+        `Material "${material.name || material.uuid || 'unnamed'}" has role ` +
+        `"${contract.roles.find((role) => !allowedRoles.has(role))}" outside this shader profile.`,
+      );
+      continue;
+    }
 
     report.matched += 1;
     for (const role of contract.roles) {
@@ -730,6 +1283,7 @@ export function applyVegetationShader(rootOrArray, profile = {}) {
     let materialWrites = 0;
     const roleWrites = Object.fromEntries(contract.roles.map((role) => [role, 0]));
     for (const descriptor of fieldsForRoles(contract.roles)) {
+      if (allowedFields && !allowedFields.has(descriptor.path)) continue;
       const uniformNode = material.uniforms?.[descriptor.uniform];
       if (!writeStyleUniform(uniformNode, resolved[descriptor.groupId][descriptor.key])) {
         report.unsupported.push({
@@ -760,6 +1314,17 @@ export function applyVegetationShader(rootOrArray, profile = {}) {
   if (report.matched === 0) report.warnings.push('No tagged vegetation materials matched this profile.');
   else if (report.applied === 0) report.warnings.push('Tagged vegetation materials matched, but none implement the canonical style uniforms.');
   return report;
+}
+
+export function applyVegetationShaderScope(rootOrArray, scopeId, profile = {}) {
+  const scope = requireVegetationShaderScope(scopeId);
+  const fields = Object.values(getVegetationShaderScopeFieldSchema(scope.id))
+    .flatMap((group) => Object.values(group).map(({ id }) => id));
+  return applyVegetationShader(
+    rootOrArray,
+    createVegetationShaderScopeSettings(scope.id, profile),
+    { fields, roles: scope.roles },
+  );
 }
 
 // ---------------------------------------------------------------------------

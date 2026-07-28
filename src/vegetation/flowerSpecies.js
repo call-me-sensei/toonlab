@@ -194,9 +194,17 @@ export function createFlowerHeadGeometry({ species, color } = {}) {
       petal.translate(0, length / 2, 0); // base at the origin
       const position = petal.getAttribute('position');
       for (let v = 0; v < position.count; v += 1) {
-        const t = position.getY(v) / length;
+        // PlaneGeometry's final segmented row can land a few ulps beyond
+        // `length`. Clamp both inputs before the fractional power: raising a
+        // tiny negative sine value to 0.7 yields NaN, which then poisons the
+        // instanced flower bounds and any camera framing derived from them.
+        const t = THREE.MathUtils.clamp(position.getY(v) / length, 0, 1);
+        const silhouette = Math.max(
+          Math.sin(Math.PI * (0.12 + 0.88 * t)),
+          0,
+        ) ** 0.7;
         // Rounded petal silhouette + curl bowing the tip toward the axis.
-        position.setX(v, position.getX(v) * Math.sin(Math.PI * (0.12 + 0.88 * t)) ** 0.7);
+        position.setX(v, position.getX(v) * silhouette);
         position.setZ(v, curl * length * t * t);
       }
       petal.computeVertexNormals();

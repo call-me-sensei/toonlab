@@ -1,9 +1,6 @@
-// Composition point between the rockgen cluster (geometry with baked
-// color + envVertexAo) and the environment cluster (toon shader, raycast
-// vertex-AO baker). Materials are converted ONCE per mesh slot — geometry
-// swaps afterwards never recompile the shader because `color` and
-// `envVertexAo` are present from the first conversion, so the material's
-// defines never change.
+// Composition point between procedural rock assets (geometry with baked
+// color + envVertexAo) and the separate rock-shader domain. The Rock Lab
+// previews the default shader, but never owns or serializes its controls.
 
 import * as THREE from 'three';
 import {
@@ -18,6 +15,10 @@ import {
   bakeEnvironmentVertexAo,
   updateEnvironmentBoundsUniforms,
 } from '../../src/environment/environmentMaterialAdapter.js';
+import {
+  applyRockShader,
+  createRockShaderSettings,
+} from '../../src/rock-shader/index.js';
 
 let raycastAccelerationInstalled = false;
 
@@ -52,11 +53,20 @@ export function createRockMesh(geometry, name = 'Rock') {
 }
 
 /**
- * Converts a mesh (rock or ground) to the toon environment shader. The
- * rockgen SDF AO is already in `envVertexAo`, so the adapter's own bake
- * stays off; the raycast scheduler below refreshes AO with scene context.
+ * Assigns the separate Call Me Sensei rock shader for asset preview. The
+ * shader accepts rockgen's stable `color` and `envVertexAo` channels, but its
+ * preset is not part of the procedural rock document.
  */
-export async function convertRockMesh(mesh, environmentBox) {
+export async function convertRockMesh(mesh) {
+  applyRockShader(mesh, createRockShaderSettings({ preset: 'call_me_sensei' }));
+  return mesh;
+}
+
+/**
+ * Ground is staging environment, not a rock asset. Keep it on the generic
+ * environment shader so the asset lab does not misclassify scene geometry.
+ */
+export async function convertRockGround(mesh, environmentBox) {
   await applyEnvironmentShader(mesh, {
     bakeVertexAo: false,
     environmentBox,

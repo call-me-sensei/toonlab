@@ -19,6 +19,15 @@ export function installTestHooks({ engine, labKind = 'tree', store }) {
     rebuild: engine.rebuild,
     geometryHash: engine.geometryHash,
     getPlant: engine.getPlant,
+    getPreviewLod: () => store.getState().previewLod,
+    getPreviewStats: () => ({
+      error: document.body.dataset.treePreviewError ?? null,
+      level: document.body.dataset.treePreviewLod ?? 'edit',
+      materials: Number(document.body.dataset.treePreviewMaterials ?? 0),
+      triangleCap: Number(document.body.dataset.treePreviewTriangleCap ?? 0),
+      triangles: Number(document.body.dataset.treePreviewTriangles ?? 0),
+    }),
+    setPreviewLod: (level) => store.actions.setPreviewLod(level),
     // World point → CSS pixel coordinates (stroke tests aim at the real
     // on-screen trunk instead of guessing pixels).
     projectToScreen: engine.projectToScreen,

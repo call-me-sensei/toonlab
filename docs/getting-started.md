@@ -21,44 +21,55 @@ the TSL WebGL2 fallback, or `?renderer=webgpu` to make the default explicit.
 
 ## The labs
 
-The lab UIs live in `labs/` and are not part of the npm package. The catalog
-separates Shader Labs, Asset Labs, World Systems, and gameplay demos; some
-supporting editors are available only by direct URL. See
+The lab UIs live in `labs/` and are not part of the npm package. The definitive
+catalog separates Look Development, Asset Creation & Assembly, Motion &
+Performance, Effects & Audio, World Building & Simulation, Pipeline &
+Shipping, and validation demos. Every canonical card shows independent Lab
+and npm-library status. Every preview also uses the shared 24-hour
+Dawn/Day/Sunset/Night harness; Day must expose the cool/blue Call Me Sensei
+shadow response. See
 [Lab responsibilities](lab-architecture.md) for the ownership rules.
 
 | Lab | URL | What it shows |
 |---|---|---|
-| Labs home | `/` | The curated catalog, grouped into Shader Labs, Asset Labs, World Systems, and demos. |
+| Labs home | `/` | The definitive product inventory, grouped by artifact ownership with separate Lab and npm-library status plus the intended package target on every canonical card. |
 | Character Shader Lab | `/shader-lab/` | A focused editor for the shared character treatment: every toon setting (23 groups), preset selection/export/import, debug views, and animation playback. Exercises `@call-me-sensei/toonlab/toon` and `@call-me-sensei/toonlab/debug`; the mannequin is preview content, not part of the preset. |
 | Environment Shader Lab | `/environment-lab/` | A focused editor for the shared environment-material treatment: feature paths, light response, interior occlusion, surface styling, preset selection/export/import, and debug views. Exercises `@call-me-sensei/toonlab/environment`; the room, lights, camera, and walk controls are preview-only. |
 | Playground: Controller Test | `/playground/` | Third-person character controller (WASD + mouse, Space to jump, Shift to sprint) on a vegetated stage. Exercises `@call-me-sensei/toonlab/character` retargeting + the vegetation systems. |
 | Environment Playground (Indoor) | `/playground/?scene=indoor` | Walkable indoor environment scene with a live Environment Settings panel (every environment shader feature and parameter from the field schema). Loads the first environment from your gitignored `assets-local/environments/` drop-in (bring your own scene — a load banner appears without one). Exercises `@call-me-sensei/toonlab/environment` + `@call-me-sensei/toonlab/debug`. |
 | Lighting Lab | `/lighting-lab/` | A focused lighting authoring and diagnostics surface with editable light outliner, transforms, physical/artistic intensity, shadow and quality budgets, five test stages, many-light stress testing, reusable JSON presets, and ToonLab Many Lights/Dynamic GI intent export. Exercises `@call-me-sensei/toonlab/lighting`. |
 | Weather Lab | `/weather-lab/` | The standalone weather editor: 21 condition presets under a separate IP-wide Style selector, smooth transitions, live atmosphere/wind/precipitation/lightning/surface controls, a lightning test, and portable preset import/save/export. Exercises `@call-me-sensei/toonlab/weather` across sky, light, fog, vegetation, water, and GPU precipitation. |
+| Atmospheric Condition Lab | `/atmospheric-condition-lab/` | The dedicated 48-field condition editor. The fifteen transferred profiles are the Call Me Sensei set. Sky, cloud, atmosphere shader profiles and generated source assets remain separate while sharing this lab's live comparison stage. Exercises `@call-me-sensei/toonlab/atmospheric-condition`. |
 | Water Lab | `/water-lab/` | The standalone water editor: a separate IP-wide Style selector composed over seven water presets, every authored field for waves, surface color, foam, lighting/reflections, ripples, and splashes, plus construction-time quality selection, preset save/load/export, debug views, and interactor toys (splashes, buoyant balls, rain). Three stage grounds follow the preset — a gentle beach where the swash runs up and down the sand, a beach-to-deep basin with depth-test rocks/fish/kelp, and open water with a small island and a floating CC0 ship (PolyHaven `dutch_ship_medium` from `assets-local/`, toon boat fallback). **Preview in scene** carries your authored settings into the walkable Water Playground. Exercises the full `@call-me-sensei/toonlab/water` system. |
-| Sky Lab | `/sky-lab/` | The standalone sky-system editor: gradient curves, horizon scattering, sun-disc and glow treatment, painterly cloud structure/motion, star pattern/twinkle, portable presets, and renderer parity. Lighting, weather, and camera are preview-owned rather than saved in the sky preset. Exercises `@call-me-sensei/toonlab/sky`. |
+| Sky Lab | `/sky-lab/` | The current sky-system editor, migrating to the Sky Shader boundary and the shared Sky · Cloud · Atmosphere comparison stage. Cloud shader treatment and generated source assets are separate roadmap artifacts. Exercises `@call-me-sensei/toonlab/sky`. |
+| Cloud Shader Lab | `/cloud-shader-lab/` | The dedicated 16-field authored cloud-dome style editor. Call Me Sensei starts from the accepted P18 sky, background-cloud, cloud-shell, texture, and color-atlas stack. Time, sky context, condition, particles, source assets, and camera are preview/runtime inputs; the optional condition stress test starts disabled. Exercises `@call-me-sensei/toonlab/cloud` against the P18 reference renderer while the reusable renderer is migrated for npm. |
+| Rock Shader Lab | `/rock-shader-lab/` | The reusable rock-material editor: complete public-schema controls for projection, distance tint, normals, striping, moss, top layers, source-albedo policy, and asset color/AO participation. Call Me Sensei is the default. Exercises `@call-me-sensei/toonlab/rock-shader`; preview fixture geometry is never saved. |
 | Water Playground | `/playground/?scene=water` | The walkable beach diorama — wadeable lake (ripples, wakes, buoyancy), flowing river with current, and ocean beach with shoaling swell, plunging breakers, and swash. Walk in past chest depth and the character swims; C/Ctrl dives, Space swims up. **Edit in Water Lab** round-trips the live settings back to the editor. |
-| Rock Lab | `/rock-lab/` | Procedural stylized rocks, cliffs, heightfields, sculpt edits, and GLB export, with an IP-wide Style selector composed over every shape preset from `@call-me-sensei/toonlab/rockgen`. |
-| Tree Lab | `/tree-lab/` | Procedural stylized trees and bushes, sketch authoring, attached canopy blossoms, recipes, and GLB export from `@call-me-sensei/toonlab/vegetation`. |
-| Flower Lab | `/flower-lab/` | Standalone procedural flowers with stem, leaf, bloom, recipe, and GLB controls from `@call-me-sensei/toonlab/vegetation`. |
-| Grass Lab | `/grass-lab/` | Procedural blade dimensions, planting-ready grass material data, motion response, coordinated base/tip/shadow palettes, portable presets, and gameplay-scale previews from `@call-me-sensei/toonlab/vegetation`. Current scene light and preview placement are not saved. |
-| Vegetation Shader Lab | `/vegetation-shader-lab/` | One IP-wide vegetation treatment, validated across grass, foliage, flowers, bark, and stems while asset palette and scene-owned wind, wetness, and snow remain outside the shader profile. |
+| Rock Lab | `/rock-lab/` | Procedural rocks, cliffs, heightfields, sculpt edits, baked asset color/AO, LOD, collision, and GLB export from `@call-me-sensei/toonlab/rockgen`. Its historical Surface base selector changes baked generator data; the reusable shader is previewed here but authored separately in Rock Shader Lab. |
+| Tree Generation Lab | `/tree-lab/` | Procedural stylized trees and bushes, sketch authoring, attached canopy blossoms, recipes, and GLB export from `@call-me-sensei/toonlab/vegetation`. |
+| Flower Generation Lab | `/flower-lab/` | Standalone procedural flowers with stem, leaf, bloom, recipe, and GLB controls from `@call-me-sensei/toonlab/vegetation`. |
+| Grass Generation Lab | `/grass-lab/` | Procedural blade dimensions, planting data, motion data, palettes, portable asset presets, and gameplay-scale previews from `@call-me-sensei/toonlab/vegetation`. |
+| Tree Shader Lab | `/tree-shader-lab/` | Reusable canopy-foliage and bark/wood profile over the shared Vegetation renderer family. Tree geometry, species, LOD, scatter, and current conditions are excluded. |
+| Grass Shader Lab | `/grass-shader-lab/` | Reusable blade/groundcover material profile over the shared Vegetation renderer family. Blade geometry, planting density, placement, and current wind are excluded. |
+| Flower Shader Lab | `/flower-shader-lab/` | Reusable petal, center, leaf, and herbaceous-stem profile over the shared Vegetation renderer family. Species, geometry, placement, and current wind are excluded. |
+| Vegetation compatibility lab | `/vegetation-shader-lab/` | Legacy aggregate profile editor retained for existing documents; new work uses the three dedicated shader labs. |
 | Debris Lab | `/debris-lab/` | Procedural debris and scatter pieces with an IP-wide Style selector composed over every asset preset, preset thumbnails, and GLB export from `@call-me-sensei/toonlab/debrisgen`. |
 | Texture Lab | `/texture-lab/` | Seamless procedural PBR textures for anything — 60+ material presets, layered pattern/color/overlay controls, an AI prompt box (offline mapper built in; add your own Gemini/OpenAI key for smarter mapping), and PNG/ZIP export from `@call-me-sensei/toonlab/texgen`. |
 | Outdoor World | `/examples/outdoor-world/` | Walkable integration scene for terrain, paths, bridges, villages, lighting, water, and vegetation at world scale. |
 | VFX Arena | `/examples/vfx-arena/` | Walkable combat-effects integration scene for `@call-me-sensei/toonlab/vfxgen`. |
 | Fauna Demo | `/examples/fauna-demo/` | Gameplay-scale preview for birds, butterflies, dragonflies, and koi from `@call-me-sensei/toonlab/fauna`. |
 | Ambient VFX Demo | `/examples/ambientfx-demo/` | Gameplay-scale preview for petals, leaves, fireflies, pollen, and mist from `@call-me-sensei/toonlab/ambientfx`. |
-| Prop Lab | `/prop-lab/` | Direct supporting editor for procedural prop recipes, placement contracts, and export. |
-| Building Lab | `/building-lab/` | Direct supporting editor for procedural building recipes and export. |
+| Legacy Prop experiment | `/prop-lab/` | Existing procedural experiment retained for compatibility and evaluation. It is not a canonical lab or roadmap milestone; manufactured props move to high-quality base-set assembly. |
+| Legacy Building experiment | `/building-lab/` | Existing procedural experiment retained for compatibility and evaluation. It is not a canonical lab or roadmap milestone; architecture moves to modular-kit assembly and layout. |
 | Gallery | `/gallery/` | Search and import open third-party textures, models, and HDRIs from supported public sources. |
 
-These categories describe ownership, not just navigation. Shader Labs save a
-reusable IP-wide material treatment; Asset Labs save the identity, geometry,
-and material data of an asset class; World Systems save coupled runtime
-behavior and appearance. Sky and Water therefore keep their shader controls in
-their complete system presets instead of creating separate Sky Shader or Water
-Shader documents.
+These categories describe ownership, not just navigation. Water, Sky,
+Atmosphere, Weather Rendering, and VFX are explicit shader-facing look owners.
+Their current conditions, effect timing, layouts, source assets, and simulation
+remain separate artifacts. Asset nouns do not automatically receive procedural
+generators: sourcing, base-set assembly, reconstruction, and external authoring
+are preferred whenever they produce better results. The complete matrix is in
+[Definitive lab inventory and npm roadmap](lab-roadmap.md).
 
 ### World-system composition and quality
 
@@ -168,12 +179,16 @@ already running.
 
 ## Next steps
 
+- [Styles, style bundles, and asset routing](styles-and-bundles.md)
+- [Snow Surface Shader architecture](snow-surface-shader.md)
+- [Open asset library and scene coverage](open-asset-library.md)
 - [Toon character shading](toon-shading.md)
 - [Environment shading](environment.md)
 - [Lighting](lighting.md)
 - [Generative style labs](style-labs.md)
 - [Water](water.md)
 - [Sky](sky.md)
+- [Cloud Shader](cloud-shader.md)
 - [Vegetation](vegetation-sky.md)
 - [Post-processing](post-processing.md)
 - [Characters and animation](characters.md)

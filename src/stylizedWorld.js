@@ -139,9 +139,12 @@ function collectRockContactPlacements(root, heightAt) {
  *   grounding options, or `false` to skip.
  * @param {Object|false} [options.grass] Same shape as trees, or `false`.
  * @param {Object|false} [options.flowers] `{ scatter, settings }`; off unless given.
- * @param {Object|string} [options.vegetationShader] One IP-wide vegetation
- *   shader profile/settings object. Albedo, construction, and live world
- *   values remain owned by trees/grass/flowers and the host scene.
+ * @param {Object|string} [options.vegetationShader] Compatibility aggregate
+ *   applied to tree, grass, and flower when `vegetationShaders` does not
+ *   override that family member.
+ * @param {Object} [options.vegetationShaders] Independent `{ tree, grass,
+ *   flower }` shader profiles. These are rendering treatments only; albedo,
+ *   construction, and live world values remain owned by the asset/runtime.
  * @param {Object3D} [options.followTarget] Character root: water ripple
  *   window + interactor splashes/wakes, grass push-away.
  * @param {Object|false} [options.cloudShadows] `{ strength, coverage, scale,
@@ -180,6 +183,7 @@ export async function createStylizedWorld({
   grass = {},
   flowers = false,
   vegetationShader = {},
+  vegetationShaders = null,
   followTarget = null,
   cloudShadows = null,
   sun = true,
@@ -204,6 +208,18 @@ export async function createStylizedWorld({
       ?? 'default',
     ...vegetationShaderOptions,
   });
+  const scopedVegetationShaderOptions = cleanObject(vegetationShaders);
+  let vegetationShaderSettingsByFamily = {
+    flower: createVegetationShaderSettings(
+      scopedVegetationShaderOptions.flower ?? vegetationShaderSettings,
+    ),
+    grass: createVegetationShaderSettings(
+      scopedVegetationShaderOptions.grass ?? vegetationShaderSettings,
+    ),
+    tree: createVegetationShaderSettings(
+      scopedVegetationShaderOptions.tree ?? vegetationShaderSettings,
+    ),
+  };
 
   // terrain.size accepts a number (square), { width, depth }, or { x, z }
   // (the shape createStylizedTerrain returns as meshExtent) — silently
@@ -628,7 +644,7 @@ export async function createStylizedWorld({
       // merged high-detail geometry (~12k verts/tree) that gets redrawn by the
       // main, water, and shadow passes — the difference between 20 and 60 fps.
       renderer,
-      vegetationShader: vegetationShaderSettings,
+      vegetationShader: vegetationShaderSettingsByFamily.tree,
       settings: {
         ...cleanObject(worldPreset.trees?.settings),
         ...cleanObject(treeOptions.settings),
@@ -733,7 +749,7 @@ export async function createStylizedWorld({
       preset: worldPreset.grass?.preset,
       ...cleanObject(worldPreset.grass?.settings),
       ...cleanObject(grassOptions.settings),
-      vegetationShader: vegetationShaderSettings,
+      vegetationShader: vegetationShaderSettingsByFamily.grass,
       placements,
     });
     field.setDistanceFade({ end: grassState.radius * 0.98, start: grassState.radius * 0.62 });
@@ -779,7 +795,7 @@ export async function createStylizedWorld({
     if (placements.length > 0) {
       flowerField = new StylizedFlowerField({
         ...cleanObject(flowerOptions.settings),
-        vegetationShader: vegetationShaderSettings,
+        vegetationShader: vegetationShaderSettingsByFamily.flower,
         placements,
       });
       scene.add(flowerField);
@@ -975,19 +991,64 @@ export async function createStylizedWorld({
     setSunDirection,
     setVegetationShader(profile) {
       vegetationShaderSettings = createVegetationShaderSettings(profile);
+      vegetationShaderSettingsByFamily = {
+        flower: createVegetationShaderSettings(vegetationShaderSettings),
+        grass: createVegetationShaderSettings(vegetationShaderSettings),
+        tree: createVegetationShaderSettings(vegetationShaderSettings),
+      };
       const reports = [
-        applyVegetationShader(grassField, vegetationShaderSettings),
-        applyVegetationShader(flowerField, vegetationShaderSettings),
-        forest?.setVegetationShader?.(vegetationShaderSettings)
-          ?? applyVegetationShader(forest, vegetationShaderSettings),
+        applyVegetationShader(grassField, vegetationShaderSettingsByFamily.grass),
+        applyVegetationShader(flowerField, vegetationShaderSettingsByFamily.flower),
+        forest?.setVegetationShader?.(vegetationShaderSettingsByFamily.tree)
+          ?? applyVegetationShader(forest, vegetationShaderSettingsByFamily.tree),
       ];
       return {
         applied: reports.reduce((sum, report) => sum + (report?.applied ?? 0), 0),
         reports,
         requiresForestImpostorRebake: Boolean(reports[2]?.requiresImpostorRebake),
         settings: vegetationShaderSettings,
+        settingsByFamily: vegetationShaderSettingsByFamily,
         unsupported: reports.flatMap((report) => report?.unsupported ?? []),
         writes: reports.reduce((sum, report) => sum + (report?.writes ?? 0), 0),
+      };
+    },
+    setVegetationShaders(profiles = {}) {
+      const source = cleanObject(profiles);
+      vegetationShaderSettingsByFamily = {
+        flower: createVegetationShaderSettings(
+          source.flower ?? vegetationShaderSettingsByFamily.flower,
+        ),
+        grass: createVegetationShaderSettings(
+          source.grass ?? vegetationShaderSettingsByFamily.grass,
+        ),
+        tree: createVegetationShaderSettings(
+          source.tree ?? vegetationShaderSettingsByFamily.tree,
+        ),
+      };
+      const reports = {
+        flower: applyVegetationShader(
+          flowerField,
+          vegetationShaderSettingsByFamily.flower,
+        ),
+        grass: applyVegetationShader(
+          grassField,
+          vegetationShaderSettingsByFamily.grass,
+        ),
+        tree: forest?.setVegetationShader?.(vegetationShaderSettingsByFamily.tree)
+          ?? applyVegetationShader(forest, vegetationShaderSettingsByFamily.tree),
+      };
+      return {
+        applied: Object.values(reports)
+          .reduce((sum, report) => sum + (report?.applied ?? 0), 0),
+        reports,
+        requiresForestImpostorRebake: Boolean(
+          reports.tree?.requiresImpostorRebake,
+        ),
+        settings: vegetationShaderSettingsByFamily,
+        unsupported: Object.values(reports)
+          .flatMap((report) => report?.unsupported ?? []),
+        writes: Object.values(reports)
+          .reduce((sum, report) => sum + (report?.writes ?? 0), 0),
       };
     },
     setWeather(presetOrSettings, options) {

@@ -2,7 +2,7 @@
 // the Water Lab's walk preview opens), ported verbatim for the Lighting Lab:
 // the same seabed geometry/height function, splat overlays, sea rocks, beach
 // and island broadleaf trees, showcase tree row, eroded-mesa rockgen outcrop,
-// Megascan props (with the same fallback cluster), fish school, kelp, dense
+// Photoscan props (with the same fallback cluster), fish school, kelp, dense
 // grass/flower carpet, layered horizon silhouettes, stylized sky, and the
 // same src/water WaterSurface construction. Every constant, preset name,
 // color, and geometry function comes from the playground modules themselves
@@ -394,7 +394,7 @@ function buildErodedMesa() {
 }
 
 // ---------------------------------------------------------------------------
-// Megascan props with the playground's exact placements + fallback cluster.
+// Photoscan props with the playground's exact placements + fallback cluster.
 
 function buildFallbackRockCluster({ position, rotation = 0, scale = 1 }) {
   const cluster = new THREE.Group();

@@ -112,7 +112,7 @@ import {
   BenchSitController,
   HorizonSilhouettes,
   KelpField,
-  MegascanProps,
+  PhotoscanProps,
   RainView,
   SeaBedCollider,
   SeaRocks,
@@ -1485,7 +1485,7 @@ function WaterPlaygroundScene({ ballSpawnToken, cameraMode = 'follow', debugMode
           />
         ))}
         <SeaRocks />
-        <MegascanProps />
+        <PhotoscanProps />
         <SeaStage envPreset={envPreset} />
         <ShowcaseTreeRow envPreset={envPreset} />
       </Physics>

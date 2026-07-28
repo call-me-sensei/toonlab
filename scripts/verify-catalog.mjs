@@ -6,8 +6,12 @@
 import process from 'node:process';
 
 import * as root from '../src/index.js';
+import * as buildinggen from '../src/buildinggen/index.js';
 import { catalog, createCatalog } from '../src/catalog/index.js';
 import { validateCatalogEntry } from '../src/catalog/manifest.js';
+import * as lighting from '../src/lighting/index.js';
+import * as pathgen from '../src/pathgen/index.js';
+import * as propgen from '../src/propgen/index.js';
 
 let failures = 0;
 function check(label, condition, detail = '') {
@@ -82,8 +86,14 @@ try {
 }
 check('settings presets refuse spawn with the snippet', refused);
 
-// --- snippets reference real exports ----------------------------------------------------
-const exportNames = new Set(Object.keys(root));
+// --- snippets reference real stable or repository-local exports -------------------------
+const stableExportNames = new Set(Object.keys(root));
+const localOnlyExportNames = new Set([
+  ...Object.keys(buildinggen),
+  ...Object.keys(lighting),
+  ...Object.keys(pathgen),
+  ...Object.keys(propgen),
+]);
 const snippetFunctions = new Set();
 for (const entry of entries) {
   for (const match of entry.spawn.matchAll(/([A-Za-z_$][\w$]*)\s*\(/g)) {
@@ -91,10 +101,25 @@ for (const entry of entries) {
   }
 }
 const KNOWN_CONTEXT = new Set(['heightAt', 'entry', 'seed', 'THREE', 'Mesh', 'MeshStandardMaterial', 'loadModelAsset', 'new']);
-const unknown = [...snippetFunctions].filter((name) => !exportNames.has(name)
+const unknown = [...snippetFunctions].filter((name) => !stableExportNames.has(name)
+  && !localOnlyExportNames.has(name)
   && !KNOWN_CONTEXT.has(name)
   && !['WaterSurface', 'StylizedSky'].includes(name));
-check('every snippet function is a real export', unknown.length === 0, unknown.join(', '));
+check('every snippet function is available from a stable or repository-local module',
+  unknown.length === 0, unknown.join(', '));
+for (const name of [
+  'buildingAsset',
+  'createPropAssetFromRecipe',
+  'createStylizedPathsFromRecipe',
+  'propAssetFromObject',
+  'resolveLightingLookPreset',
+  'resolveLightingQualityPreset',
+  'resolveLightingRigPreset',
+  'resolveLuminairePreset',
+]) {
+  check(`pre-beta catalog helper ${name} is absent from the npm root`,
+    stableExportNames.has(name) === false);
+}
 
 // --- register / addSource seam ----------------------------------------------------------
 const isolated = createCatalog();

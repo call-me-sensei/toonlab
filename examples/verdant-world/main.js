@@ -176,7 +176,7 @@ async function main() {
     const tryTexture = (url, setup) => new Promise((resolve) => {
       textureLoader.load(url, (tex) => { setup?.(tex); resolve(tex); }, undefined, () => resolve(null));
     });
-    const base = '/assets-local/toonlab/textures';
+    const base = '/assets-local/reference-materials/textures';
     const [grassTexture, colormapTexture, rockTexture] = await Promise.all([
       tryTexture(`${base}/T_Grass1_BC.png`, (tex) => {
         tex.colorSpace = THREE.SRGBColorSpace;

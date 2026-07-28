@@ -4,10 +4,12 @@ export { createStore } from './createStore.js';
 export { useStoreState } from './hooks/useStore.js';
 export { Icon } from './components/Icon.jsx';
 export { BrandLockup, PresetRowShell, PreviewBar, PreviewToggle, RendererToggle } from './components/LabChrome.jsx';
+export { ShaderPreviewAssetsModal } from './components/ShaderPreviewAssetsModal.jsx';
 export {
   Badge, Button, ColorWell, IconButton, Kbd, SegmentedControl, Select, TextField, Toggle,
 } from './components/primitives.jsx';
 export { ScrubValue, Slider } from './components/Slider.jsx';
+export { LabTimeOfDayControl } from './components/LabTimeOfDayControl.jsx';
 export {
   Modal, Popover, toast, ToastStack, Tooltip,
 } from './components/overlays.jsx';

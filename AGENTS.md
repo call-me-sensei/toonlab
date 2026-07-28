@@ -135,18 +135,63 @@ one more asset/condition in a preset picker. Historical
 
 ## Subpath imports
 
-`/toon` `/environment` `/lighting` `/weather` `/water` `/vegetation` (incl. scatter helpers +
+`/styles` `/toon` `/environment` `/lighting` `/weather` `/atmospheric-condition` `/water` `/vegetation` (incl. scatter helpers +
 `StylizedForest`) `/vegetation-shaders` `/grass-palettes` `/sky` `/post` `/character` `/loaders` `/rockgen`
 `/debrisgen` `/pathgen` `/debug`; root adds `createStylizedTerrain`,
 `createStylizedWorld`, `createWorldCollision`, `createWorldMinimap`,
 `resolveWorldPreset`, `createStylizedPaths`.
 
-Authoring scope: Character/Vegetation/Environment Shader Labs save reusable
-IP-wide material treatments; Tree/Flower/Grass and other Asset Labs save asset
-identity and geometry; Water/Sky Labs save complete runtime-system presets
-with their shader controls embedded, so do not create separate Water Shader or
-Sky Shader documents. Current lighting, weather, camera, and interactions
-remain host-owned.
+Authoring scope: Character, Tree, Grass, Flower, Ground, Rock, and Environment
+Shader Labs save reusable material treatments. Tree/Flower/Grass Generation
+Labs save asset identity and geometry. Tree, Grass, and Flower shaders share
+one Vegetation runtime family but serialize independently; Ground is not
+Vegetation. Water/Sky Labs save complete runtime-system presets with their
+shader controls embedded, so do not create separate Water Shader or Sky Shader
+documents. Current lighting, weather, camera, and interactions remain
+host-owned.
+
+For any style-bundle, multi-shader, or arbitrary-asset task, read
+`docs/styles-and-bundles.md` before editing. A bundle selects coordinated
+treatments; explicit asset labels select rendering destinations; scene state
+selects current conditions. Inventory and label every renderable root and
+material before final styling. Character anatomy, clothing, held weapons, and
+worn hero accessories normally route to the character toon shader; manufactured
+props, vegetation, rocks/debris, water/sky, and VFX retain their owning
+runtimes. Report unknown domains, material roles, mixed atlases without masks,
+unsupported transparency, and custom renderer exemptions. Never silently
+infer a production-safe route from object names, texture colors, or scene
+parenting.
+
+New style bundles use independent `treeShader`, `grassShader`,
+`flowerShader`, and `groundShader` slots. The `vegetationShader` and
+`landscapeMaterial` aggregate slots remain compatibility inputs. Asset
+recipes, species, geometry, scatter, and current wind/weather never enter
+those shader slots.
+
+Style bundle creation, parsing, validation, serialization, and resolution are
+OSS `/styles` APIs and require no database. `fetchStyleBundle` and hosted
+storage are optional transport/persistence. Bundle resolution does not
+currently traverse or classify a scene, so do not claim automatic routing
+unless the host implements it. Keep asset identity, domain labels, and runtime
+conditions out of the bundle.
+
+Treat `call_me_sensei` as the first-party reference bundle and optimize it for
+the best coordinated result across canonical domain implementations. Do not
+declare it complete merely because every slot contains that style id. Apply
+the completion gate and cross-domain review matrix in
+`docs/styles-and-bundles.md`; compatibility flattening is a fallback for
+incomplete assets, not the target that defines the signature look.
+
+For asset sourcing and generation, also read `docs/open-asset-library.md`.
+Reuse an accepted asset first. If a procedural family has an approved,
+versioned stylized base set and has passed the documented reliability gate,
+generate directly and skip gallery search. Otherwise use curated CC0, then
+properly attributed CC-BY candidates; use image-to-3D only for a named
+remaining gap. Never claim an older generator is approved without the
+reliability evidence. Preserve base-set version, recipe, seed, domain/material
+labels, license provenance, and the Call Me Sensei verification result.
+ToonLab Pro may author and review base sets, but OSS must consume their
+portable artifacts without a database.
 
 Sky and Water keep authored and current-scene state separate. `.settings` is
 the portable authored baseline; `.renderedSettings` is the composition after
@@ -226,6 +271,18 @@ one-draw GPU rain/snow/sleet/hail/dust, water waves/ripples, lightning and
 thunder events. Surface `{ wetness, snowCover, ice }` values are host-facing
 outputs for custom terrain/prop/character materials. Labs should read
 `getWeatherPresetOptions()` rather than maintaining a private condition list.
+
+Atmospheric Condition (`/atmospheric-condition`) owns portable air, ceiling,
+fog, precipitation, light, electrical, and flow state. The transferred
+15-profile library is explicitly the `call_me_sensei` set. It is neither a
+shader style nor a source-asset pack. Atmospheric Condition Lab authors its
+48-field documents through the shared Sky · Cloud · Atmosphere preview;
+Sky/Cloud/Atmosphere shader profiles and generated LUT/mask/noise/volume assets
+remain separate artifacts. That preview keeps two modes explicit: Live is a
+readable diagnostic reconstruction with near/middle/far visibility cues;
+Native is the immutable source-renderer capture at the four exact time
+anchors. Never describe Live as pixel parity or add diagnostic effects over a
+Native frame.
 
 Gameplay VFX (`/vfxgen`): event-driven combat/movement effects, spawned at
 gameplay moments (not a world option) — `createVfxSystem({ seed, style,

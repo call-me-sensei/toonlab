@@ -102,7 +102,7 @@ export const TOONLAB_SURFACE_BLUE_NOISE_SHA256 = Object.freeze([
 export const TOONLAB_SURFACE_SSAO_SOURCE = Object.freeze({
   authority: 'ToonLab reference renderer',
   blueNoiseBaseUrl:
-    '/assets-local/toonlab/renderer/blue-noise/LDR_LLL1_',
+    '/assets-local/reference-environment/renderer/blue-noise/LDR_LLL1_',
   screenSpaceAmbientOcclusionPassSha256:
     '4259a54ed2debe4add16651094af62ee3b3bc18587652fc1d8bc913d6398271d',
   screenSpaceAmbientOcclusionShaderSha256:
@@ -346,7 +346,7 @@ function createFinalTarget() {
 }
 
 /**
- * Exact active TOONLAB BlueNoise/Alchemy SSAO pass for the ToonLab Mega renderer.
+ * Exact active TOONLAB BlueNoise/Alchemy SSAO pass for the environment reference renderer.
  *
  * `depthNode` must use the renderer-native device-depth convention. Three's
  * `perspectiveDepthToViewZ()` selects its equation from the active renderer,
@@ -379,7 +379,7 @@ export class ToonLabSurfaceBlueNoiseAmbientOcclusionNode extends TempNode {
       sampleCount: Math.max(1, Math.trunc(finite(settings?.sampleCount, 8))),
     });
     if (this.settings.sampleCount !== 8) {
-      throw new RangeError('The active ToonLab Mega SSAO contract requires exactly 8 samples.');
+      throw new RangeError('The active environment reference SSAO contract requires exactly 8 samples.');
     }
     if (blueNoiseTextures === null) {
       throw new Error(

@@ -115,7 +115,7 @@ function addMesh(parent, geometry, settings, random, {
 }
 
 // Piece placement by arrangement mode. Pieces build along the X axis, so
-// 'bundle' aligns them side by side like gathered firewood (the Megascans
+// 'bundle' aligns them side by side like gathered firewood (the photoscan catalogs
 // "bunch of sticks" read), 'heap' stacks a dense center-biased mound,
 // 'patch' spreads a flat ground layer, and 'scatter' keeps the loose
 // natural throw.
@@ -419,7 +419,7 @@ function applyBarkStripping(geometry, settings, seed, amount) {
   colors.needsUpdate = true;
 }
 
-// Root stump: central mass with radiating twisted roots — the Megascans
+// Root stump: central mass with radiating twisted roots — the photoscan catalogs
 // "Coast Rauk Root Dead" silhouette. Roots are Tree Lab sweeps curling
 // down and outward, a few upturned at the tips.
 function createRootStumpPiece(settings, random, index) {

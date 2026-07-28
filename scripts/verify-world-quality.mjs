@@ -126,7 +126,8 @@ const vegetation = resolveVegetationShaderPreset('call_me_sensei');
 assert.ok(vegetation.lighting.shadowTint[2] >= 0.9, 'vegetation shadow tint must stay luminous blue');
 assert.ok(vegetation.lighting.shadowTintStrength <= 0.5, 'shadow tint must not crush albedo');
 assert.ok(vegetation.grass.shadowFloor >= 0.5, 'grass roots must not collapse to black');
-assert.ok(vegetation.bark.shadowFloor >= 0.55, 'trunk bases must not collapse to black');
+assert.ok(vegetation.bark.shadowFloor >= 0.4 && vegetation.bark.shadowFloor <= 0.5,
+  'canonical bark must retain grounding without returning to the retained-graph washout');
 assert.ok(vegetation.foliage.cloudShadowResponse >= 0.6, 'trees must participate in living light');
 
 const canopy = deriveCanopyPalette(0x4f9f43);

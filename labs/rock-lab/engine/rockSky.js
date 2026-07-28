@@ -13,7 +13,7 @@ import { max, mix, normalize, positionLocal, pow, sRGBTransferEOTF, uniform, vec
 import { MeshBasicNodeMaterial } from 'three/webgpu';
 import { sampleEnvironmentTimeOfDay } from '../../../src/environment/environmentTimeOfDay.js';
 import { WEATHER_PRESETS } from '../../tree-lab/engine/skyWeather.js';
-import { WeatherPrecipitation } from '../../../src/weather/index.js';
+import { WeatherFieldRenderer } from '../../../src/weather/index.js';
 
 export { WEATHER_PRESETS };
 
@@ -76,20 +76,25 @@ export function createRockSky({ deterministic = false, engine, grass = null, sto
   // --- Shared precipitation runtime (skipped in deterministic captures) -----
   let precipitation = null;
   if (!deterministic) {
-    precipitation = new WeatherPrecipitation({ maxParticles: 8000, seed: 47 });
+    precipitation = new WeatherFieldRenderer({ seed: 47 });
     const precipitationCenter = new THREE.Vector3();
     scene.add(precipitation);
 
     engine.onFrame((delta) => {
       precipitationCenter.set(controls.target.x, 0, controls.target.z);
-      precipitation.update(delta, { center: precipitationCenter, renderer: engine.renderer });
+      precipitation.update(delta, {
+        camera,
+        center: precipitationCenter,
+        floorY: precipitationCenter.y,
+        renderer: engine.renderer,
+      });
     });
   }
 
   function apply() {
     const sourceAuthority = getRenderAuthority() === 'source';
     dome.visible = !sourceAuthority;
-    if (precipitation) precipitation.visible = !sourceAuthority;
+    precipitation?.setEnabled(!sourceAuthority);
     if (sourceAuthority) return;
 
     scene.background = null;
@@ -123,7 +128,7 @@ export function createRockSky({ deterministic = false, engine, grass = null, sto
     scene.fog.color.copy(fogColor);
     setFogScale(weather.fogScale);
 
-    precipitation?.applySettings(weather.precipitation, weather.wind);
+    precipitation?.applyWeatherSettings(weather.settings);
 
     // Grass reacts: cloud shadows sweep in cloudy weather.
     grass?.applySettings({

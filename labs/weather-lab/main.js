@@ -373,11 +373,12 @@ async function buildStage() {
   controls.maxDistance = 110;
 
   world = await createStylizedWorld({
-    ambientfx: { effects: { fireflies: true, mist: true, pollen: true } },
+    ambientfx: false,
     camera,
-    flowers: { mask: rainStudy.vegetationMask, scatter: { density: 0.24, radius: 32, seed: 9 } },
+    contactShadows: false,
+    flowers: false,
     followTarget: focus,
-    grass: { mask: rainStudy.vegetationMask, scatter: { density: 3.5, radius: 42, seed: 5 } },
+    grass: false,
     renderer,
     scene,
     // Weather Lab prioritizes rapid condition transitions. Cloud shadows are
@@ -385,7 +386,8 @@ async function buildStage() {
     // preset edits never revalidate a whole scene of shadow render objects.
     shadows: false,
     terrain: { heightAt: terrain.heightAt, root: terrainRoot, size: terrain.meshExtent },
-    trees: { mask: rainStudy.vegetationMask, scatter: { keepChance: 0.72, radius: 72, seed: 12, spacing: 12 }, settings: { size: 2.2 } },
+    trees: false,
+    understory: false,
     water: {
       level: terrain.waterLevel,
       passes: false,

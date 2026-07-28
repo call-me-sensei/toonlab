@@ -47,6 +47,14 @@ const MODULES = [
     note: 'Settings are `{ features, parameters }`: `createEnvironmentSettings({ parameters: { exposure: 0.95 } })`.',
   },
   {
+    title: 'Rock shader profile',
+    subpath: 'toonlab/rock-shader',
+    module: '/src/rock-shader/rockShaderSettings.js',
+    groups: 'ROCK_SHADER_SETTING_GROUPS',
+    schema: 'ROCK_SHADER_FIELD_SCHEMA',
+    note: 'Reusable grouped material settings consumed by `applyRockShader(root, settings)`. Rock geometry, erosion, seed, LOD, collision, and current scene conditions remain separate.',
+  },
+  {
     title: 'Water',
     subpath: 'toonlab/water',
     module: '/src/water/waterSettings.js',
@@ -63,12 +71,12 @@ const MODULES = [
     note: 'Settings are `{ features, parameters }`: `createPostProcessingSettings({ preset: "softAnime" })`.',
   },
   {
-    title: 'Vegetation shader profile',
-    subpath: 'toonlab/vegetation',
+    title: 'Vegetation shader family',
+    subpath: 'toonlab/vegetation-shaders',
     module: '/src/vegetation/vegetationShaders.js',
     groups: 'VEGETATION_SHADER_SETTING_GROUPS',
     schema: 'VEGETATION_SHADER_FIELD_SCHEMA',
-    note: 'IP-wide grouped settings shared by semantic grass, foliage, flower, bark, and stem material roles. Asset albedo and current scene weather are separate inputs.',
+    note: 'Shared field registry for three independent portable profiles: Tree uses Shared/Foliage/Bark groups, Grass uses Shared/Grass groups, and Flower uses Shared/Foliage/Flower/Stem groups. Asset geometry, species, albedo, and current scene weather remain separate.',
   },
   {
     title: 'Grass',

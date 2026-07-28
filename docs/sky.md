@@ -1,17 +1,68 @@
-# Sky system
+# Sky Shader
 
-`@call-me-sensei/toonlab/sky` provides a procedural stylized sky for Three.js:
-a three-stop vertical dome, sun disc and glow, sun-side horizon scattering,
-two-tone painterly clouds, and a procedural star field. It uses the same TSL
-material on WebGPU and the WebGL2 fallback and requires no texture assets.
+`@call-me-sensei/toonlab/sky` owns the portable appearance contract for the
+visible background sky: the authored gradient/color-curve treatment, visible
+horizon presentation, sun and moon disc/halo treatment, and stars.
 
-Sky is a World System in ToonLab. Its appearance shader and procedural motion
-ship as one versioned style because the cloud, sun, horizon, and star terms
-must be judged together. Runtime scenarios remain a separate axis. It is not
-a fourth IP-wide Shader Lab; see
+Sky Shader does not own cloud composition, fog, current time, celestial
+direction, directional-light energy or shadows, weather, exposure, the camera,
+or source meshes/textures/atlases. The independently authored sky-dome cloud
+stack belongs to `@call-me-sensei/toonlab/cloud`; current time and atmospheric
+condition remain runtime axes. See
+[Cloud shader](cloud-shader.md) and
 [Lab responsibilities](lab-architecture.md).
 
-## Quickstart
+The current package also retains `StylizedSky` as a compatibility renderer.
+That older self-contained class includes procedural-cloud fields. Those fields
+remain supported for existing consumers but are not part of the new Sky Shader
+Lab document and must not be presented as Cloud Shader controls.
+
+## P18 Sky Shader contract
+
+The dedicated portable document uses:
+
+```text
+type: toonlab/sky-shader-preset
+version: 1
+```
+
+`SKY_SHADER_SETTING_GROUPS` and `SKY_SHADER_FIELD_SCHEMA` expose 40 authored
+fields in four groups:
+
+| Group | Owns |
+| --- | --- |
+| Gradient | P18 atlas brightness, saturation, contrast, sampling offset/scale, master/region tints, horizon position/blend, and optional sunward horizon glow |
+| Sun | Disc color/size/edge/intensity and broad/core halo appearance |
+| Moon | Disc color/size/edge/intensity and halo appearance |
+| Stars | Color, maximum night strength, deterministic pattern seed, density, scale, size, twinkle, and horizon fade |
+
+The `call_me_sensei` preset is initialized from the accepted P18 sky graph.
+Neutral gradient controls preserve the source atlas exactly. The clock
+modulates sky tint/energy, selects the visible sun or moon, drives celestial
+direction, and gates stars; the selected hour is never serialized.
+
+```js
+import {
+  applySkyShaderSettings,
+  createSkyShaderPresetDocument,
+  createSkyShaderSettings,
+  serializeSkyShaderPreset,
+} from '@call-me-sensei/toonlab/sky';
+
+const settings = createSkyShaderSettings({ preset: 'call_me_sensei' });
+applySkyShaderSettings(authoredSkyTarget, settings);
+
+const document = createSkyShaderPresetDocument('project_sky', {
+  label: 'Project Sky',
+  settings,
+});
+const json = serializeSkyShaderPreset(document);
+```
+
+An authored target exposes `applySkyShaderSettings(settings)`. Asset loading
+and current world state remain host responsibilities.
+
+## Legacy `StylizedSky` quickstart
 
 ```js
 import { StylizedSky } from '@call-me-sensei/toonlab/sky';
@@ -42,18 +93,19 @@ does not intersect scene geometry. Add the same sky to scenes containing a
 `WaterSurface`; water reflection passes then capture the active composed sky rather
 than relying on a separate color approximation.
 
-## Settings and scope
+## Legacy settings and scope
 
 `createSkySettings(options)` normalizes flat settings. The public
-`SKY_SETTING_GROUPS` and `SKY_SETTING_FIELD_SCHEMA` drive Sky Lab and custom
-editors. The schema contains 46 portable art fields; the constructor-only dome
-radius is the single non-portable field.
+`SKY_SETTING_GROUPS` and `SKY_SETTING_FIELD_SCHEMA` describe the compatibility
+`StylizedSky` renderer. The schema contains 46 portable legacy art fields; the
+constructor-only dome radius is the single non-portable field. New editors use
+the separate `SKY_SHADER_*` schema above.
 
 | Group | Owns |
 |---|---|
 | Gradient | Zenith, horizon, and below-horizon colors; zenith/ground curve shape; horizon-band width, sun focus, and scattering strength. |
 | Sun | Baseline disc direction and color; size, edge softness, intensity; broad/core glow shape; dense-cloud occlusion. |
-| Clouds | Coverage, scale, deterministic seed, projection, silhouette softness/opacity, direction and speed, two-tone shade controls, light-sample depth, silver lining, and horizon fade. |
+| Clouds (legacy compatibility fields) | Self-contained procedural-noise clouds for `StylizedSky` consumers. These are not the P18 cloud-shell profile and are not used by Cloud Shader Lab. New authored cloud-dome work uses `@call-me-sensei/toonlab/cloud`. |
 | Stars | Strength, color, deterministic seed, density, pattern scale, glint size, twinkle depth/speed, and horizon fade. |
 
 The runtime constructor still accepts `radius` for compatibility. Because the
@@ -209,7 +261,14 @@ replacing the material.
 ## Sky Lab
 
 Run `/sky-lab/` in the repository or `/labs/sky` on ToonLab Pro. The lab uses
-the npm settings schema directly and supports preset selection, undo/redo,
-local saves, JSON import/export, WebGPU/WebGL comparison, and preview-only
-weather/lighting fixtures. Exported documents contain all 46 reusable
-sky-system art fields and no current scene state or quality tier.
+the accepted P18 sky dome, atlas, and comparison clouds. It supports Sky Shader
+style selection, undo/redo, local saves, JSON import/export, WebGPU/WebGL
+comparison, Sky Focus, Celestial Focus, original P18 framing, selectable cloud
+context, the universal time-of-day control, and optional atmospheric-condition
+stress tests.
+
+All 40 Sky Shader controls are live. Exported documents contain only the four
+Sky-owned groups. Cloud context, current condition, particles, current hour,
+celestial direction, camera, source asset references, and preview framing are
+excluded. `envTime=<hour>` and `skyView=sky|celestial|horizon` provide
+deterministic review links.

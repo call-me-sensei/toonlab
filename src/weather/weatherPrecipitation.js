@@ -1,6 +1,7 @@
-// One GPU-looping precipitation draw for rain, snow, sleet, hail, and dust.
-// Static seeds are uploaded once; all trajectories are derived from time in
-// TSL, so weather intensity only changes the instance count and uniforms.
+// Compatibility low-level emitter retained for existing direct consumers.
+// First-party WeatherSystem and lab previews use WeatherFieldRenderer, whose
+// separate rain, flake/pellet/dust, mist, wind, splash, and electrical fields
+// preserve the complete ToonLab weather topology.
 
 import * as THREE from 'three';
 import {
@@ -218,4 +219,3 @@ export class WeatherPrecipitation extends THREE.Mesh {
     this.material.dispose();
   }
 }
-

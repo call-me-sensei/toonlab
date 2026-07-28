@@ -12,11 +12,17 @@ import {
 export const TREE_LOD_TRIANGLE_CAPS = Object.freeze([12000, 7000, 3500, 140]);
 export const TREE_LOD_SCREEN_COVERAGE = Object.freeze([0.16, 0.075, 0.025, 0]);
 
-// Preserve every authored attachment so simplification never re-rolls the
-// skeleton. LOD2 coalesces each crossed spray card into one authored plane;
-// branch tubes shed radial sides independently below.
-const LOD_CARD_RATIOS = Object.freeze([1, 1, 1]);
-const LOD_RADIAL_REDUCTION = Object.freeze([0, 3, 5]);
+// Branch LOD follows the same structural rule as EZ-Tree 2: grow the full
+// tree, then remesh every branch from the identical centerline data. Larger
+// longitudinal strides and radial factors provide the reduction; branch
+// levels are never deleted, because doing so destroys conifer silhouettes.
+const LOD_RADIAL_FACTORS = Object.freeze([1, 0.75, 0.4]);
+const LOD_SECTION_STRIDES = Object.freeze([1, 3, 6]);
+// Static export cards lose the live shader's camera-facing behavior. Retain
+// more authored cards than EZ-Tree's generic every-other-leaf default, then
+// use modest scale compensation; the triangle budget remains the hard cap.
+const LOD_FOLIAGE_RETENTION = Object.freeze([1, 1, 1]);
+const LOD_FOLIAGE_SCALE = Object.freeze([1, 1, 1]);
 
 function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
@@ -42,99 +48,6 @@ function rootMaterialCount(root) {
     entries.forEach((material) => materials.add(material));
   });
   return materials.size;
-}
-
-function retainBranchComponents(geometry, targetTriangles) {
-  const index = geometry.getIndex();
-  const position = geometry.getAttribute('position');
-  const currentTriangles = triangleCount(geometry);
-  const target = Math.max(24, Math.floor(targetTriangles));
-  if (!index || !position || currentTriangles <= target) return geometry.clone();
-
-  const parents = new Int32Array(position.count);
-  for (let vertex = 0; vertex < parents.length; vertex += 1) parents[vertex] = vertex;
-  const find = (vertex) => {
-    let root = vertex;
-    while (parents[root] !== root) root = parents[root];
-    while (parents[vertex] !== vertex) {
-      const next = parents[vertex];
-      parents[vertex] = root;
-      vertex = next;
-    }
-    return root;
-  };
-  const join = (left, right) => {
-    const leftRoot = find(left);
-    const rightRoot = find(right);
-    if (leftRoot !== rightRoot) parents[rightRoot] = leftRoot;
-  };
-  for (let offset = 0; offset < index.count; offset += 3) {
-    const a = index.getX(offset);
-    const b = index.getX(offset + 1);
-    const c = index.getX(offset + 2);
-    join(a, b);
-    join(a, c);
-  }
-
-  const components = new Map();
-  const a = new THREE.Vector3();
-  const b = new THREE.Vector3();
-  const c = new THREE.Vector3();
-  const cross = new THREE.Vector3();
-  for (let offset = 0; offset < index.count; offset += 3) {
-    const ia = index.getX(offset);
-    const ib = index.getX(offset + 1);
-    const ic = index.getX(offset + 2);
-    const root = find(ia);
-    const component = components.get(root) ?? {
-      area: 0,
-      indices: [],
-      minY: Infinity,
-      maxY: -Infinity,
-    };
-    a.fromBufferAttribute(position, ia);
-    b.fromBufferAttribute(position, ib);
-    c.fromBufferAttribute(position, ic);
-    cross.subVectors(b, a).cross(c.clone().sub(a));
-    component.area += cross.length() * 0.5;
-    component.minY = Math.min(component.minY, a.y, b.y, c.y);
-    component.maxY = Math.max(component.maxY, a.y, b.y, c.y);
-    component.indices.push(ia, ib, ic);
-    components.set(root, component);
-  }
-  const fullHeight = Math.max(...[...components.values()].map((entry) => entry.maxY))
-    - Math.min(...[...components.values()].map((entry) => entry.minY));
-  const ranked = [...components.values()].sort((left, right) => {
-    const leftSpan = (left.maxY - left.minY) / Math.max(fullHeight, 1e-5);
-    const rightSpan = (right.maxY - right.minY) / Math.max(fullHeight, 1e-5);
-    return right.area * (1 + rightSpan * 0.65) - left.area * (1 + leftSpan * 0.65);
-  });
-  const retained = [];
-  let retainedTriangles = 0;
-  for (const component of ranked) {
-    const componentTriangles = component.indices.length / 3;
-    if (retainedTriangles > 0 && retainedTriangles + componentTriangles > target) continue;
-    retained.push(...component.indices);
-    retainedTriangles += componentTriangles;
-    if (retainedTriangles >= target) break;
-  }
-  const result = geometry.clone();
-  result.setIndex(retained);
-  result.computeBoundingBox();
-  result.computeBoundingSphere();
-  return result;
-}
-
-function pruneLevelBranches(root, targetTotalTriangles) {
-  const trunk = root.children.find((child) => child.name === 'Trunk');
-  const foliage = root.children.find((child) => child.name === 'Foliage');
-  if (!trunk?.geometry) return;
-  const foliageTriangles = foliage?.geometry ? triangleCount(foliage.geometry) : 0;
-  const targetTrunkTriangles = Math.max(24, targetTotalTriangles - foliageTriangles);
-  if (triangleCount(trunk.geometry) <= targetTrunkTriangles) return;
-  const simplified = retainBranchComponents(trunk.geometry, targetTrunkTriangles);
-  trunk.geometry.dispose();
-  trunk.geometry = simplified;
 }
 
 export function createProceduralTreeLeafTexture({ resolution = 128, seed = 1 } = {}) {
@@ -177,21 +90,23 @@ export function createTreeLodRecipe(recipeInput, level) {
   const recipe = parseTreeRecipeDocument(recipeInput);
   const lod = THREE.MathUtils.clamp(Math.round(level), 0, 2);
   const options = cloneJson(recipe.options);
-  const ratio = LOD_CARD_RATIOS[lod];
   options.canopy = { ...(options.canopy ?? {}) };
   options.skeleton = { ...(options.skeleton ?? {}) };
   options.trunk = { ...(options.trunk ?? {}) };
-  const baselineCards = Number(options.canopy.cardCount) || 170;
-  const baselineClusters = Number(options.canopy.cardsPerCluster) || 5;
-  options.canopy.cardCount = Math.max(12, Math.round(baselineCards * ratio));
-  options.canopy.cardsPerCluster = Math.max(1, Math.round(baselineClusters * ratio));
+  // The skeleton grower still computes every source centerline and foliage
+  // attachment at every LOD. Only the meshing density changes, so transitions
+  // do not re-roll the tree or delete complete limb levels.
+  options.skeleton.meshSectionStride = LOD_SECTION_STRIDES[lod];
+  delete options.skeleton.meshLevelLimit;
+  const skeletonRadialSegments = Number(options.skeleton.radialSegments) || 8;
   options.skeleton.radialSegments = Math.max(
-    lod >= 2 ? 3 : 4,
-    (Number(options.skeleton.radialSegments) || 8) - LOD_RADIAL_REDUCTION[lod],
+    3,
+    Math.round(skeletonRadialSegments * LOD_RADIAL_FACTORS[lod]),
   );
+  const trunkRadialSegments = Number(options.trunk.radialSegments) || 10;
   options.trunk.radialSegments = Math.max(
-    5,
-    (Number(options.trunk.radialSegments) || 10) - LOD_RADIAL_REDUCTION[lod],
+    3,
+    Math.round(trunkRadialSegments * LOD_RADIAL_FACTORS[lod]),
   );
   options.trunk.heightSegments = Math.max(
     6,
@@ -224,6 +139,81 @@ function ensureAttribute(geometry, name, itemSize, fill) {
   geometry.setAttribute(name, new THREE.BufferAttribute(values, itemSize));
 }
 
+function remapUvColumn(geometry, offset, scale) {
+  const uv = geometry.getAttribute('uv');
+  if (!uv) return;
+  for (let index = 0; index < uv.count; index += 1) {
+    uv.setX(index, offset + THREE.MathUtils.clamp(uv.getX(index), 0, 1) * scale);
+  }
+  uv.needsUpdate = true;
+}
+
+function textureData(texture) {
+  const image = texture?.image;
+  if (!texture?.isDataTexture || !image?.data || !image.width || !image.height) return null;
+  return {
+    data: image.data,
+    height: image.height,
+    width: image.width,
+  };
+}
+
+function createSingleMaterialAtlas(trunkMap, foliageMap) {
+  const trunk = textureData(trunkMap);
+  const foliage = textureData(foliageMap);
+  const tileWidth = Math.max(16, trunk?.width ?? 0, foliage?.width ?? 0, 128);
+  const tileHeight = Math.max(16, trunk?.height ?? 0, foliage?.height ?? 0, 128);
+  const data = new Uint8Array(tileWidth * 2 * tileHeight * 4);
+  const sample = (source, x, y, fallback) => {
+    if (!source) return fallback;
+    const sourceX = Math.min(source.width - 1, Math.floor(x / tileWidth * source.width));
+    const sourceY = Math.min(source.height - 1, Math.floor(y / tileHeight * source.height));
+    const offset = (sourceY * source.width + sourceX) * 4;
+    return [
+      source.data[offset] ?? 255,
+      source.data[offset + 1] ?? 255,
+      source.data[offset + 2] ?? 255,
+      source.data[offset + 3] ?? 255,
+    ];
+  };
+  for (let y = 0; y < tileHeight; y += 1) {
+    for (let x = 0; x < tileWidth; x += 1) {
+      const bark = sample(trunk, x, y, [255, 255, 255, 255]);
+      const barkOffset = (y * tileWidth * 2 + x) * 4;
+      data.set(bark, barkOffset);
+
+      let leaf;
+      if (foliage) {
+        leaf = sample(foliage, x, y, [255, 255, 255, 0]);
+      } else {
+        const u = (x + 0.5) / tileWidth * 2 - 1;
+        const v = (y + 0.5) / tileHeight * 2 - 1;
+        const taper = Math.max(0.05, 1 - Math.abs(v) * 0.34);
+        const shape = (u / taper) ** 2 + (v * 0.92) ** 2;
+        leaf = [255, 255, 255, shape <= 0.8 ? 255 : shape <= 0.9 ? 128 : 0];
+      }
+      const leafOffset = (y * tileWidth * 2 + tileWidth + x) * 4;
+      data.set(leaf, leafOffset);
+    }
+  }
+  const atlas = new THREE.DataTexture(
+    data,
+    tileWidth * 2,
+    tileHeight,
+    THREE.RGBAFormat,
+    THREE.UnsignedByteType,
+  );
+  atlas.name = 'TreeLod2SurfaceAtlas';
+  atlas.colorSpace = THREE.NoColorSpace;
+  atlas.flipY = false;
+  atlas.generateMipmaps = true;
+  atlas.minFilter = THREE.LinearMipmapLinearFilter;
+  atlas.magFilter = THREE.LinearFilter;
+  atlas.needsUpdate = true;
+  atlas.userData.bakedLeafTexture = true;
+  return atlas;
+}
+
 function combinedSingleMaterialLevel(exported) {
   const trunk = exported.children.find((child) => child.name === 'Trunk');
   const foliage = exported.children.find((child) => child.name === 'Foliage');
@@ -231,7 +221,16 @@ function combinedSingleMaterialLevel(exported) {
     const geometry = mesh.geometry.clone();
     ensureAttribute(geometry, 'normal', 3, [0, 1, 0]);
     ensureAttribute(geometry, 'uv', 2, [0, 0]);
-    ensureAttribute(geometry, 'color', 3, [1, 1, 1]);
+    const materialColor = mesh.material?.color ?? new THREE.Color(1, 1, 1);
+    ensureAttribute(
+      geometry,
+      'color',
+      3,
+      index === 0
+        ? [materialColor.r, materialColor.g, materialColor.b]
+        : [1, 1, 1],
+    );
+    remapUvColumn(geometry, index === 0 ? 0 : 0.5, 0.5);
     ensureAttribute(geometry, 'treeMaterialSelector', 1, index === 0 ? 0 : 1);
     return geometry;
   });
@@ -240,6 +239,8 @@ function combinedSingleMaterialLevel(exported) {
   if (!merged) throw new Error('Could not merge the single-material tree LOD.');
   const material = new THREE.MeshStandardMaterial({
     color: 0xffffff,
+    map: createSingleMaterialAtlas(trunk?.material?.map, foliage?.material?.map),
+    alphaTest: foliage?.material?.alphaTest ?? 0.3,
     metalness: 0,
     roughness: 1,
     side: THREE.DoubleSide,
@@ -675,7 +676,6 @@ function boundsForLevels(levels) {
 
 export function compileTreeLodLevels(recipeInput, { leafTexture = null } = {}) {
   const recipe = parseTreeRecipeDocument(recipeInput);
-  const radialFronds = recipe.options.canopy?.architecture === 'radial-fronds';
   const ownedLeafTexture = leafTexture ?? createProceduralTreeLeafTexture({
     seed: recipe.options.seed ?? 1,
   });
@@ -693,24 +693,27 @@ export function compileTreeLodLevels(recipeInput, { leafTexture = null } = {}) {
       const plant = createPlantFromRecipe(runtimeRecipe);
       let exported;
       try {
+        const trunkTriangles = plant.trunkMesh?.geometry
+          ? triangleCount(plant.trunkMesh.geometry)
+          : 0;
         exported = prepareTreeForExport(plant, {
-          foliageMode: level === 1 && radialFronds
-            ? 'crossed'
-            : level === 1 || (level >= 2 && radialFronds)
-              ? 'hybrid'
-            : level >= 2 ? 'normal' : 'crossed',
+          // LOD1 keeps the exact authored crossed-card crown. LOD2 retains
+          // every card center but converts most pairs to one plane, with a
+          // distributed crossed subset for view robustness. Hard caps still
+          // invoke nested card thinning on exceptionally dense trees.
+          foliageMode: level < 2 ? 'crossed' : 'hybrid',
+          foliageCardRetention: LOD_FOLIAGE_RETENTION[level],
+          foliageCardScale: LOD_FOLIAGE_SCALE[level],
+          // LOD0 remains the exact authored high-detail source. Lower levels
+          // distribute their leaf-card budget after the continuous bark mesh
+          // has been accounted for, so neither can exceed its contract merely
+          // because a species has an unusually complex skeleton.
+          foliageTriangleBudget: level === 0
+            ? Infinity
+            : Math.max(0, TREE_LOD_TRIANGLE_CAPS[level] - trunkTriangles),
         });
       } finally {
         plant.dispose();
-      }
-      if (level > 0) {
-        const baseTriangles = rootTriangles(levels[0]);
-        const targetRatio = level === 1 ? (radialFronds ? 0.64 : 0.68) : 0.4;
-        const targetTotal = Math.min(
-          TREE_LOD_TRIANGLE_CAPS[level],
-          Math.floor(baseTriangles * targetRatio),
-        );
-        pruneLevelBranches(exported, targetTotal);
       }
       if (level === 2) {
         const combined = combinedSingleMaterialLevel(exported);

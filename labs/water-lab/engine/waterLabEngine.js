@@ -339,7 +339,7 @@ function updateSeaFerns(group, time, settings) {
 }
 
 // Low-poly toon boat stand-in for fresh clones without assets-local/ (the
-// MegascanProps/FallbackRockCluster pattern).
+// PhotoscanProps/FallbackRockCluster pattern).
 function buildFallbackBoat() {
   const group = new THREE.Group();
   const wood = new THREE.MeshStandardMaterial({ color: 0x6d4a30, roughness: 0.8 });

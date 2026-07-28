@@ -40,7 +40,7 @@ export const TOONLAB_FOG_MASTER_PATH =
   '/Game/ToonLab/Environment/Sky/Materials/M_StylizedFogPP.M_StylizedFogPP';
 
 export const DEFAULT_TOONLAB_FOG_VOLUME_BASE_URL =
-  '/assets-local/toonlab/fog-volume';
+  '/assets-local/reference-materials/fog-volume';
 
 const SUN_MOON_ATLAS =
   '/Game/ToonLab/Environment/Sky/Curves/Atlas_SunMoon.Atlas_SunMoon';

@@ -2,8 +2,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 import * as root from '@call-me-sensei/toonlab';
+import * as atmosphericCondition from '@call-me-sensei/toonlab/atmospheric-condition';
+import * as climate from '@call-me-sensei/toonlab/climate';
+import * as cloud from '@call-me-sensei/toonlab/cloud';
 import * as grass from '@call-me-sensei/toonlab/grass';
 import * as grassPalettes from '@call-me-sensei/toonlab/grass-palettes';
+import * as rockShader from '@call-me-sensei/toonlab/rock-shader';
 import * as sky from '@call-me-sensei/toonlab/sky';
 import * as styles from '@call-me-sensei/toonlab/styles';
 import * as vegetation from '@call-me-sensei/toonlab/vegetation';
@@ -35,14 +39,64 @@ check('package export map publishes the stable system entry points', () => {
   assert.equal(packageJson.exports['./grass'], './src/vegetation/stylizedGrass.js');
   assert.equal(packageJson.exports['./water'], './src/water/index.js');
   assert.equal(packageJson.exports['./sky'], './src/sky/index.js');
+  assert.equal(packageJson.exports['./cloud'], './src/cloud/index.js');
+  assert.equal(packageJson.exports['./climate'], './src/climate/index.js');
+  assert.equal(packageJson.exports['./atmospheric-condition'], './src/atmospheric-condition/index.js');
+  assert.equal(packageJson.exports['./rock-shader'], './src/rock-shader/index.js');
+  for (const preBetaExport of [
+    './biome',
+    './buildinggen',
+    './camera',
+    './game-feel',
+    './landscape',
+    './lighting',
+    './motion',
+    './pathgen',
+    './propgen',
+    './soundscape',
+    './vfxgen',
+    './villagegen',
+  ]) {
+    assert.equal(packageJson.exports[preBetaExport], undefined);
+  }
+  assert.equal(packageJson.exports['./agents/*'], './agents/*');
+  assert.ok(packageJson.files.includes('agents'));
+  assert.equal(packageJson.files.some((path) => path === 'public' || path.startsWith('public/')), false);
+  assert.equal(packageJson.files.some((path) => path === 'labs' || path.startsWith('labs/')), false);
 });
 
-check('root mirrors the complete vegetation, water, and sky barrels', () => {
-  for (const module of [vegetation, water, sky]) {
+check('root mirrors the published vegetation, water, sky, cloud, climate, and rock shader barrels', () => {
+  for (const module of [vegetation, water, sky, cloud, climate, rockShader]) {
     for (const [name, value] of Object.entries(module)) {
       assert.equal(root[name], value, `root export ${name} must match its system barrel`);
     }
   }
+});
+
+check('cloud publishes an independent appearance profile', () => {
+  assert.equal(cloud.DEFAULT_CLOUD_SHADER_PRESET, 'call_me_sensei');
+  assert.equal(cloud.CLOUD_SHADER_FIELD_COUNT, 16);
+  assert.equal(cloud.CLOUD_SHADER_SETTING_GROUPS.length, 4);
+  assert.equal(cloud.createCloudShaderSettings().backgroundCloudStrength, 0.30000001192092896);
+  assert.equal(typeof cloud.applyCloudShaderSettings, 'function');
+});
+
+check('climate publishes a standalone profile and playback contract', () => {
+  assert.equal(Object.keys(climate.CLIMATE_PROFILES).length, 15);
+  assert.equal(climate.DEFAULT_CLIMATE_SEQUENCE.length, 14);
+  assert.equal(typeof climate.createClimateDirector, 'function');
+  assert.equal(climate.createClimateRenderer, undefined);
+  assert.equal(climate.CLIMATE_RUNTIME_LIMITS.emission.rain, 500);
+});
+
+check('atmospheric-condition publishes the preferred set and document contract', () => {
+  assert.equal(atmosphericCondition.DEFAULT_ATMOSPHERIC_CONDITION_SET, 'call_me_sensei');
+  assert.equal(atmosphericCondition.getAtmosphericConditionSetOptions()[0].label, 'Call Me Sensei');
+  assert.equal(atmosphericCondition.getAtmosphericConditionOptions().length, 15);
+  assert.equal(atmosphericCondition.ATMOSPHERIC_CONDITION_FIELD_COUNT, 48);
+  assert.equal(typeof atmosphericCondition.createAtmosphericConditionDocument, 'function');
+  assert.equal(typeof atmosphericCondition.createAtmosphericConditionDirector, 'function');
+  assert.equal(atmosphericCondition.createAtmosphericConditionPreview, undefined);
 });
 
 check('sky and water publish their runtime composition and quality contracts', () => {
@@ -310,9 +364,13 @@ check('style bundles accept and resolve typed inline grass documents', () => {
 });
 
 check('style bundles keep IP-wide styles separate from asset presets', () => {
+  assert.equal(styles.STYLE_BUNDLE_SLOTS.landscapeMaterial, undefined);
+  assert.equal(styles.STYLE_BUNDLE_SLOTS.lighting, undefined);
   for (const slotId of [
-    'toon', 'grass', 'flowers', 'vegetationShader', 'rock', 'debris',
-    'water', 'sky', 'weather', 'environment', 'lighting', 'vfx', 'post',
+    'toon', 'treeShader', 'grassShader', 'flowerShader',
+    'groundShader',
+    'grass', 'flowers', 'vegetationShader', 'rock', 'debris',
+    'water', 'sky', 'cloud', 'weather', 'environment', 'post',
   ]) {
     assert.equal(styles.STYLE_BUNDLE_SLOTS[slotId].selectionKind, 'style');
   }
@@ -322,20 +380,27 @@ check('style bundles keep IP-wide styles separate from asset presets', () => {
     slots: {
       debris: { style: 'call_me_sensei' },
       environment: { style: 'call_me_sensei' },
+      cloud: { style: 'call_me_sensei' },
       rock: { style: 'call_me_sensei' },
       sky: { style: 'call_me_sensei' },
-      vfx: { style: 'call_me_sensei' },
       water: { style: 'call_me_sensei' },
       weather: { style: 'call_me_sensei' },
     },
   });
   assert.deepEqual(bundle.slots.water, { style: 'call_me_sensei' });
   const resolved = styles.resolveStyleBundleSettings(bundle);
-  assert.deepEqual(resolved.rock, { style: 'call_me_sensei' });
+  assert.equal(resolved.rock.preset, 'call_me_sensei');
+  assert.deepEqual(
+    resolved.rock,
+    rockShader.createRockShaderSettings({ preset: 'call_me_sensei' }),
+  );
   assert.deepEqual(resolved.debris, { style: 'call_me_sensei' });
-  assert.deepEqual(resolved.vfx, { style: 'call_me_sensei' });
   assert.deepEqual(resolved.water, { style: 'call_me_sensei' });
   assert.deepEqual(resolved.sky, { style: 'call_me_sensei' });
+  assert.deepEqual(
+    resolved.cloud,
+    cloud.createCloudShaderSettings({ preset: 'call_me_sensei' }),
+  );
   assert.deepEqual(resolved.weather, { style: 'call_me_sensei' });
   assert.deepEqual(resolved.environment, { style: 'call_me_sensei' });
 
@@ -457,7 +522,33 @@ check('water exports the complete portable runtime surface', () => {
   assert.deepEqual(parsed.value, document);
 });
 
-check('style bundles resolve typed inline vegetation, Water, and Weather documents', () => {
+check('style bundles resolve independent Tree, Grass, and Flower shader documents', () => {
+  const treeDocument = vegetationShaders.createTreeShaderPresetDocument('bundle-tree', {
+    settings: { bark: { shadowFloor: 0.63 } },
+  });
+  const grassDocument = vegetationShaders.createGrassShaderProfilePresetDocument('bundle-grass-shader', {
+    settings: { grass: { rootOcclusionStrength: 0.24 } },
+  });
+  const flowerDocument = vegetationShaders.createFlowerShaderProfilePresetDocument('bundle-flower', {
+    settings: { flower: { unlitPetalLift: 0.58 } },
+  });
+  const bundle = styles.createStyleBundleDocument('vegetation-family-bundle', {
+    slots: {
+      flowerShader: { document: flowerDocument },
+      grassShader: { document: grassDocument },
+      treeShader: { document: treeDocument },
+    },
+  });
+  const resolved = styles.resolveStyleBundleSettings(bundle);
+  assert.equal(resolved.treeShader.bark.shadowFloor, 0.63);
+  assert.equal(resolved.grassShader.grass.rootOcclusionStrength, 0.24);
+  assert.equal(resolved.flowerShader.flower.unlitPetalLift, 0.58);
+  assert.equal(resolved.treeShader.grass, undefined);
+  assert.equal(resolved.grassShader.bark, undefined);
+  assert.equal(resolved.flowerShader.bark, undefined);
+});
+
+check('style bundles keep legacy aggregate vegetation documents compatible', () => {
   const vegetationDocument = vegetation.createVegetationShaderPresetDocument('bundle-vegetation', {
     settings: { lighting: { shadowTintStrength: 0.33 } },
   });
@@ -573,6 +664,30 @@ check('style bundles accept and resolve typed inline sky documents', () => {
   assert.deepEqual(resolved.sky.zenithColor, [0.04, 0.08, 0.2]);
   assert.equal(resolved.sky.starsStrength, 0.72);
   assert.equal(resolved.sky.radius, sky.DEFAULT_SKY_SETTINGS.radius);
+});
+
+check('style bundles accept and resolve typed inline cloud documents', () => {
+  const cloudDocument = cloud.createCloudShaderPresetDocument('bundle-cloud', {
+    settings: {
+      backgroundCloudStrength: 0.61,
+      cloudShellEdgeContrast: 0.43,
+    },
+  });
+  assert.equal(
+    styles.STYLE_BUNDLE_SLOTS.cloud.documentType,
+    cloud.CLOUD_SHADER_DOCUMENT_TYPE,
+  );
+  assert.equal(
+    styles.STYLE_BUNDLE_SLOTS.cloud.parseDocument,
+    cloud.parseCloudShaderPresetDocument,
+  );
+  const bundle = styles.createStyleBundleDocument('cloud-bundle', {
+    slots: { cloud: { document: cloudDocument } },
+  });
+  const resolved = styles.resolveStyleBundleSettings(bundle);
+  assert.equal(resolved.cloud.backgroundCloudStrength, 0.61);
+  assert.equal(resolved.cloud.cloudShellEdgeContrast, 0.43);
+  assert.equal(Object.keys(resolved.cloud).length, cloud.CLOUD_SHADER_FIELD_COUNT);
 });
 
 // Lab deep-link precedence is part of the Pro/Open-in-Lab contract. Keep a

@@ -88,6 +88,7 @@ export function createDesignerStore({
     glbMode: 'crossed',
     mannequin: false, // 1.8m scale reference figure
     moveMode: 'rotate', // 'pan' | 'rotate' | 'zoom' — what LEFT-drag does in Move
+    previewLod: null, // null = editable live tree; 0..2 = compiled export LOD inspection
     sky: { hour: 12, weather: 'clear' }, // environment presentation (session)
     walkPreview: false, // Keyboard-walk the mannequin around the tree.
     presetDirty: false,
@@ -518,6 +519,15 @@ export function createDesignerStore({
     },
     setMoveMode(moveMode) {
       store.setState({ moveMode });
+    },
+    setPreviewLod(previewLod) {
+      const normalized = previewLod === null || previewLod === 'edit'
+        ? null
+        : Math.min(2, Math.max(0, Math.round(Number(previewLod) || 0)));
+      store.setState({
+        previewLod: normalized,
+        ...(normalized === null ? {} : { selection: null }),
+      });
     },
     setMannequin(mannequin) {
       store.setState({ mannequin });

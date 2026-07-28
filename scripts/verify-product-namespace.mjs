@@ -9,6 +9,8 @@ const productPaths = [
   resolve(root, 'mcp'),
   resolve(root, 'scripts'),
   resolve(root, 'docs'),
+  resolve(root, 'public'),
+  resolve(root, 'ATTRIBUTION.md'),
   resolve(root, 'vite.config.js'),
   resolve(root, 'package.json'),
   resolve(root, '..', 'toonlab-pro', 'src'),
@@ -32,7 +34,9 @@ const ignoredDirectories = new Set([
   '.git',
   '.local-reference',
   'assets-local',
+  'basis',
   'dist',
+  'draco',
   'node_modules',
   'public',
 ]);
@@ -45,6 +49,13 @@ const producerTerms = [
 const abbreviatedProducer = [...[117, 101]]
   .map((code) => String.fromCharCode(code))
   .join('');
+const retiredScaleLabel = [...[109, 101, 103, 97]]
+  .map((code) => String.fromCharCode(code))
+  .join('');
+const retiredScaleLabelCapitalized = [...[77, 101, 103, 97]]
+  .map((code) => String.fromCharCode(code))
+  .join('');
+const retiredScaleLabelUppercase = retiredScaleLabel.toUpperCase();
 const forbidden = new RegExp(
   [
     ...producerTerms.map((term) => `\\b${term}\\b`),
@@ -53,6 +64,9 @@ const forbidden = new RegExp(
     `[_-]${abbreviatedProducer}\\b`,
   ].join('|'),
   'i',
+);
+const retiredScaleLabelForbidden = new RegExp(
+  `(?:\\b${retiredScaleLabel}|${retiredScaleLabelCapitalized}|${retiredScaleLabelUppercase})`,
 );
 const violations = [];
 
@@ -67,7 +81,7 @@ function inspectFile(filePath) {
   if (!readableExtensions.has(extname(filePath))) return;
   const source = readFileSync(filePath, 'utf8');
   for (const [index, line] of source.split(/\r?\n/).entries()) {
-    if (forbidden.test(line)) {
+    if (forbidden.test(line) || retiredScaleLabelForbidden.test(line)) {
       violations.push(`${displayPath(filePath)}:${index + 1}: ${line.trim()}`);
     }
   }
@@ -75,8 +89,9 @@ function inspectFile(filePath) {
 
 function inspectPath(path) {
   if (!existsSync(path)) return;
-  if (forbidden.test(path.split('/').at(-1) ?? '')) {
-    violations.push(`${displayPath(path)}: producer-specific path`);
+  if (forbidden.test(path.split('/').at(-1) ?? '')
+    || retiredScaleLabelForbidden.test(path.split('/').at(-1) ?? '')) {
+    violations.push(`${displayPath(path)}: retired namespace path`);
   }
   const stats = statSync(path);
   if (stats.isFile()) {
@@ -94,7 +109,7 @@ for (const productPath of productPaths) {
 }
 
 if (violations.length > 0) {
-  console.error('Product namespace migration contains producer-specific references:');
+  console.error('Product namespace migration contains retired references:');
   console.error(violations.join('\n'));
   process.exitCode = 1;
 } else {

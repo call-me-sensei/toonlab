@@ -3,10 +3,21 @@
 // Run with: node scripts/verify-weather.mjs
 
 import process from 'node:process';
+import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 
 import {
+  AtmosphericEffectsRenderer,
+  DEFAULT_SNOW_SURFACE_SETTINGS,
+  RainFieldRenderer,
+  SNOW_SURFACE_SHADER_FIELD_SCHEMA,
+  SNOW_SURFACE_SHADER_ID,
+  TOONLAB_RAIN_FIELD_PROFILE,
+  TOONLAB_WEATHER_FIELD_PROFILES,
+  WeatherFieldRenderer,
   WeatherPrecipitation,
+  createSnowSurfaceSettings,
+  createSnowSurfaceUniforms,
   createWeatherPresetDocument,
   createWeatherSettings,
   createWeatherSystem,
@@ -33,6 +44,32 @@ for (const id of ['clear', 'fog', 'rain', 'thunderstorm', 'snow', 'blizzard', 's
   check(`registry includes ${id}`, ids.has(id));
 }
 check('registry has broad condition coverage', ids.size >= 20, `count=${ids.size}`);
+
+check('Snow Surface is a separate public shader module',
+  SNOW_SURFACE_SHADER_ID === 'snow-surface');
+const snowSurfaceFields = Object.values(SNOW_SURFACE_SHADER_FIELD_SCHEMA)
+  .flatMap((group) => Object.values(group));
+check('Snow Surface exposes its complete initial 18-field contract',
+  snowSurfaceFields.length === 18, `count=${snowSurfaceFields.length}`);
+const normalizedSnowSurface = createSnowSurfaceSettings({
+  color: { powderTint: [0.3, 0.5, 0.9] },
+  coverage: { contrast: 4 },
+  response: { powderRoughness: -2, sparkleThreshold: 2 },
+});
+check('Snow Surface preserves valid style color',
+  JSON.stringify(normalizedSnowSurface.color.powderTint)
+    === JSON.stringify([0.3, 0.5, 0.9]));
+check('Snow Surface clamps portable response values',
+  normalizedSnowSurface.coverage.contrast === 1
+    && normalizedSnowSurface.response.powderRoughness === 0
+    && normalizedSnowSurface.response.sparkleThreshold === 0.9999);
+check('Snow Surface defaults are independent mutable settings',
+  normalizedSnowSurface.color.powderTint !== DEFAULT_SNOW_SURFACE_SETTINGS.color.powderTint);
+const snowSurfaceUniforms = createSnowSurfaceUniforms();
+check('Snow Surface publishes live TSL routes for every field',
+  Object.keys(snowSurfaceUniforms).length === 18
+    && snowSurfaceUniforms.uSnowPowderTint?.isNode
+    && snowSurfaceUniforms.uSnowSparkleStrength?.isNode);
 
 // Style axis: the signature identity is a STYLE rendered under every
 // condition, never a condition entry of its own.
@@ -100,6 +137,150 @@ check('different precipitation seed changes the field', seedHash(snowA) !== seed
 check('precipitation stays one draw call', snowA.isMesh && snowA.geometry.instanceCount > 0);
 check('precipitation respects capacity', snowA.geometry.instanceCount <= snowA.capacity);
 
+const rainField = new RainFieldRenderer();
+rainField.applyFrame({
+  ceiling: { amount: 1 },
+  flow: { directionDegrees: 36, maximum: 8, minimum: 4 },
+  precipitation: {
+    emission: { rain: 500 },
+    rain: { amount: 1, tint: [0.701102, 0.947307, 1, 0.7] },
+  },
+});
+const sourceRainCamera = new THREE.PerspectiveCamera(58, 16 / 9, 0.05, 1000);
+sourceRainCamera.position.set(0, 2, 0);
+sourceRainCamera.lookAt(0, 2, -1);
+sourceRainCamera.updateMatrixWorld(true);
+rainField.update(1 / 60, {
+  camera: sourceRainCamera,
+  floorY: 0,
+  renderer: {
+    getDrawingBufferSize(target) { return target.set(1280, 720); },
+  },
+});
+check('rain field keeps drops and collision splashes as independent draws',
+  rainField.children.length === 2
+    && rainField.drops.isMesh
+    && rainField.splashes.isMesh);
+check('rain field profile preserves useful starting dimensions and velocity',
+  JSON.stringify(TOONLAB_RAIN_FIELD_PROFILE.drops.widthMeters)
+      === JSON.stringify([0.03, 0.04])
+    && JSON.stringify(TOONLAB_RAIN_FIELD_PROFILE.drops.lengthMeters)
+      === JSON.stringify([0.5, 0.8])
+    && JSON.stringify(TOONLAB_RAIN_FIELD_PROFILE.drops.velocityMetersPerSecond)
+      === JSON.stringify([30, 40]));
+check('rain field uses a camera-local spawn transform',
+  rainField.drops.material.uniforms.uCenter.value.distanceTo(
+    new THREE.Vector3(0, 10, -10),
+  ) < 0.0001);
+check('downpour maps rate to live drops and collision splashes',
+  rainField.drops.geometry.instanceCount === 1000
+    && rainField.splashes.geometry.instanceCount === 80);
+check('rain is additive, depth-tested, and not a screen overlay',
+  rainField.drops.material.blending === THREE.AdditiveBlending
+    && rainField.drops.material.depthTest
+    && rainField.drops.material.depthWrite === false);
+rainField.dispose();
+
+const atmosphericEffects = new AtmosphericEffectsRenderer();
+atmosphericEffects.applyFrame({
+  profile: { id: 'whiteout' },
+  ceiling: { amount: 1 },
+  fog: { mist: { amount: 1, tint: [0.5, 0.7, 1, 0.2] } },
+  precipitation: {
+    emission: { flakes: 800, mist: 25 },
+    embers: { amount: 0, size: 1, tint: [1, 0.4, 0.2, 1], turbulence: 1 },
+    flakes: {
+      amount: 1,
+      gravity: 0,
+      size: 1,
+      tint: [1.35, 1.42, 1.5, 0.6],
+      turbulence: 1.4,
+    },
+  },
+  electric: {
+    farArc: 0.5,
+    farFlash: 0.3,
+    nearRate: 0,
+    tintHigh: [0.04, 0.07, 1],
+    tintLow: [0.04, 0.2, 1],
+  },
+  flow: {
+    directionDegrees: 36,
+    maximum: 9,
+    minimum: 6,
+    streakAmount: 1,
+    streakOpacity: 0.2,
+  },
+});
+atmosphericEffects.update(1 / 60, {
+  camera: sourceRainCamera,
+  floorY: 0,
+  renderer: {
+    getDrawingBufferSize(target) { return target.set(1280, 720); },
+  },
+});
+check('snow uses a camera-local three-dimensional particle field',
+  TOONLAB_WEATHER_FIELD_PROFILES.flakes.cylinderRadiusMeters === 20
+    && TOONLAB_WEATHER_FIELD_PROFILES.flakes.cylinderHeightMeters === 6
+    && TOONLAB_WEATHER_FIELD_PROFILES.flakes.lifetimeSeconds === 4
+    && atmosphericEffects.flakes.geometry.instanceCount === 3200);
+check('snow keeps authored-scale flakes, gravity, turbulence, and depth testing',
+  JSON.stringify(TOONLAB_WEATHER_FIELD_PROFILES.flakes.sizeMeters)
+      === JSON.stringify([0.06, 0.12])
+    && TOONLAB_WEATHER_FIELD_PROFILES.flakes.gravityMetersPerSecondSquared === 2
+    && atmosphericEffects.flakes.material.depthTest
+    && atmosphericEffects.flakes.material.depthWrite === false);
+check('mist, embers, wind streaks, and electrical events are separate renderers',
+  atmosphericEffects.mist.isMesh
+    && atmosphericEffects.embers.isMesh
+    && atmosphericEffects.windStreaks.isMesh
+    && atmosphericEffects.electrical.isGroup
+    && atmosphericEffects.mist.geometry.instanceCount === 75);
+atmosphericEffects.dispose();
+
+const unifiedFields = new WeatherFieldRenderer({
+  electricalMode: 'manual',
+  seed: 73,
+});
+unifiedFields.applyWeatherSettings(resolveWeatherPreset('heavyRain').settings);
+check('unified weather routes rain through separate drop and splash fields',
+  unifiedFields.rain.drops.visible
+    && unifiedFields.rain.splashes.visible
+    && !unifiedFields.effects.flakes.visible);
+unifiedFields.applyWeatherSettings(resolveWeatherPreset('heavySnow').settings);
+check('unified weather routes snow through the camera-local flake field',
+  !unifiedFields.rain.drops.visible
+    && unifiedFields.effects.flakes.visible
+    && unifiedFields.effects.flakes.material.uniforms.uShape.value === 0);
+unifiedFields.applyWeatherSettings(resolveWeatherPreset('hail').settings);
+check('unified weather gives hail its pellet topology',
+  unifiedFields.effects.flakes.visible
+    && unifiedFields.effects.flakes.material.uniforms.uShape.value === 2);
+unifiedFields.applyWeatherSettings(resolveWeatherPreset('dustStorm').settings);
+check('unified weather gives dust a dark-particle-safe field',
+  unifiedFields.effects.flakes.visible
+    && unifiedFields.effects.flakes.material.uniforms.uShape.value === 1
+    && unifiedFields.effects.flakes.material.blending === THREE.NormalBlending);
+unifiedFields.applyWeatherSettings(resolveWeatherPreset('thunderstorm').settings);
+unifiedFields.triggerLightning();
+check('unified weather exposes coordinated branch and cloud-flash lightning',
+  unifiedFields.effects.electrical.manualStrength > 0);
+unifiedFields.dispose();
+
+const migratedWeatherConsumers = [
+  '../src/weather/weatherSystem.js',
+  '../labs/rock-lab/engine/rockSky.js',
+  '../labs/tree-lab/engine/skyWeather.js',
+].map((relativePath) => readFileSync(
+  new URL(relativePath, import.meta.url),
+  'utf8',
+));
+check('all first-party weather consumers use the unified field renderer',
+  migratedWeatherConsumers.every((source) => (
+    source.includes('WeatherFieldRenderer')
+      && !source.includes('new WeatherPrecipitation')
+  )));
+
 const scene = new THREE.Scene();
 scene.fog = new THREE.Fog(0xa9c9e8, 100, 700);
 const camera = new THREE.PerspectiveCamera();
@@ -134,6 +315,8 @@ const system = createWeatherSystem({
 });
 check('WeatherSystem defaults to the signature style on an explicit condition',
   system.currentPreset === 'clear' && system.currentStyle === 'call_me_sensei');
+check('WeatherSystem renders through the unified field stack',
+  system.precipitation instanceof WeatherFieldRenderer);
 system.setPreset('rain');
 check('WeatherSystem keeps its style identity when the condition changes',
   system.currentStyle === 'call_me_sensei'

@@ -1,14 +1,15 @@
-// Vegetation Shader Lab uses the same production lab shell as Grass Lab.
-// The document is one IP-wide profile; the amber bar owns every scene-only
-// fixture used to prove the same shader works across colors and environments.
+// Tree, Grass, and Flower Shader Labs use one shared vegetation-family shell.
+// The amber bar owns every scene-only fixture used to prove each independent
+// profile under comparable palettes, weather, and time-of-day lighting.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import {
   BrandLockup,
   Button,
   Icon,
   IconButton,
+  LabTimeOfDayControl,
   Popover,
   PresetRowShell,
   PreviewBar,
@@ -16,6 +17,7 @@ import {
   RendererToggle,
   SegmentedControl,
   Select,
+  ShaderPreviewAssetsModal,
   Slider,
   toast,
   ToastStack,
@@ -24,15 +26,29 @@ import {
 } from '../../shared/ui/index.js';
 import { SchemaGroup } from '../../shared/ui/schema/SchemaGroup.jsx';
 import { downloadBlob, pickFile } from '../../shared/download.js';
+import { P18PreviewStylesModal } from '../../shared/p18/PreviewStylesModal.jsx';
 import {
   getVegetationShaderPresetOptions,
+  getVegetationShaderScopeFieldSchema,
+  getVegetationShaderScopeSettingGroups,
+  isVegetationSharedShaderGroup,
+  VEGETATION_SHADER_SCOPES,
   VEGETATION_SHADER_FIELD_SCHEMA,
   VEGETATION_SHADER_SETTING_GROUPS,
 } from '../../../src/vegetation/vegetationShaders.js';
 import {
-  VEGETATION_PREVIEW_MODES,
-  VEGETATION_PREVIEW_PALETTES,
-} from './engine.js';
+  isP18VegetationFieldSupported,
+  isRetainedGrassShaderV2FieldSupported,
+  RETAINED_GRASS_SHADER_V2_FALLBACK_ID,
+  RETAINED_GRASS_SHADER_V2_ID,
+} from '../../../src/vegetation/index.js';
+import {
+  getFlowerShaderPreviewAssets,
+  getTreeShaderPreviewAssets,
+  parseFlowerShaderPreviewAsset,
+  parseTreeShaderPreviewAsset,
+} from '../previewAssets.js';
+import { VEGETATION_PREVIEW_MODES } from './engine.js';
 
 const SECTION_ICONS = Object.freeze({
   bark: 'stage-wood',
@@ -56,6 +72,33 @@ const SECTION_LABELS = Object.freeze({
   weatherResponse: 'Weather',
 });
 
+const LAB_META = Object.freeze({
+  vegetation: Object.freeze({
+    documentSuffix: 'vegetation-shader',
+    label: 'Vegetation Shader Family',
+    placeholder: 'Vegetation compatibility profile…',
+    route: '/vegetation-shader-lab/',
+  }),
+  tree: Object.freeze({
+    documentSuffix: 'tree-shader',
+    label: 'Tree Shader Lab',
+    placeholder: 'Tree shader name…',
+    route: '/tree-shader-lab/',
+  }),
+  grass: Object.freeze({
+    documentSuffix: 'grass-shader',
+    label: 'Grass Shader Lab',
+    placeholder: 'Grass shader name…',
+    route: '/grass-shader-lab/',
+  }),
+  flower: Object.freeze({
+    documentSuffix: 'flower-shader',
+    label: 'Flower Shader Lab',
+    placeholder: 'Flower shader name…',
+    route: '/flower-shader-lab/',
+  }),
+});
+
 function PresetRow({ actions, state }) {
   const localIds = new Set(state.localPresets.map((entry) => entry.id));
   const options = [
@@ -66,8 +109,14 @@ function PresetRow({ actions, state }) {
     })),
   ];
   const isLocal = localIds.has(state.presetId);
+  const profileLabel = state.scope === 'vegetation'
+    ? 'compatibility aggregate'
+    : `${VEGETATION_SHADER_SCOPES[state.scope].label.toLowerCase()} profile`;
   return (
-    <PresetRowShell label="Style" title="One complete IP-wide profile. Switching replaces every semantic role setting.">
+    <PresetRowShell
+      label="Style"
+      title={`One complete ${profileLabel}. Asset geometry and current scene state remain separate.`}
+    >
       <Select
         onChange={(id) => { if (id) actions.applyPreset(id); }}
         options={options}
@@ -81,15 +130,17 @@ function PresetRow({ actions, state }) {
   );
 }
 
-function DocumentMenu({ actions, anchor, onClose, state }) {
+function DocumentMenu({ actions, anchor, meta, onClose, state }) {
   const [name, setName] = useState(state.name);
 
   async function importJson() {
     const file = await pickFile('application/json,.json');
     if (!file) return;
     const result = actions.importDocument(await file.text());
-    if (result.ok) onClose();
-    else for (const error of result.errors ?? ['Could not import the profile.']) {
+    if (result.ok) {
+      for (const warning of result.warnings ?? []) toast(warning);
+      onClose();
+    } else for (const error of result.errors ?? ['Could not import the profile.']) {
       toast(error, { tone: 'danger' });
     }
   }
@@ -98,7 +149,7 @@ function DocumentMenu({ actions, anchor, onClose, state }) {
     <Popover anchor={anchor} onClose={onClose} title="Document" width={310}>
       <div className="gr-doc-menu">
         <div className="gr-save-row">
-          <TextField onCommit={setName} placeholder="Vegetation style name…" value={name} />
+          <TextField onCommit={setName} placeholder={meta.placeholder} value={name} />
           <Button
             kind="primary"
             onClick={() => {
@@ -122,7 +173,7 @@ function DocumentMenu({ actions, anchor, onClose, state }) {
           onClick={() => {
             downloadBlob(
               actions.exportDocument(),
-              `${state.name.replace(/\s+/g, '-').toLowerCase() || 'vegetation'}.vegetation-shader.json`,
+              `${state.name.replace(/\s+/g, '-').toLowerCase() || state.scope}.${meta.documentSuffix}.json`,
               'application/json',
             );
             onClose();
@@ -137,11 +188,28 @@ function DocumentMenu({ actions, anchor, onClose, state }) {
   );
 }
 
-function TopBar({ actions, state }) {
+function FamilyNav({ scope }) {
+  return (
+    <nav className="vg-family-nav" aria-label="Vegetation shader family">
+      {['tree', 'grass', 'flower'].map((id) => (
+        <a
+          key={id}
+          data-active={scope === id}
+          href={LAB_META[id].route}
+          title={VEGETATION_SHADER_SCOPES[id].description}
+        >
+          {VEGETATION_SHADER_SCOPES[id].label.replace(' Shader', '')}
+        </a>
+      ))}
+    </nav>
+  );
+}
+
+function TopBar({ actions, meta, state }) {
   const [menuAnchor, setMenuAnchor] = useState(null);
   return (
     <header className="gr-topbar tk">
-      <BrandLockup labName="Vegetation Shader Lab" />
+      <BrandLockup labName={meta.label} />
       <button
         type="button"
         className="gr-title"
@@ -150,14 +218,19 @@ function TopBar({ actions, state }) {
       >
         {state.name}{state.presetDirty && <span className="gr-dirty">●</span>}<Icon name="chevron-down" />
       </button>
+      <FamilyNav scope={state.scope} />
       <IconButton disabled={!state.canUndo} icon="undo" label="Undo (⌘Z)" onClick={() => actions.undo()} />
       <IconButton disabled={!state.canRedo} icon="redo" label="Redo (⇧⌘Z)" onClick={() => actions.redo()} />
       <span className="gr-topbar-spacer" />
-      <RendererToggle />
+      <RendererToggle
+        supportedKinds={['webgpu']}
+        unsupportedReason="The exact P18 comparison scene requires WebGPU. Portable WebGL validation remains a separate npm release gate."
+      />
       {menuAnchor && (
         <DocumentMenu
           actions={actions}
           anchor={menuAnchor}
+          meta={meta}
           onClose={() => setMenuAnchor(null)}
           state={state}
         />
@@ -166,10 +239,10 @@ function TopBar({ actions, state }) {
   );
 }
 
-function SectionRail({ activeSection, onSectionChange }) {
+function SectionRail({ activeSection, onSectionChange, sections }) {
   return (
     <nav className="gr-rail tk" data-testid="section-rail">
-      {VEGETATION_SHADER_SETTING_GROUPS.map((section) => (
+      {sections.map((section) => (
         <button
           key={section.id}
           type="button"
@@ -187,18 +260,98 @@ function SectionRail({ activeSection, onSectionChange }) {
   );
 }
 
-function Inspector({ actions, sectionId, state }) {
-  const section = VEGETATION_SHADER_SETTING_GROUPS
-    .find((entry) => entry.id === sectionId) ?? VEGETATION_SHADER_SETTING_GROUPS[0];
+function Inspector({ actions, sectionId, sections, state }) {
+  const section = sections.find((entry) => entry.id === sectionId) ?? sections[0];
+  const scopeSchema = state.scope === 'vegetation'
+    ? VEGETATION_SHADER_FIELD_SCHEMA
+    : getVegetationShaderScopeFieldSchema(state.scope);
   return (
     <aside className="gr-inspector tk" data-testid="inspector">
       <PresetRow actions={actions} state={state} />
       <h2 className="gr-inspector-header" data-testid="inspector-title">{section.label}</h2>
       <p className="gr-inspector-caption">{section.description}</p>
+      {isVegetationSharedShaderGroup(section.id) && (
+        <div className="vg-shared-impact" data-testid="shared-base-impact">
+          <strong>Shared vegetation base</strong>
+          <span>
+            Changes here affect Tree foliage, Bark / wood, Grass / groundcover,
+            and Flower petals, centers, leaves, and stems. Per-profile splitting
+            is not enabled; a future explicit override can detach one profile
+            without changing this base.
+          </span>
+        </div>
+      )}
+      {section.id === 'weatherResponse' && (
+        <div className="vg-shared-impact" data-testid="snow-surface-owner">
+          <strong>Shared Snow Surface</strong>
+          <span>
+            Powder, blue shadow body, structure, roughness, sparkle, and melt
+            come from the preview style bundle&apos;s Snow Surface shader.
+            These vegetation controls only adjust wet response, coverage edge,
+            tint multiplier, and light visibility on vegetation receivers.
+            Use Preview styles to compare the shared Snow Surface style.
+          </span>
+        </div>
+      )}
+      {(state.scope === 'tree' || state.scope === 'flower')
+        && section.id === 'foliage' && (
+        <div className="vg-asset-owner" data-testid="foliage-palette-owner">
+          <strong>
+            Attached-leaf palette comes from the preview {state.scope === 'tree' ? 'tree' : 'flower'}
+          </strong>
+          <span>
+            Main and gradient foliage colors identify the plant asset or
+            species, so this canonical shader profile does not serialize them. Gradient
+            shaping, hue treatment, lighting, surface response, and
+            transmission remain shader-owned. Change preview assets to verify
+            that the same profile preserves different authored palettes.
+          </span>
+        </div>
+      )}
+      {state.scope === 'flower' && section.id === 'flower' && (
+        <div className="vg-asset-owner" data-testid="flower-palette-owner">
+          <strong>Petal and center colors come from the preview flower</strong>
+          <span>
+            Species palette, authored flower texture, center mask, petal
+            geometry, alpha cutoff, and stable variation seed belong to the
+            flower asset. Flower Shader v3 owns how those inputs receive
+            bands, highlights, transmission, subsurface light, petal-cup
+            shading, and center light/shadow response.
+          </span>
+        </div>
+      )}
+      {state.scope === 'flower' && section.id === 'stem' && (
+        <div className="vg-asset-owner" data-testid="stem-palette-owner">
+          <strong>Stem base color comes from the preview flower</strong>
+          <span>
+            The plant recipe owns the botanical stem color and texture.
+            Flower Shader v3 owns stem roughness, highlight, emission, bands,
+            shadow floor, transmission, sky fill, and rim treatment.
+          </span>
+        </div>
+      )}
       <SchemaGroup
-        fields={VEGETATION_SHADER_FIELD_SCHEMA[section.id]}
+        fields={scopeSchema[section.id]}
         getValue={(field) => state.settings[section.id][field.key]}
         group={section}
+        isDisabled={(field) => {
+          if (
+            state.scope === 'grass'
+            && state.runtimeAdapter === RETAINED_GRASS_SHADER_V2_FALLBACK_ID
+          ) {
+            return 'The retained P18 fallback is intentionally immutable. Remove grassAdapter=retained-p18 from the URL to edit the modular Grass V2 shader.';
+          }
+          if (
+            state.scope !== 'vegetation'
+            && state.runtimeAdapter !== 'canonical-vegetation-procedural'
+            && !(state.scope === 'grass'
+              ? isRetainedGrassShaderV2FieldSupported(field)
+              : isP18VegetationFieldSupported(state.scope, field))
+          ) {
+            return 'This portable field has no independent input in the retained P18 fixture graph. It remains available for correctly labeled assets that implement the full role contract.';
+          }
+          return false;
+        }}
         onChange={(field, value) => actions.setSetting(section.id, field.key, value)}
         showCaption={false}
       />
@@ -206,29 +359,30 @@ function Inspector({ actions, sectionId, state }) {
   );
 }
 
-function VegetationPreviewBar({ actions, engine, state }) {
+function VegetationPreviewBar({
+  actions,
+  engine,
+  onPreviewAssetsOpen,
+  onPreviewStylesOpen,
+  state,
+}) {
   return (
     <PreviewBar
       hint="Left-drag rotate · wheel zoom · right-drag pan"
-      title="Preview only — view, albedo palette, wind, and current weather are never saved into the shader profile."
+      title="Accepted P18 comparison scene. Geometry, retained source textures, surrounding styles, visibility, current wind/weather, time, and camera are preview-only."
     >
       <SegmentedControl
         onChange={(viewMode) => actions.setView({ viewMode })}
-        options={VEGETATION_PREVIEW_MODES.map((entry) => ({ label: entry.label, value: entry.id }))}
+        options={VEGETATION_PREVIEW_MODES.map((entry) => ({
+          label: entry.label,
+          value: entry.id,
+        }))}
         testId="preview-mode"
         value={state.view.viewMode}
       />
-      <span className="gr-stagebar-select--debug" title="Material albedo fixture. 10 colors proves one shader profile is reused unchanged.">
-        <Select
-          onChange={(palette) => actions.setView({ palette })}
-          options={VEGETATION_PREVIEW_PALETTES.map((entry) => ({ label: entry.label, value: entry.id }))}
-          testId="preview-palette"
-          value={state.view.palette}
-        />
-      </span>
       <span className="tk-previewbar-slider" title="Scene wind amount; response shape belongs to the profile.">
         <span>Wind</span>
-        <Slider max={0.5} min={0} onChange={(windStrength) => actions.setView({ windStrength })} step={0.01} value={state.view.windStrength} />
+        <Slider max={3} min={0} onChange={(windStrength) => actions.setView({ windStrength })} step={0.05} value={state.view.windStrength} />
       </span>
       <PreviewToggle
         checked={state.view.wetness > 0}
@@ -240,9 +394,46 @@ function VegetationPreviewBar({ actions, engine, state }) {
       <PreviewToggle
         checked={state.view.snowCover > 0}
         label="Snow"
-        onChange={(checked) => actions.setView({ snowCover: checked ? 0.8 : 0 })}
+        onChange={(checked) => actions.setView({ snowCover: checked ? 1 : 0 })}
         testId="preview-snow"
-        title="Current scene snow coverage; only snow response belongs to the profile."
+        title="Deep-snow preview: continuous ground accumulation plus the profile-owned vegetation response. Current snow amount is not saved."
+      />
+      {state.scope === 'grass' && (
+        <PreviewToggle
+          checked={state.view.interactionAmount > 0}
+          label="Push"
+          onChange={(checked) => actions.setView({
+            interactionAmount: checked ? 1 : 0,
+          })}
+          testId="preview-grass-interaction"
+          title="Preview-only interaction field used to verify Grass Interaction Response. The target itself is never saved into the shader profile."
+        />
+      )}
+      {(state.scope === 'tree' || state.scope === 'flower') && (
+        <Button
+          icon="stage-shape"
+          kind="secondary"
+          onClick={onPreviewAssetsOpen}
+          testId="preview-assets"
+          title={`Switch between the immutable P18 ${state.scope === 'tree' ? 'pine' : 'daisies'} and labeled procedural ${state.scope} recipes. This selection is never saved in the shader profile.`}
+        >
+          {state.view.previewAsset?.label ?? 'Preview assets'}
+        </Button>
+      )}
+      <Button
+        icon="stage-look"
+        kind="secondary"
+        onClick={onPreviewStylesOpen}
+        testId="preview-styles"
+        title="Select a complete style bundle, override surrounding shaders, or hide scene components."
+      >
+        Preview styles
+      </Button>
+      <LabTimeOfDayControl
+        autoCycle={state.previewAutoCycle}
+        hour={state.previewHour}
+        onAutoCycleChange={actions.setPreviewAutoCycle}
+        onHourChange={actions.setPreviewHour}
       />
       <IconButton icon="reset" label="Reset camera (C)" onClick={() => engine.resetCamera()} />
     </PreviewBar>
@@ -250,13 +441,34 @@ function VegetationPreviewBar({ actions, engine, state }) {
 }
 
 function StatusBar({ state }) {
-  const { applied, matched, unsupported, writes } = state.coverage;
+  const {
+    applied,
+    fallback = 0,
+    matched,
+    unsupported,
+    writes,
+  } = state.coverage;
+  const adapterLabel = state.runtimeAdapter === RETAINED_GRASS_SHADER_V2_ID
+    ? 'Grass V2'
+    : state.runtimeAdapter === RETAINED_GRASS_SHADER_V2_FALLBACK_ID
+      ? 'Retained P18 fallback'
+      : state.runtimeAdapter === 'canonical-vegetation-procedural'
+        ? `Procedural asset · canonical ${VEGETATION_SHADER_SCOPES[state.scope]?.label ?? 'Vegetation Shader'}`
+        : null;
+  const coverageLabel = state.runtimeAdapter === RETAINED_GRASS_SHADER_V2_ID
+    ? `${writes} field routes`
+    : `${writes} writes`;
   return (
     <footer className="gr-status tk" data-testid="status-bar">
       <span className="gr-status-message">{state.status}</span>
       <span className="gr-status-spacer" />
+      {adapterLabel && (
+        <span className="gr-status-meta" data-testid="shader-adapter">
+          {adapterLabel}{fallback > 0 ? ` · ${fallback} fallback` : ''}
+        </span>
+      )}
       <span className="gr-status-meta" data-testid="contract-coverage">
-        {matched} materials · {applied} applied · {writes} writes · {unsupported} unsupported
+        {matched} materials · {applied} applied · {coverageLabel} · {unsupported} unsupported
       </span>
     </footer>
   );
@@ -265,19 +477,95 @@ function StatusBar({ state }) {
 export function App({ engine, store }) {
   const state = useStoreState(store);
   const { actions } = store;
-  const [sectionId, setSectionId] = useState('lighting');
+  const sections = state.scope === 'vegetation'
+    ? VEGETATION_SHADER_SETTING_GROUPS
+    : getVegetationShaderScopeSettingGroups(state.scope);
+  const [sectionId, setSectionId] = useState(sections[0]?.id ?? 'lighting');
+  const [previewAssetsOpen, setPreviewAssetsOpen] = useState(false);
+  const [previewStylesOpen, setPreviewStylesOpen] = useState(false);
+  const meta = LAB_META[state.scope] ?? LAB_META.vegetation;
+  const authoredComponent = state.scope === 'flower'
+    ? 'flowers'
+    : state.scope === 'vegetation'
+      ? ['tree', 'grass', 'flowers']
+      : state.scope;
+  const previewAssets = useMemo(() => {
+    if (state.scope !== 'tree' && state.scope !== 'flower') return [];
+    const available = state.scope === 'tree'
+      ? getTreeShaderPreviewAssets()
+      : getFlowerShaderPreviewAssets();
+    const selected = state.view.previewAsset;
+    if (selected && !available.some(({ id }) => id === selected.id)) {
+      available.unshift(selected);
+    }
+    return available;
+  }, [state.scope, state.view.previewAsset]);
 
-  useEffect(() => { document.title = `${state.name} — Vegetation Shader Lab`; }, [state.name]);
+  async function importPreviewAsset() {
+    const file = await pickFile('application/json,.json');
+    if (!file) return;
+    const parser = state.scope === 'flower'
+      ? parseFlowerShaderPreviewAsset
+      : parseTreeShaderPreviewAsset;
+    const result = parser(await file.text(), {
+      fallbackLabel: file.name.replace(/\.json$/i, ''),
+    });
+    if (!result.ok) {
+      for (const error of result.errors ?? [`Could not import the ${state.scope} recipe.`]) {
+        toast(error, { tone: 'danger' });
+      }
+      return;
+    }
+    actions.setPreviewAsset(result.value);
+    toast(`Previewing ${result.value.label}.`, { tone: 'success' });
+  }
+
+  useEffect(() => { document.title = `${state.name} — ${meta.label}`; }, [meta.label, state.name]);
 
   return (
     <div className="tk">
       <div className="gr-root">
-        <TopBar actions={actions} state={state} />
-        <SectionRail activeSection={sectionId} onSectionChange={setSectionId} />
-        <Inspector actions={actions} sectionId={sectionId} state={state} />
+        <TopBar actions={actions} meta={meta} state={state} />
+        <SectionRail
+          activeSection={sectionId}
+          onSectionChange={setSectionId}
+          sections={sections}
+        />
+        <Inspector
+          actions={actions}
+          sectionId={sectionId}
+          sections={sections}
+          state={state}
+        />
         <StatusBar state={state} />
       </div>
-      <VegetationPreviewBar actions={actions} engine={engine} state={state} />
+      <VegetationPreviewBar
+        actions={actions}
+        engine={engine}
+        onPreviewAssetsOpen={() => setPreviewAssetsOpen(true)}
+        onPreviewStylesOpen={() => setPreviewStylesOpen(true)}
+        state={state}
+      />
+      {previewAssetsOpen
+        && (state.scope === 'tree' || state.scope === 'flower') && (
+        <ShaderPreviewAssetsModal
+          artifactLabel={`${VEGETATION_SHADER_SCOPES[state.scope].label} profile`}
+          assets={previewAssets}
+          onClose={() => setPreviewAssetsOpen(false)}
+          onImport={importPreviewAsset}
+          onSelect={actions.setPreviewAsset}
+          selectedId={state.view.previewAsset?.id}
+        />
+      )}
+      {previewStylesOpen && (
+        <P18PreviewStylesModal
+          actions={actions}
+          artifactLabel={`${meta.label} profile`}
+          authoredComponent={authoredComponent}
+          onClose={() => setPreviewStylesOpen(false)}
+          state={state}
+        />
+      )}
       <ToastStack />
     </div>
   );

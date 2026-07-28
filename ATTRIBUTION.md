@@ -8,10 +8,11 @@ Code is MIT-licensed by Hyperbond Studio PTE. LTD. (see LICENSE). The assets bun
 |---|---|---|---|
 | Mannequin character (45 embedded animation clips) | `public/characters/mannequin.glb` | CC0 1.0 | [Quaternius — Universal Animation Library](https://quaternius.com/packs/universalanimationlibrary.html), recolored to neutral grays. See `public/characters/LICENSE.md`. |
 | Landscape textures (grassy-land, land, mountain, rock, sand, tree-trunk) | `labs/shared/textures/` | CC0 1.0 | First-party (created by the toonlab authors), dedicated to the public domain. |
-| Water Lab sea fern model | `public/water-lab/cc0/quaternius/fern-1.glb` | CC0 1.0 | [Quaternius — Fern 1, Stylized Nature MegaKit](https://quaternius.itch.io/stylized-nature-megakit), selected through the [ToonLab catalog](https://toonlab.io/asset/quaternius:stylized-nature-megakit-fern-1). |
+| Water Lab sea fern model | `public/water-lab/cc0/quaternius/fern-1.glb` | CC0 1.0 | [Quaternius — Fern 1](https://quaternius.com), selected through the ToonLab catalog. |
 | Water Lab Coast Sand 01 texture set | `public/water-lab/cc0/polyhaven/` | CC0 1.0 | [Rob Tuytel — Coast Sand 01, Poly Haven](https://polyhaven.com/a/coast_sand_01), selected through the [ToonLab catalog](https://toonlab.io/asset/polyhaven:coast_sand_01). |
 | City street models (buildings, roads, cars, street props — 28 models) | `public/props/cc0/kaykit-city/` | CC0 1.0 | [Kay Lousberg — KayKit City Builder Bits](https://kaylousberg.com). Attribution optional under CC0; credited with thanks. See the bundled `LICENSE.txt`. |
 | Furniture models (tables, chairs, couch, lamps, shelves — 17 models) | `public/props/cc0/kaykit-furniture/` | CC0 1.0 | [Kay Lousberg — KayKit Furniture Bits](https://kaylousberg.com). Attribution optional under CC0; credited with thanks. See the bundled `LICENSE.txt`. |
+| Manufactured Material Lab Wooden Crate 01 sample | `public/manufactured-material-lab/cc0/polyhaven/wooden_crate_01/` | CC0 1.0 | [James Ray Cock — Wooden Crate 01, Poly Haven](https://polyhaven.com/a/wooden_crate_01). See the bundled manifest and `LICENSE.txt`. |
 | Environment Lab Wood Floor texture | `public/environments/cc0/polyhaven/wood-floor-diff-1k.jpg` | CC0 1.0 | [Dimitrios Savva — Wood Floor, Poly Haven](https://polyhaven.com/a/wood_floor) |
 | Environment Lab Painted Plaster Wall texture | `public/environments/cc0/polyhaven/painted-plaster-wall-diff-1k.jpg` | CC0 1.0 | [Amal Kumar — Painted Plaster Wall, Poly Haven](https://polyhaven.com/a/painted_plaster_wall) |
 | Environment Lab photoscanned furniture (Sofa 02, Modern Arm Chair 01, Round Wooden Table 01, Classic Console 01, Steel Frame Shelves 01, Potted Plant 04) | `public/environments/cc0/polyhaven/models/` | CC0 1.0 | [Poly Haven models](https://polyhaven.com/models) (1k glTF), per-asset credits on each asset page |
@@ -36,7 +37,7 @@ folder that is **not** part of this repository:
   for testing; or pass any hosted URL via the HUD's Model URL field /
   `?model=`. Make sure you have the rights to any model you load.
 - **Scanned props/environments** (`assets-local/environments/`) — licensed
-  packs (Fab/Megascans etc.) can be dropped in for the demo scenes;
+  photoscan packs can be dropped in for the demo scenes;
   the scenes render procedural stand-ins when they're absent.
 
 ## Recommended free sources

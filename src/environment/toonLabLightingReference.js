@@ -54,7 +54,7 @@ export function toonLabLightingSrgbToLinear(color) {
   return color.map(toonLabLightingSrgbChannelToLinear);
 }
 
-// Precise values exported from the supplied M_Demonstration_Mega scene.
+// Precise values exported from the supplied EnvironmentReferenceScene scene.
 const TOONLAB_SUN_COLOR_SRGB = freezeVector([
   1,
   0.9443990588188171,
@@ -121,7 +121,7 @@ export const TOONLAB_LIGHTING_REFERENCE = Object.freeze({
   }),
   sources: Object.freeze({
     sceneManifest:
-      'assets-local/toonlab/mega-scene/scene-manifest.json',
+      'assets-local/reference-environment/environment-scene/scene-manifest.json',
     brdf:
       'ToonLab renderer ShaderLibrary/BRDF.hlsl:9-96,177-214',
     lighting:

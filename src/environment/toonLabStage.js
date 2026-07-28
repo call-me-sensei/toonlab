@@ -1,5 +1,5 @@
 // ToonLab-authoritative scene lighting and camera post stack for the supplied
-// ToonLab Mega demonstration. This module intentionally has no ToonLab
+// environment reference demonstration. This module intentionally has no ToonLab
 // inputs and no visual tuning constants: every numeric source value comes
 // from TOONLAB_RENDER_CONTRACT. Renderer-specific bridges are
 // labelled in returned metadata instead of being presented as exact ports.
@@ -43,7 +43,7 @@ import {
 const freezeArray = (values) => Object.freeze([...values]);
 
 export const TOONLAB_STAGE_LIGHT_SOURCE = Object.freeze({
-  manifest: 'assets-local/toonlab/mega-scene/scene-manifest.json',
+  manifest: 'assets-local/reference-environment/environment-scene/scene-manifest.json',
   manifestSha256: '17c48bdc1809a02eaa157eec3146f86e1ab9614bc25d00952870125deece4ccd',
   lightIndex: 0,
   lightNode: 1552,
@@ -207,7 +207,7 @@ export function createToonLabStageLights(root, {
   light.userData.toonLab.casterReport = casterReport;
   light.userData.toonLab.shadowDepthSpan = {
     cascadeRuntime: 'per-cascade orthographic depth span',
-    derivation: 'ToonLab native oracle for the supplied Mega camera/sun pose; conservative fitted-sphere radius plus light margin for other poses',
+    derivation: 'ToonLab native oracle for the supplied reference camera/sun pose; conservative fitted-sphere radius plus light margin for other poses',
     maxReceiverDistance: TOONLAB_SHADOW_CONTRACT.distance,
     nativeOracle: csm.userData.toonLab.nativeOracle,
     rasterDepthBias: { ...TOONLAB_SHADOW_CONTRACT.rasterDepthBias },

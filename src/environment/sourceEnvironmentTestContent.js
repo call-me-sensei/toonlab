@@ -26,11 +26,11 @@ import {
 } from '../../examples/urban-prop-shader/urbanPropMaterial.js';
 
 const TOONLAB_SOURCE_PINE_LOD0_URL =
-  '/assets-local/toonlab/catalog-meshes/Trees/Pine/SM_Pine01/lod0.glb';
+  '/assets-local/reference-materials/catalog-meshes/Trees/Pine/SM_Pine01/lod0.glb';
 const TOONLAB_SOURCE_GRASS_LOD0_URL =
-  '/assets-local/toonlab/catalog-meshes/Foliage/SM_Grass1/lod0.glb';
+  '/assets-local/reference-materials/catalog-meshes/Foliage/SM_Grass1/lod0.glb';
 const TOONLAB_SOURCE_DAISIES_LOD0_URL =
-  '/assets-local/toonlab/catalog-meshes/Foliage/SM_Flower_Daisies1/lod0.glb';
+  '/assets-local/reference-materials/catalog-meshes/Foliage/SM_Flower_Daisies1/lod0.glb';
 const P18_PROP_CONTRACT_URL =
   '/assets-local/parity/environment/p18-stylized-basic-props.json';
 const P19_MOUNTAIN_CLIFF_CONTRACT_URL =
@@ -38,7 +38,7 @@ const P19_MOUNTAIN_CLIFF_CONTRACT_URL =
 const TOONLAB_SOURCE_STYLIZED_BASIC_FIXTURES = Object.freeze([
   Object.freeze({
     name: 'SM_Beach_BandedTulip',
-    url: '/assets-local/toonlab/catalog-meshes/Misc/SM_Beach_BandedTulip/lod0.glb',
+    url: '/assets-local/reference-materials/catalog-meshes/Misc/SM_Beach_BandedTulip/lod0.glb',
     positionMeters: [1.05, 0, -0.72],
     rotationYDegrees: -18,
     scale: 1,
@@ -47,7 +47,7 @@ const TOONLAB_SOURCE_STYLIZED_BASIC_FIXTURES = Object.freeze([
   }),
   Object.freeze({
     name: 'SM_Beach_Conch',
-    url: '/assets-local/toonlab/catalog-meshes/Misc/SM_Beach_Conch/lod0.glb',
+    url: '/assets-local/reference-materials/catalog-meshes/Misc/SM_Beach_Conch/lod0.glb',
     positionMeters: [2.05, 0, -0.55],
     rotationYDegrees: 32,
     scale: 0.62,
@@ -56,7 +56,7 @@ const TOONLAB_SOURCE_STYLIZED_BASIC_FIXTURES = Object.freeze([
   }),
   Object.freeze({
     name: 'SM_Beach_SandDollar',
-    url: '/assets-local/toonlab/catalog-meshes/Misc/SM_Beach_SandDollar/lod0.glb',
+    url: '/assets-local/reference-materials/catalog-meshes/Misc/SM_Beach_SandDollar/lod0.glb',
     positionMeters: [1.48, 0, -0.16],
     rotationYDegrees: 11,
     scale: 1,
@@ -65,7 +65,7 @@ const TOONLAB_SOURCE_STYLIZED_BASIC_FIXTURES = Object.freeze([
   }),
   Object.freeze({
     name: 'SM_Beach_Scallop',
-    url: '/assets-local/toonlab/catalog-meshes/Misc/SM_Beach_Scallop/lod0.glb',
+    url: '/assets-local/reference-materials/catalog-meshes/Misc/SM_Beach_Scallop/lod0.glb',
     positionMeters: [2.55, 0, -0.12],
     rotationYDegrees: -28,
     scale: 1,
@@ -74,7 +74,7 @@ const TOONLAB_SOURCE_STYLIZED_BASIC_FIXTURES = Object.freeze([
   }),
   Object.freeze({
     name: 'SM_Beach_Starfish',
-    url: '/assets-local/toonlab/catalog-meshes/Misc/SM_Beach_Starfish/lod0.glb',
+    url: '/assets-local/reference-materials/catalog-meshes/Misc/SM_Beach_Starfish/lod0.glb',
     positionMeters: [2.93, 0, -0.58],
     rotationYDegrees: 17,
     scale: 1,
@@ -83,25 +83,31 @@ const TOONLAB_SOURCE_STYLIZED_BASIC_FIXTURES = Object.freeze([
   }),
 ]);
 const TOONLAB_SOURCE_TOONLAB_SHOWCASE_HEIGHT_GRID_URL =
-  '/assets-local/toonlab/landscape-heightfields/ToonLabShowcase/'
+  '/assets-local/reference-materials/landscape-heightfields/ToonLabShowcase/'
   + 'p14-camera-render1-patch.json';
 const TOONLAB_SOURCE_TOONLAB_SHOWCASE_GRASS_WEIGHT_URLS = Object.freeze({
-  Grass: '/assets-local/toonlab/landscape-weight-layers/ToonLabShowcase/'
+  Grass: '/assets-local/reference-materials/landscape-weight-layers/ToonLabShowcase/'
     + '_source/raw/01-Grass.r8',
-  SnowGrass: '/assets-local/toonlab/landscape-weight-layers/ToonLabShowcase/'
+  SnowGrass: '/assets-local/reference-materials/landscape-weight-layers/ToonLabShowcase/'
     + '_source/raw/05-SnowGrass.r8',
-  SnowGrassBlue: '/assets-local/toonlab/landscape-weight-layers/ToonLabShowcase/'
+  SnowGrassBlue: '/assets-local/reference-materials/landscape-weight-layers/ToonLabShowcase/'
     + '_source/raw/07-SnowGrassBlue.r8',
 });
 const TOONLAB_SOURCE_AUTO_CLIFF_NOISE_URL =
-  '/assets-local/toonlab/material-source/textures/'
+  '/assets-local/reference-materials/material-source/textures/'
   + 'ToonLab/Textures/Noise/T_NoiseStylized.png';
 const TOONLAB_SOURCE_P15_GRASS_CONTRACT_URL =
-  '/assets-local/toonlab/grass/p15-toonlab-grass-contract.json';
+  '/assets-local/reference-materials/grass/p15-toonlab-grass-contract.json';
 const TOONLAB_SOURCE_P16_TREE_CONTRACT_URL =
-  '/assets-local/toonlab/trees/p16-toonlab-pine-contract.json';
+  '/assets-local/reference-materials/trees/p16-toonlab-pine-contract.json';
 const TOONLAB_SOURCE_P17_DAISY_CONTRACT_URL =
-  '/assets-local/toonlab/foliage/p17-toonlab-daisy-contract.json';
+  '/assets-local/reference-materials/foliage/p17-toonlab-daisy-contract.json';
+const LOCAL_MATERIAL_SOURCE_BASE_URL =
+  '/assets-local/reference-materials/material-source';
+const LOCAL_LANDSCAPE_WEIGHT_BASE_URL =
+  '/assets-local/reference-materials/landscape-weight-layers/ToonLabShowcase';
+const LOCAL_ENVIRONMENT_TEXTURE_BASE_URL =
+  '/assets-local/reference-environment/environment-baseline';
 const TOONLAB_VISUAL_TARGET_SOURCE_ASSET = 'Demonstration_ToonLabShowcase';
 // CameraRender1's authored grassy foreground footprint in the retained
 // ToonLabShowcase level, expressed in ToonLab world X/Y meters. The compact stage remains
@@ -1515,7 +1521,11 @@ export async function createSourceEnvironmentTestContent({
     stylizedBasicPropGltfs,
     mountainCliffGltfs,
   ] = await Promise.all([
-    loadToonLabSourceLibrary(),
+    loadToonLabSourceLibrary({
+      baseUrl: LOCAL_MATERIAL_SOURCE_BASE_URL,
+      environmentBaseUrl: LOCAL_ENVIRONMENT_TEXTURE_BASE_URL,
+      landscapeWeightBaseUrl: LOCAL_LANDSCAPE_WEIGHT_BASE_URL,
+    }),
     new GLTFLoader().loadAsync(TOONLAB_SOURCE_PINE_LOD0_URL),
     new GLTFLoader().loadAsync(TOONLAB_SOURCE_GRASS_LOD0_URL),
     new GLTFLoader().loadAsync(TOONLAB_SOURCE_DAISIES_LOD0_URL),
@@ -1835,5 +1845,6 @@ export async function createSourceEnvironmentTestContent({
     stylizedBasic,
     mountainCliff,
     tree,
+    vegetationState,
   };
 }

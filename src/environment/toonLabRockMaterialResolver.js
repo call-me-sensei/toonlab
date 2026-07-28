@@ -11,8 +11,7 @@ export const TOONLAB_ROCK_MATERIAL_LIBRARY_SCHEMA =
 
 export const TOONLAB_ROCK_MATERIAL_LIBRARY_SCHEMA_VERSION = 1;
 
-export const DEFAULT_TOONLAB_ROCK_MATERIAL_LIBRARY_URL =
-  '/assets-local/toonlab/rock-material-library.json';
+export const DEFAULT_TOONLAB_ROCK_MATERIAL_LIBRARY_URL = null;
 
 export function normalizeToonLabRockMaterialLibrarySchema(schema) {
   if (schema === TOONLAB_ROCK_MATERIAL_LIBRARY_SCHEMA) {
@@ -511,6 +510,9 @@ export async function loadToonLabRockMaterialLibrary({
 } = {}) {
   if (typeof fetchImpl !== 'function') {
     throw new Error('A fetch implementation is required to load ToonLab rock materials.');
+  }
+  if (typeof url !== 'string' || !url.trim()) {
+    throw new Error('A configured rock material library URL is required.');
   }
   const cacheKey = String(url);
   if (!materialLibraryPromises.has(cacheKey)) {

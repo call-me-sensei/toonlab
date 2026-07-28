@@ -48,7 +48,7 @@ export const TOONLAB_SHADOW_SOURCE = Object.freeze({
   pipelineAssetSha256: '4d93ab2502566226745655f20650650e878d5a6e9e004b2079c89f0314c5331a',
   qualitySettings: 'ToonLab/Settings/Quality.toonlab-data',
   qualitySettingsSha256: '6814d6cc3eb850dd7d2a069a8b17ba9f7591deba8b1758a855978bd9c8627643',
-  scene: 'Assets/ToonLab/Demo/M_Demonstration_Mega.toonlab',
+  scene: 'Assets/ToonLab/Demo/EnvironmentReferenceScene.toonlab',
   sceneSha256: 'a024b1a62a99f054dbd3a700c5d1707e4b90498f37d64a375f8c39f222bce58b',
   skyPrefab: 'ToonLab/Environment/Sky/P_Sky.toonlab-object',
   skyPrefabGuid: '2af931b84714f9a468a5f2be79304847',
@@ -117,7 +117,7 @@ export const TOONLAB_SHADOW_CONTRACT = Object.freeze({
 // CullingResults.ComputeDirectionalShadowMatricesAndCullingPrimitives().
 // ToonLab's public C# package delegates sphere fitting, projection padding,
 // stabilization and caster planes to this native function, so the capture is
-// the numerical authority for the supplied 1920x1080 Mega camera.
+// the numerical authority for the supplied 1920x1080 reference camera.
 export const TOONLAB_SHADOW_NATIVE_ORACLE = Object.freeze({
   capture: 'docs/source-shader-audits/toonlab-shadow-cascade-oracle.json',
   captureRawSha256: 'eca8d06093d8b9ecc3145aaa2201e2151c8393c3d45e122d5e57e3b92f4f605d',
@@ -209,7 +209,7 @@ export const TOONLAB_SHADOW_NATIVE_ORACLE = Object.freeze({
 export const TOONLAB_SHADOW_CASTER_PASS_CONTRACT = Object.freeze({
   activeSubshader: 0,
   generatedShaderManifest:
-    'assets-local/toonlab/generated-shaders/manifest.json',
+    'assets-local/reference-environment/generated-shaders/manifest.json',
   generatedShaderManifestSha256:
     '85aa10383cce4604af5cb232813031b9653111366815f4cb95787906ad2a9ca9',
   shaderHasShadowCasterPass: Object.freeze({
@@ -1298,7 +1298,7 @@ export function classifyToonLabShadowCaster(object) {
   while (current) {
     if (current.userData?.toonLabTerrainTree) return 'terrain-tree';
     if (current.userData?.toonLabTerrainDetail) return 'terrain-detail';
-    if (current.userData?.toonLabMegaTerrain) return 'terrain-surface';
+    if (current.userData?.environmentReferenceTerrain) return 'terrain-surface';
     current = current.parent;
   }
   if (object.userData?.toonLabRenderer) return 'scene-renderer';
@@ -1948,7 +1948,7 @@ export class ToonLabCsmShadowNode extends CSMShadowNode {
         runtimeDiagnostics: this._toonLabAtlasState.diagnostics,
         remainingRendererBridges: [
           'Native eight-plane caster culling is exact for exported Renderer.bounds; generated Terrain/detail aggregate meshes retain a conservative Three bounding-sphere fallback until their ToonLab patch bounds are represented as independent render primitives.',
-          'ToonLab native projection-depth placement is oracle-exact for the supplied Mega camera/sun pose; non-source camera/light poses use the recovered sphere fit plus conservative generic caster depth.',
+          'ToonLab native projection-depth placement is oracle-exact for the supplied reference camera/sun pose; non-source camera/light poses use the recovered sphere fit plus conservative generic caster depth.',
         ],
       },
     };

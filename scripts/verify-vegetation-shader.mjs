@@ -14,6 +14,20 @@ import {
 import { createWoodySurfaceNodeMaterial } from '../src/shaders-tsl/woody-surface.js';
 import { createGrassSettings } from '../src/vegetation/stylizedGrass.js';
 import { createFlowerSettings } from '../src/vegetation/stylizedFlowers.js';
+import {
+  createStylizedTreeSettings,
+  deriveCanopyPalette,
+} from '../src/vegetation/index.js';
+import {
+  FLOWER_SPECIES,
+  createFlowerHeadGeometry,
+} from '../src/vegetation/flowerSpecies.js';
+import { BUILT_IN_TREE_PRESETS } from '../labs/tree-lab/treePresetStore.js';
+import {
+  getFlowerShaderPreviewAssets,
+  P18_FLOWER_SHADER_PREVIEW_ASSET,
+  parseFlowerShaderPreviewAsset,
+} from '../labs/vegetation-shader-lab/previewAssets.js';
 
 import {
   BARK_SHADER,
@@ -29,17 +43,49 @@ import {
   applyFoliageShader,
   applyGrassShader,
   applyVegetationShader,
+  applyVegetationShaderScope,
+  createFlowerShaderProfilePresetDocument,
+  createGrassShaderProfilePresetDocument,
   createGrassShaderSettings,
+  createTreeShaderPresetDocument,
+  createVegetationSharedShaderSettings,
   createVegetationShaderPresetDocument,
   createVegetationShaderSettings,
+  FLOWER_SHADER_PROFILE_DOCUMENT_TYPE,
+  FLOWER_SHADER_PROFILE_SCHEMA_VERSION,
+  GRASS_SHADER_PROFILE_DOCUMENT_TYPE,
+  GRASS_SHADER_PROFILE_SCHEMA_VERSION,
   getVegetationMaterialContract,
   getVegetationShaderPresetOptions,
+  getVegetationShaderScopeExcludedFields,
+  getVegetationShaderScopeFieldSchema,
+  mergeVegetationSharedShaderSettings,
+  parseFlowerShaderProfilePresetDocument,
+  parseGrassShaderProfilePresetDocument,
+  parseTreeShaderPresetDocument,
   migrateLegacyVegetationShaderDocuments,
   parseVegetationShaderPresetDocument,
   resolveVegetationShaderRoleSettings,
   serializeVegetationShaderPreset,
   tagVegetationMaterial,
+  TREE_SHADER_DOCUMENT_TYPE,
+  TREE_SHADER_SCHEMA_VERSION,
+  VEGETATION_SHARED_SHADER_GROUP_IDS,
+  VEGETATION_SHADER_SCOPES,
 } from '../src/vegetation/vegetationShaders.js';
+import {
+  P18_VEGETATION_SUPPORTED_FIELDS_BY_SCOPE,
+  isP18VegetationFieldSupported,
+} from '../src/vegetation/p18VegetationShaderMaterial.js';
+import {
+  RETAINED_GRASS_SHADER_V2_FALLBACK_ID,
+  RETAINED_GRASS_SHADER_V2_FIELD_EVIDENCE,
+  RETAINED_GRASS_SHADER_V2_ID,
+  RETAINED_GRASS_SHADER_V2_MODULES,
+  getRetainedGrassShaderV2Fields,
+  isRetainedGrassShaderV2FieldSupported,
+  resolveRetainedGrassShaderV2Modules,
+} from '../src/vegetation/retainedGrassShaderV2.js';
 
 const defaults = createVegetationShaderSettings();
 assert.deepEqual(defaults, DEFAULT_VEGETATION_SHADER_SETTINGS,
@@ -78,6 +124,245 @@ assert.deepEqual(parsed.value, document);
 assert.equal(parsed.value.type, VEGETATION_SHADER_DOCUMENT_TYPE);
 assert.equal(parsed.value.settings.flower.unlitPetalLift, 0.67);
 
+assert.deepEqual(Object.keys(VEGETATION_SHADER_SCOPES), ['tree', 'grass', 'flower']);
+const treeDocument = createTreeShaderPresetDocument('tree-ip', {
+  settings: { bark: { shadowFloor: 0.62 }, grass: { shadowFloor: 0.01 } },
+});
+const grassProfileDocument = createGrassShaderProfilePresetDocument('grass-ip', {
+  settings: { grass: { shadowFloor: 0.59 }, bark: { shadowFloor: 0.01 } },
+});
+const flowerProfileDocument = createFlowerShaderProfilePresetDocument('flower-ip', {
+  settings: { flower: { unlitPetalLift: 0.61 }, bark: { shadowFloor: 0.01 } },
+});
+assert.equal(treeDocument.type, TREE_SHADER_DOCUMENT_TYPE);
+assert.equal(grassProfileDocument.type, GRASS_SHADER_PROFILE_DOCUMENT_TYPE);
+assert.equal(flowerProfileDocument.type, FLOWER_SHADER_PROFILE_DOCUMENT_TYPE);
+assert.equal(treeDocument.version, TREE_SHADER_SCHEMA_VERSION);
+assert.equal(grassProfileDocument.version, GRASS_SHADER_PROFILE_SCHEMA_VERSION);
+assert.equal(flowerProfileDocument.version, FLOWER_SHADER_PROFILE_SCHEMA_VERSION);
+assert.equal(treeDocument.settings.bark.shadowFloor, 0.62);
+assert.equal(treeDocument.settings.grass, undefined);
+assert.equal(treeDocument.settings.foliage.mainColor, undefined);
+assert.equal(treeDocument.settings.foliage.gradientColor, undefined);
+assert.equal(treeDocument.settings.foliage.styleColorStrength, undefined);
+assert.equal(grassProfileDocument.settings.grass.shadowFloor, 0.59);
+assert.equal(grassProfileDocument.settings.bark, undefined);
+assert.equal(flowerProfileDocument.settings.flower.unlitPetalLift, 0.61);
+assert.equal(flowerProfileDocument.settings.bark, undefined);
+assert.equal(parseTreeShaderPresetDocument(treeDocument).ok, true);
+assert.equal(parseGrassShaderProfilePresetDocument(grassProfileDocument).ok, true);
+assert.equal(parseFlowerShaderProfilePresetDocument(flowerProfileDocument).ok, true);
+assert.deepEqual(
+  getVegetationShaderScopeExcludedFields('tree').map(({ path }) => path).sort(),
+  [
+    'foliage.gradientColor',
+    'foliage.mainColor',
+    'foliage.styleColorStrength',
+  ],
+);
+assert.deepEqual(
+  getVegetationShaderScopeExcludedFields('flower').map(({ path }) => path).sort(),
+  [
+    'flower.textureTint',
+    'flower.tintStrength',
+    'foliage.gradientColor',
+    'foliage.mainColor',
+    'foliage.styleColorStrength',
+    'stem.color',
+    'stem.colorStrength',
+  ],
+);
+const migratedTreeV1 = parseTreeShaderPresetDocument({
+  ...treeDocument,
+  settings: {
+    ...treeDocument.settings,
+    foliage: {
+      ...treeDocument.settings.foliage,
+      gradientColor: [0.2, 0.3, 0.4],
+      mainColor: [0.1, 0.2, 0.3],
+      styleColorStrength: 1,
+    },
+  },
+  version: 1,
+});
+assert.equal(migratedTreeV1.ok, true);
+assert.equal(migratedTreeV1.value.version, TREE_SHADER_SCHEMA_VERSION);
+assert.equal(migratedTreeV1.value.settings.foliage.mainColor, undefined);
+assert.equal(migratedTreeV1.warnings.length, 3);
+assert.ok(migratedTreeV1.warnings.every((warning) => /does not serialize/.test(warning)));
+const migratedFlowerV2 = parseFlowerShaderProfilePresetDocument({
+  ...flowerProfileDocument,
+  settings: {
+    ...flowerProfileDocument.settings,
+    flower: {
+      ...flowerProfileDocument.settings.flower,
+      textureTint: [1, 0.2, 0.4],
+      tintStrength: 0.8,
+    },
+    foliage: {
+      ...flowerProfileDocument.settings.foliage,
+      gradientColor: [0.2, 0.4, 0.1],
+      mainColor: [0.1, 0.3, 0.05],
+      styleColorStrength: 1,
+    },
+    stem: {
+      ...flowerProfileDocument.settings.stem,
+      color: [0.1, 0.4, 0.1],
+      colorStrength: 1,
+    },
+  },
+  version: 2,
+});
+assert.equal(migratedFlowerV2.ok, true);
+assert.equal(migratedFlowerV2.value.version, FLOWER_SHADER_PROFILE_SCHEMA_VERSION);
+assert.equal(migratedFlowerV2.value.settings.flower.textureTint, undefined);
+assert.equal(migratedFlowerV2.value.settings.stem.color, undefined);
+assert.equal(migratedFlowerV2.warnings.length, 7);
+assert.ok(migratedFlowerV2.warnings.every((warning) => /does not serialize/.test(warning)));
+
+assert.deepEqual(
+  Object.fromEntries(Object.entries(P18_VEGETATION_SUPPORTED_FIELDS_BY_SCOPE)
+    .map(([scope, fields]) => [scope, fields.length])),
+  { flower: 23, grass: 27, tree: 51 },
+  'P18 must expose the shared base everywhere and the complete Tree contract',
+);
+assert.equal(isP18VegetationFieldSupported('tree', 'bark.tint'), true);
+assert.equal(isP18VegetationFieldSupported('tree', 'foliage.mainColor'), false);
+assert.equal(isP18VegetationFieldSupported('grass', 'grass.interactionResponse'), true);
+assert.equal(isP18VegetationFieldSupported('flower', 'stem.color'), false);
+assert.equal(isP18VegetationFieldSupported('tree', 'foliage.crestThreshold'), true);
+assert.equal(isP18VegetationFieldSupported('tree', 'bark.verticalShadeStrength'), true);
+assert.equal(isP18VegetationFieldSupported('grass', 'lighting.shadowTint'), true);
+assert.equal(isP18VegetationFieldSupported('flower', 'weatherResponse.snowTint'), true);
+assert.equal(isP18VegetationFieldSupported('flower', 'flower.unlitPetalLift'), false,
+  'the retained single-material daisy cannot pretend to expose an independent petal control');
+
+assert.equal(RETAINED_GRASS_SHADER_V2_ID, 'retained-grass-v2');
+assert.equal(RETAINED_GRASS_SHADER_V2_FALLBACK_ID, 'retained-p18');
+assert.deepEqual(
+  RETAINED_GRASS_SHADER_V2_MODULES.map(({ id }) => id),
+  ['lighting', 'thinSurface', 'weather', 'surface', 'deformation'],
+  'Grass V2 must remain five independently selectable modules',
+);
+assert.deepEqual(
+  resolveRetainedGrassShaderV2Modules(),
+  ['lighting', 'thinSurface', 'weather', 'surface', 'deformation'],
+  'Grass V2 must enable every module by default',
+);
+assert.deepEqual(
+  resolveRetainedGrassShaderV2Modules('surface,deformation,surface,unknown'),
+  ['surface', 'deformation'],
+  'Grass V2 module selection must be stable, deduplicated, and ignore unknown ids',
+);
+assert.equal(getRetainedGrassShaderV2Fields(['surface']).length, 21);
+assert.equal(getRetainedGrassShaderV2Fields(['deformation']).length, 2);
+const grassV2SchemaFields = Object.values(
+  getVegetationShaderScopeFieldSchema('grass'),
+).flatMap((group) => Object.values(group).map(({ id }) => id));
+assert.equal(grassV2SchemaFields.length, 41);
+const treeV2SchemaFields = Object.values(
+  getVegetationShaderScopeFieldSchema('tree'),
+).flatMap((group) => Object.values(group).map(({ id }) => id));
+assert.equal(treeV2SchemaFields.length, 51);
+assert.equal(treeV2SchemaFields.includes('foliage.mainColor'), false);
+assert.equal(treeV2SchemaFields.includes('foliage.gradientColor'), false);
+assert.equal(treeV2SchemaFields.includes('foliage.styleColorStrength'), false);
+const flowerV3SchemaFields = Object.values(
+  getVegetationShaderScopeFieldSchema('flower'),
+).flatMap((group) => Object.values(group).map(({ id }) => id));
+assert.equal(flowerV3SchemaFields.length, 61);
+for (const excludedField of [
+  'foliage.mainColor',
+  'foliage.gradientColor',
+  'foliage.styleColorStrength',
+  'flower.textureTint',
+  'flower.tintStrength',
+  'stem.color',
+  'stem.colorStrength',
+]) {
+  assert.equal(flowerV3SchemaFields.includes(excludedField), false, excludedField);
+}
+assert.deepEqual(
+  [...getRetainedGrassShaderV2Fields()].sort(),
+  [...grassV2SchemaFields].sort(),
+  'Grass V2 default modules must route the complete portable Grass contract',
+);
+for (const field of grassV2SchemaFields) {
+  assert.equal(isRetainedGrassShaderV2FieldSupported(field), true, field);
+  assert.ok(RETAINED_GRASS_SHADER_V2_FIELD_EVIDENCE[field],
+    `${field} has no Grass V2 runtime evidence route`);
+}
+assert.deepEqual(RETAINED_GRASS_SHADER_V2_FIELD_EVIDENCE['lighting.shadowTint'], {
+  module: 'lighting',
+  route: 'fragment-node',
+});
+assert.deepEqual(RETAINED_GRASS_SHADER_V2_FIELD_EVIDENCE['grass.emissiveStrength'], {
+  module: 'surface',
+  route: 'retained-source-profile',
+});
+assert.deepEqual(RETAINED_GRASS_SHADER_V2_FIELD_EVIDENCE['grass.backlitStrength'], {
+  module: 'surface',
+  route: 'fragment-node',
+});
+assert.deepEqual(RETAINED_GRASS_SHADER_V2_FIELD_EVIDENCE['grass.bendExponent'], {
+  module: 'deformation',
+  route: 'vertex-node',
+});
+assert.deepEqual(RETAINED_GRASS_SHADER_V2_FIELD_EVIDENCE['grass.interactionResponse'], {
+  module: 'deformation',
+  route: 'vertex-node',
+});
+
+const flowerPreviewAssets = getFlowerShaderPreviewAssets();
+assert.equal(flowerPreviewAssets[0], P18_FLOWER_SHADER_PREVIEW_ASSET);
+assert.deepEqual(
+  flowerPreviewAssets.filter(({ kind }) => kind === 'procedural')
+    .map(({ recipe }) => recipe.type),
+  ['flower', 'flower', 'flower'],
+);
+const importedFlowerPreview = parseFlowerShaderPreviewAsset(
+  JSON.stringify(flowerPreviewAssets[1].recipe),
+);
+assert.equal(importedFlowerPreview.ok, true);
+assert.equal(importedFlowerPreview.value.recipe.type, 'flower');
+const rejectedTreePreview = parseFlowerShaderPreviewAsset({
+  ...flowerPreviewAssets[1].recipe,
+  type: 'tree',
+});
+assert.equal(rejectedTreePreview.ok, false);
+for (const species of FLOWER_SPECIES) {
+  const geometry = createFlowerHeadGeometry({ species: species.id });
+  const positions = geometry.getAttribute('position');
+  assert.ok(positions?.count > 0, `${species.id} flower head has no positions`);
+  assert.ok(
+    Array.from(positions.array).every(Number.isFinite),
+    `${species.id} flower head contains non-finite positions`,
+  );
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
+  assert.ok(
+    geometry.boundingBox.min.toArray().every(Number.isFinite)
+      && geometry.boundingBox.max.toArray().every(Number.isFinite)
+      && Number.isFinite(geometry.boundingSphere.radius),
+    `${species.id} flower head has non-finite bounds`,
+  );
+  geometry.dispose();
+}
+
+const sharedBase = createVegetationSharedShaderSettings({
+  preset: 'call_me_sensei',
+  lighting: { rimStrength: 0.73 },
+});
+assert.deepEqual(Object.keys(sharedBase), VEGETATION_SHARED_SHADER_GROUP_IDS);
+const mergedTree = mergeVegetationSharedShaderSettings(
+  'tree',
+  { lighting: { rimStrength: 0.01 }, bark: { shadowFloor: 0.62 } },
+  sharedBase,
+);
+assert.equal(mergedTree.lighting.rimStrength, 0.73,
+  'the shared vegetation base must win over a scope document snapshot');
+assert.equal(mergedTree.bark.shadowFloor, 0.62);
+
 const warnings = parseVegetationShaderPresetDocument({
   ...document,
   settings: { ...document.settings, mystery: { x: 1 }, grass: { ...document.settings.grass, nope: 2 } },
@@ -91,7 +376,48 @@ assert.match(future.errors.join(' '), /newer than supported/);
 const presetIds = new Set(getVegetationShaderPresetOptions().map((entry) => entry.id));
 assert.ok(presetIds.has('default'));
 assert.ok(presetIds.has('call_me_sensei'));
-assert.equal(createVegetationShaderSettings('call_me_sensei').flower.unlitPetalLift, 0.4);
+const callMeSenseiSettings = createVegetationShaderSettings('call_me_sensei');
+assert.equal(callMeSenseiSettings.flower.unlitPetalLift, 0.4);
+assert.equal(callMeSenseiSettings.foliage.hueVariation, 0.025,
+  'the signature profile must preserve species hue instead of creating rainbow cards');
+assert.equal(callMeSenseiSettings.foliage.emissiveStrength, 0,
+  'canonical foliage must not use emission to imitate retained-scene exposure');
+assert.equal(callMeSenseiSettings.bark.emissiveStrength, 0,
+  'canonical bark must remain light-responsive');
+
+const authoredBark = createStylizedTreeSettings({ trunkColor: '#805b3d' });
+const expectedBarkSrgb = [0x80 / 255, 0x5b / 255, 0x3d / 255];
+authoredBark.tree.trunkColor.forEach((channel, index) => {
+  assert.ok(Math.abs(channel - expectedBarkSrgb[index]) < 1e-4,
+    'tree recipe colors must remain authored sRGB values');
+});
+const authoredBarkFromColor = createStylizedTreeSettings({
+  trunkColor: new THREE.Color('#805b3d'),
+});
+authoredBarkFromColor.tree.trunkColor.forEach((channel, index) => {
+  assert.ok(Math.abs(channel - expectedBarkSrgb[index]) < 1e-4,
+    'THREE.Color recipe values must not be decoded from sRGB twice');
+});
+
+const representativeTreeRecipes = BUILT_IN_TREE_PRESETS.filter(({ id }) =>
+  id === 'example_branching'
+  || id === 'species_oak_small'
+  || id === 'species_pine_small'
+  || id === 'example_bush');
+assert.equal(representativeTreeRecipes.length, 4);
+for (const recipe of representativeTreeRecipes) {
+  assert.ok(recipe.options.canopyColor,
+    `${recipe.id} must carry an asset-owned botanical palette`);
+  assert.ok(recipe.options.trunkColor,
+    `${recipe.id} must carry an asset-owned woody palette`);
+}
+const verificationCanopy = deriveCanopyPalette('#4b944f');
+const verificationCanopyLuma = (color) =>
+  color.r * 0.299 + color.g * 0.587 + color.b * 0.114;
+assert.ok(verificationCanopyLuma(verificationCanopy.shadow)
+  < verificationCanopyLuma(verificationCanopy.lit));
+assert.ok(verificationCanopyLuma(verificationCanopy.lit)
+  < verificationCanopyLuma(verificationCanopy.crown));
 
 const grassUniform = VEGETATION_SHADER_UNIFORM_BY_FIELD['grass.backlitStrength'];
 const tintUniform = VEGETATION_SHADER_UNIFORM_BY_FIELD['lighting.shadowTint'];
@@ -127,6 +453,16 @@ assert.deepEqual(taggedGrass.uniforms[tintUniform].value.toArray(),
   new THREE.Color().setRGB(0.7, 0.2, 0.9, THREE.SRGBColorSpace).toArray());
 assert.equal(untagged.uniforms[grassUniform].value, 123);
 assert.ok(report.unsupported.some((entry) => entry.field === 'grass.bandThreshold'));
+const wrongScopeReport = applyVegetationShaderScope(root, 'tree', treeDocument.settings);
+assert.equal(wrongScopeReport.matched, 0);
+assert.ok(wrongScopeReport.warnings.some((warning) => /outside this shader profile/.test(warning)));
+const grassScopeReport = applyVegetationShaderScope(
+  root,
+  'grass',
+  grassProfileDocument.settings,
+);
+assert.equal(grassScopeReport.matched, 1);
+assert.equal(taggedGrass.uniforms[grassUniform].value, defaults.grass.backlitStrength);
 
 const roleSlice = resolveVegetationShaderRoleSettings(VEGETATION_MATERIAL_ROLES.flowerCenter);
 assert.ok(roleSlice.flower.centerLightResponse !== undefined);
@@ -216,9 +552,25 @@ const flowerMaterials = [
 ];
 const stemMaterial = createFlowerStemNodeMaterial({ vegetationShader: defaults });
 const grassMaterial = createGrassNodeMaterial(createGrassSettings(), defaults);
+const treeLeafMaterial = createTreeLeafNodeMaterial(
+  { leafMap: verificationTexture },
+  defaults,
+);
+const treeLeafDepthMaterial = treeLeafMaterial.userData.createDepthColorVariant();
+assert.equal(treeLeafMaterial.side, THREE.DoubleSide,
+  'view-facing leaf cards must remain visible from either side');
+assert.equal(treeLeafMaterial.shadowSide, THREE.DoubleSide,
+  'light-facing leaf cards must not be culled when Three reverses ordinary shadow sides');
+assert.equal(treeLeafDepthMaterial.side, THREE.DoubleSide);
+assert.ok(treeLeafMaterial.castShadowPositionNode,
+  'procedural leaf cards need a billboard-aware native shadow position');
+assert.ok(nodeGraphContains(
+  [treeLeafMaterial.maskNode],
+  treeLeafMaterial.uniforms.uAlphaCutoff,
+), 'procedural leaf shadows must use the same alpha cutout as visible leaves');
 const shippedMaterials = [
   grassMaterial,
-  createTreeLeafNodeMaterial({ leafMap: verificationTexture }, defaults),
+  treeLeafMaterial,
   ...flowerMaterials,
   stemMaterial,
   createWoodySurfaceNodeMaterial({ vegetationShader: defaults }),
@@ -252,8 +604,12 @@ for (const uniformName of ['uWetness', 'uSnowCover', 'uWindStrength', 'uSunDirec
 const worldStateBeforeApply = shippedMaterials.map((material) => {
   if (material.uniforms.uWetness) material.uniforms.uWetness.value = 0.37;
   if (material.uniforms.uSnowCover) material.uniforms.uSnowCover.value = 0.61;
+  if (material.uniforms.uSunIntensity) material.uniforms.uSunIntensity.value = 0.23;
+  if (material.uniforms.uSkyIntensity) material.uniforms.uSkyIntensity.value = 0.41;
   return {
     snowCover: material.uniforms.uSnowCover?.value,
+    skyIntensity: material.uniforms.uSkyIntensity?.value,
+    sunIntensity: material.uniforms.uSunIntensity?.value,
     wetness: material.uniforms.uWetness?.value,
   };
 });
@@ -268,12 +624,121 @@ shippedMaterials.forEach((material, index) => {
     `${material.name} profile application changed scene wetness`);
   assert.equal(material.uniforms.uSnowCover?.value, worldStateBeforeApply[index].snowCover,
     `${material.name} profile application changed scene snow`);
+  assert.equal(material.uniforms.uSunIntensity?.value, worldStateBeforeApply[index].sunIntensity,
+    `${material.name} profile application changed current sun intensity`);
+  assert.equal(material.uniforms.uSkyIntensity?.value, worldStateBeforeApply[index].skyIntensity,
+    `${material.name} profile application changed current sky intensity`);
 });
 
 const flowerShaderSource = readFileSync(
   new URL('../src/shaders-tsl/flower.js', import.meta.url),
   'utf8',
 );
+const vegetationStyleSource = readFileSync(
+  new URL('../src/shaders-tsl/chunks/vegetation-style.js', import.meta.url),
+  'utf8',
+);
+const treeLeafShaderSource = readFileSync(
+  new URL('../src/shaders-tsl/tree-leaf.js', import.meta.url),
+  'utf8',
+);
+const woodySurfaceShaderSource = readFileSync(
+  new URL('../src/shaders-tsl/woody-surface.js', import.meta.url),
+  'utf8',
+);
+const p18AdapterSource = readFileSync(
+  new URL('../src/vegetation/p18VegetationShaderMaterial.js', import.meta.url),
+  'utf8',
+);
+const p18ReferenceSceneSource = readFileSync(
+  new URL('../labs/shared/p18/referenceScene.js', import.meta.url),
+  'utf8',
+);
+const retainedGrassV2Source = readFileSync(
+  new URL('../src/vegetation/retainedGrassShaderV2.js', import.meta.url),
+  'utf8',
+);
+const previewWeatherLayersSource = readFileSync(
+  new URL('../labs/shared/p18/previewWeatherLayers.js', import.meta.url),
+  'utf8',
+);
+const vegetationLabSource = readFileSync(
+  new URL('../labs/vegetation-shader-lab/ui/engine.js', import.meta.url),
+  'utf8',
+);
+const vegetationLabAppSource = readFileSync(
+  new URL('../labs/vegetation-shader-lab/ui/App.jsx', import.meta.url),
+  'utf8',
+);
+const vegetationPreviewAssetsSource = readFileSync(
+  new URL('../labs/vegetation-shader-lab/previewAssets.js', import.meta.url),
+  'utf8',
+);
+const labelingDocs = readFileSync(
+  new URL('../docs/generated-asset-labeling.md', import.meta.url),
+  'utf8',
+);
+assert.match(p18AdapterSource, /MI_PineBark\.MI_PineBark/);
+assert.match(p18AdapterSource, /MI_PineLeaves\.MI_PineLeaves/);
+assert.match(p18AdapterSource, /MI_Grass\.MI_Grass/);
+assert.match(p18AdapterSource, /MI_Daisy\.MI_Daisy/);
+assert.match(p18AdapterSource, /zero-at-Call-Me-Sensei semantic delta/);
+assert.match(vegetationStyleSource, /baseColor\.mul\(skyColor\)/,
+  'vegetation sky fill and rim must remain albedo-relative');
+assert.match(vegetationStyleSource, /baseColor\.mul\(sunColor\)/,
+  'vegetation transmission must remain albedo-relative');
+assert.match(treeLeafShaderSource, /bandShadowColor:\s*shadowColor/,
+  'procedural foliage must route its asset-owned shadow palette through the canonical band');
+assert.doesNotMatch(treeLeafShaderSource, /const litBand\s*=/,
+  'procedural foliage must not apply a private lighting band before the shared shader');
+assert.match(woodySurfaceShaderSource, /styledAlbedo\.mul\(u\.uSkyColor\)/,
+  'woody sky fill and rim must remain albedo-relative');
+assert.match(retainedGrassV2Source, /SOURCE_MATERIAL_MATCH = '\/MI_Grass\.MI_Grass'/);
+assert.match(retainedGrassV2Source, /luminancePreservingTint/);
+assert.match(retainedGrassV2Source, /function createColorCorrection/);
+assert.match(retainedGrassV2Source, /return Fn\(\(\) =>/);
+assert.match(retainedGrassV2Source, /buildSnowSurfaceLayer/);
+assert.match(retainedGrassV2Source, /retained MI_Grass graph dry/);
+assert.match(retainedGrassV2Source, /interactionAmount/);
+assert.match(retainedGrassV2Source, /originalMaterial/);
+assert.match(previewWeatherLayersSource, /createP18PreviewGroundSnowLayer/);
+assert.match(previewWeatherLayersSource, /buildSnowSurfaceLayer/);
+assert.match(previewWeatherLayersSource, /zero-at-clear-weather/);
+assert.match(vegetationLabSource, /createP18ShaderPreviewScene/);
+assert.match(vegetationLabSource, /applyRetainedGrassShaderV2/);
+assert.match(vegetationLabSource, /grassAdapter/);
+assert.match(vegetationLabSource, /grassModules/);
+assert.match(vegetationLabSource, /applyP18VegetationShader/);
+assert.match(vegetationLabSource, /createPlantFromRecipe/);
+assert.match(vegetationLabSource, /applyVegetationShaderScope/);
+assert.match(vegetationLabSource, /canonical-vegetation-procedural/);
+assert.match(vegetationLabSource, /intensity:\s*resolvedTime\.timeState\.directEnergy/);
+assert.match(vegetationLabSource, /skyIntensity:\s*resolvedTime\.timeState\.ambientEnergy/);
+assert.match(vegetationLabSource, /referenceScene\.setShadowExtent\(shadowExtent\)/,
+  'procedural preview assets must expand the retained fixture shadow coverage');
+assert.match(vegetationLabSource, /:\s*10;\s*referenceScene\.setShadowExtent/s,
+  'the retained P18 fixture must restore its accepted shadow extent');
+assert.match(vegetationLabSource, /view\.viewMode === 'isolate'/);
+assert.match(p18ReferenceSceneSource, /function setShadowExtent\(value = 10\)/);
+assert.match(vegetationLabAppSource, /isP18VegetationFieldSupported/);
+assert.match(vegetationLabAppSource, /ShaderPreviewAssetsModal/);
+assert.match(vegetationLabAppSource, /Attached-leaf palette comes from the preview/);
+assert.match(vegetationLabAppSource, /Petal and center colors come from the preview flower/);
+assert.match(vegetationLabAppSource, /Stem base color comes from the preview flower/);
+assert.match(vegetationLabAppSource, /Shared vegetation base/);
+assert.match(vegetationLabAppSource, /Tree foliage/);
+assert.match(vegetationLabAppSource, /Per-profile splitting\s+is not enabled/);
+assert.match(vegetationPreviewAssetsSource, /P18_TREE_SHADER_PREVIEW_ASSET/);
+assert.match(vegetationPreviewAssetsSource, /P18_FLOWER_SHADER_PREVIEW_ASSET/);
+assert.match(vegetationPreviewAssetsSource, /BUILT_IN_TREE_PRESETS/);
+assert.match(vegetationPreviewAssetsSource, /loadLocalTreePresets/);
+assert.match(vegetationPreviewAssetsSource, /parseTreeShaderPreviewAsset/);
+assert.match(vegetationPreviewAssetsSource, /parseFlowerShaderPreviewAsset/);
+assert.match(labelingDocs, /tree\.root/);
+assert.match(labelingDocs, /tree\.leaf/);
+assert.match(labelingDocs, /woodySurface/);
+assert.match(labelingDocs, /grassCoverage/);
+assert.match(labelingDocs, /Actual grass blades growing from the rock/);
 const stemShaderSource = flowerShaderSource.slice(
   flowerShaderSource.indexOf('export function createFlowerStemNodeMaterial'),
 );
@@ -370,6 +835,7 @@ barkRoot.traverse((object) => {
   object.material?.dispose?.();
 });
 for (const material of shippedMaterials) material.dispose();
+treeLeafDepthMaterial.dispose();
 compositeContractMaterial.dispose();
 verificationTexture.dispose();
 

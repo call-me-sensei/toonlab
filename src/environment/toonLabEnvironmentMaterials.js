@@ -32,8 +32,7 @@ import { installToonLabMaterialPassCoupling } from './toonLabMaterialPassCouplin
 import { assertToonLabTextureUploadReady } from './toonLabTextureReadiness.js';
 import { installToonLabSurfaceLighting } from './toonLabSurfaceLighting.js';
 
-export const DEFAULT_TOONLAB_ENVIRONMENT_BASE_URL =
-  '/assets-local/toonlab/environment-baseline';
+export const DEFAULT_TOONLAB_ENVIRONMENT_BASE_URL = null;
 
 export const TOONLAB_GRASS = Object.freeze({
   sourceMaterial: 'MV_Grass',
@@ -105,6 +104,9 @@ function loadToonLabEnvironmentTexture(name, {
   baseUrl = DEFAULT_TOONLAB_ENVIRONMENT_BASE_URL,
   normal = false,
 } = {}) {
+  if (typeof baseUrl !== 'string' || !baseUrl.trim()) {
+    throw new Error('A configured environment texture baseUrl is required.');
+  }
   const url = `${baseUrl}/textures/${name}`;
   const cacheKey = `${url}|normal:${normal ? 1 : 0}`;
   if (!textureCache.has(cacheKey)) {
@@ -271,13 +273,17 @@ function toonLabGrassGradient(value) {
  * literal ToonLab graph logic and values.
  */
 export async function buildToonLabGrassMaterial(profile, {
+  baseUrl = null,
   hasVertexColors = false,
   state = null,
 } = {}) {
   const variantId = resolveToonLabGrassVariant(profile) ?? 'grass';
   const variant = TOONLAB_GRASS_VARIANTS[variantId];
   const values = { ...TOONLAB_GRASS, ...variant };
-  const noiseMap = await loadToonLabEnvironmentTexture('T_NoiseRough_SplatterMap.png');
+  const noiseMap = await loadToonLabEnvironmentTexture(
+    'T_NoiseRough_SplatterMap.png',
+    { baseUrl },
+  );
   const noiseUv = vec2(positionWorld.x, positionWorld.z).div(values.hueVariationScale);
   const tipNoise = texture(noiseMap).sample(noiseUv).r;
   const gradientTip = toonLabGrassGradient(tipNoise);

@@ -7,7 +7,14 @@ import {
   loadToonLabSourceLibrary,
 } from '@call-me-sensei/toonlab/environment';
 
-export const SOURCE_CATALOG_BASE_URL = '/assets-local/toonlab/catalog-meshes';
+export const SOURCE_CATALOG_BASE_URL =
+  '/assets-local/reference-materials/catalog-meshes';
+export const SOURCE_MATERIAL_BASE_URL =
+  '/assets-local/reference-materials/material-source';
+export const SOURCE_LANDSCAPE_WEIGHT_BASE_URL =
+  '/assets-local/reference-materials/landscape-weight-layers/ToonLabShowcase';
+export const SOURCE_ENVIRONMENT_TEXTURE_BASE_URL =
+  '/assets-local/reference-environment/environment-baseline';
 
 function joinUrl(baseUrl, path) {
   return `${String(baseUrl).replace(/\/$/, '')}/${String(path).replace(/^\//, '')}`;
@@ -34,7 +41,13 @@ export async function loadSourceCatalogManifest({
 export async function createSourceCatalogContext(options = {}) {
   const [manifest, library] = await Promise.all([
     loadSourceCatalogManifest(options),
-    loadToonLabSourceLibrary({ baseUrl: options.materialBaseUrl }),
+    loadToonLabSourceLibrary({
+      baseUrl: options.materialBaseUrl ?? SOURCE_MATERIAL_BASE_URL,
+      environmentBaseUrl:
+        options.environmentBaseUrl ?? SOURCE_ENVIRONMENT_TEXTURE_BASE_URL,
+      landscapeWeightBaseUrl:
+        options.landscapeWeightBaseUrl ?? SOURCE_LANDSCAPE_WEIGHT_BASE_URL,
+    }),
   ]);
   return {
     baseUrl: options.assetBaseUrl ?? SOURCE_CATALOG_BASE_URL,

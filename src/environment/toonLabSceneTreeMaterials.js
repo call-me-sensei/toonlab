@@ -1,5 +1,5 @@
 // Manifest-driven reconstruction of ToonLab's S_Leaves and S_Bark
-// ToonLab Graphs for the exported M_Demonstration_Mega scene.
+// ToonLab Graphs for the exported EnvironmentReferenceScene scene.
 //
 // This module is intentionally record-driven: every material switch, scalar,
 // color, and texture comes from scene-manifest.json. The ToonLab graph edge
@@ -50,7 +50,7 @@ import { installToonLabMaterialPassCoupling } from './toonLabMaterialPassCouplin
 import { installToonLabSurfaceLighting } from './toonLabSurfaceLighting.js';
 
 export const DEFAULT_TOONLAB_SCENE_BASE_URL =
-  '/assets-local/toonlab/mega-scene';
+  '/assets-local/reference-environment/environment-scene';
 
 export const TOONLAB_SCENE_TREE_SHADERS = Object.freeze({
   bark: 'ToonLab Graphs/S_Bark',
@@ -677,7 +677,7 @@ export async function buildToonLabSceneLeavesMaterial(record, options = {}) {
   const state = options.state ?? {};
   const stateUniforms = state.uniforms ?? state;
   const viewDirection = normalize(cameraPosition.sub(positionWorld));
-  // Fallback is the exported Mega directional-light forward/ray vector after
+  // Fallback is the exported reference directional-light forward/ray vector after
   // the ToonLab (x,y,z) -> Three (x,y,-z) scene conversion.
   const lightDirection = normalize(stateVec3(
     stateUniforms.sunDirection,
@@ -775,7 +775,7 @@ export async function buildToonLabSceneLeavesMaterial(record, options = {}) {
     createToonLabNormalIntegrationMetadata({
       coordinateZSign: zSign,
       decode: 'geometry-only',
-      family: 'toonlab-mega-scene-leaves',
+      family: 'toonlab-environment-scene-leaves',
       textureFlipY: true,
     });
   installToonLabSurfaceLighting(material, { workflow: 'specular' });
@@ -914,7 +914,7 @@ export async function buildToonLabSceneBarkMaterial(record, options = {}) {
       decode: capabilities.hasTangents
         ? 'RG + importer green transform + reconstructed positive Z; ToonLab graph Normal Strength'
         : 'geometry-only fallback: no tangent attribute',
-      family: 'toonlab-mega-scene-bark',
+      family: 'toonlab-environment-scene-bark',
       flipGreenChannel,
       textureFlipY: true,
     });

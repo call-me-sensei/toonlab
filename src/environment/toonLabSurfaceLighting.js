@@ -32,7 +32,7 @@ const TOONLAB_HALF_MIN = 0.00006103515625;
 
 export const TOONLAB_SURFACE_LIGHTING_SOURCE = Object.freeze({
   captureReport:
-    'assets-local/toonlab/mega-scene-native-pc-current/toonlab-reference.txt',
+    'assets-local/reference-environment/environment-capture-current/toonlab-reference.txt',
   captureReportSha256:
     '9d3c4e758e256013cb1f4fd6517d754b61e86f7ebda7e63f55683651b8b32f98',
   ambientProbe: 'ShaderLibrary/AmbientProbe.hlsl',
@@ -50,10 +50,10 @@ export const TOONLAB_SURFACE_LIGHTING_SOURCE = Object.freeze({
   sphericalHarmonicsUploadSha256:
     'bb5c52577e4fab32bc1b9d39c252992faec1c6879cc8ac53b612fd938f8f1842',
   sceneManifest:
-    'assets-local/toonlab/mega-scene-native-pc-current/scene-manifest.json',
+    'assets-local/reference-environment/environment-capture-current/scene-manifest.json',
   sceneManifestSha256:
     '762ac1e90938e2d793618163dc150990f8c03ccdb02fedde70646c7244170179',
-  sceneDocument: 'Assets/ToonLab/Demo/M_Demonstration_Mega.toonlab',
+  sceneDocument: 'Assets/ToonLab/Demo/EnvironmentReferenceScene.toonlab',
   sceneDocumentSha256:
     'a024b1a62a99f054dbd3a700c5d1707e4b90498f37d64a375f8c39f222bce58b',
   pipelinePackage: '@call-me-sensei/toonlab/environment',

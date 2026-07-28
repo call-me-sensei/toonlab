@@ -1,4 +1,4 @@
-// The asset catalog runtime — the Megascans moment, minus the download.
+// The asset catalog runtime — the photoscan catalogs moment, minus the download.
 // One searchable registry of every ToonLab recipe/preset, and ONE function
 // that turns any asset entry into a placeable PropAsset:
 //

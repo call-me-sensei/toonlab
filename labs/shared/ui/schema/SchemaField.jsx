@@ -41,6 +41,7 @@ export function SchemaField({
   } else if (field.type === 'select' && field.control === 'segmented' && (field.options?.length ?? 0) <= 4) {
     control = (
       <SegmentedControl
+        disabled={disabled}
         onChange={(next) => onChange(typeof field.defaultValue === 'number' ? Number(next) : next)}
         options={field.options.map((option) => ({
           label: field.optionLabels?.[String(option)] ?? String(option),
@@ -85,7 +86,7 @@ export function SchemaField({
         </span>
       );
     } else {
-      control = <ColorWell onChange={onChange} testId={testId} value={value} />;
+      control = <ColorWell disabled={disabled} onChange={onChange} testId={testId} value={value} />;
     }
   } else if (field.type === 'vector2' || field.type === 'vector3' || field.type === 'vector4') {
     // Direction/vector fields: one scrubbable value per component, emitting a
@@ -104,6 +105,7 @@ export function SchemaField({
       <span className="tk-vector" data-testid={testId} style={{ display: 'flex', gap: 4 }}>
         {parts.map((component, index) => (
           <ScrubValue
+            disabled={disabled}
             key={index}
             max={max}
             min={min}
@@ -138,6 +140,7 @@ export function SchemaField({
     );
     readout = (
       <ScrubValue
+        disabled={disabled}
         max={displayValue(field, range.max)}
         min={displayValue(field, range.min)}
         onChange={(shown) => onChange(storedValue(field, shown))}
@@ -147,7 +150,7 @@ export function SchemaField({
       />
     );
   } else {
-    control = <TextField onCommit={onChange} testId={testId} value={String(value ?? '')} />;
+    control = <TextField disabled={disabled} onCommit={onChange} testId={testId} value={String(value ?? '')} />;
   }
 
   return (
@@ -162,6 +165,7 @@ export function SchemaField({
             className="tk-field-reset"
             data-dirty={dirty || undefined}
             aria-label={`Reset ${field.label} to default`}
+            disabled={disabled}
             onClick={() => onChange(field.defaultValue)}
           >
             ●

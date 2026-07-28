@@ -72,7 +72,7 @@ export function Slider({
  * click without drag switches to a text input.
  */
 export function ScrubValue({
-  format = null, max, min, onChange, step = 0.01, unit = null, value,
+  disabled = false, format = null, max, min, onChange, step = 0.01, unit = null, value,
 }) {
   const [editing, setEditing] = useState(false);
   const dragState = useRef(null);
@@ -81,7 +81,7 @@ export function ScrubValue({
   const text = format ? format(value) : `${value.toFixed(precision)}${unit ? ` ${unit}` : ''}`;
 
   function onPointerDown(event) {
-    if (event.button !== 0) return;
+    if (disabled || event.button !== 0) return;
     dragState.current = { moved: false, startValue: value, startX: event.clientX };
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
@@ -128,7 +128,8 @@ export function ScrubValue({
   return (
     <span
       className="tk-field-value"
-      title="Drag to scrub · click to type (Shift 10×, Alt 0.1×)"
+      data-disabled={disabled || undefined}
+      title={disabled ? '' : 'Drag to scrub · click to type (Shift 10×, Alt 0.1×)'}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

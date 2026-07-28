@@ -17,15 +17,17 @@ import {
   setEnvironmentDebugOutput,
 } from '../../../src/environment/environmentMaterialAdapter.js';
 import {
+  isRockHelperPiece,
+  meshDocument,
+} from '../../../src/rockgen/index.js';
+import {
   createRockReferenceLodObject,
   exportRockReferenceAssetToGLB,
-  isRockHelperPiece,
   loadRockReferenceAsset,
   loadRockReferenceAssetManifest,
   loadRockReferenceSourceMaterial,
-  loadToonRockMaterial,
-  meshDocument,
-} from '../../../src/rockgen/index.js';
+} from '../../../src/rockgen/reference/index.js';
+import { loadToonRockMaterial } from '../../../src/rock-shader/index.js';
 import {
   loadToonLabRockMaterialIndex,
   resolveToonLabRockMaterial,
@@ -34,6 +36,7 @@ import { TOONLAB_RENDER_CONTRACT } from '../../../src/environment/toonLabRenderi
 import { installToonLabShadowCasterBias } from '../../../src/environment/toonLabShadows.js';
 import { createToonLabStagePostPipeline } from '../../../src/environment/toonLabStage.js';
 import {
+  convertRockGround,
   convertRockMesh,
   createAoScheduler,
   createRockMesh,
@@ -46,6 +49,9 @@ import { whenRendererReady } from '../../shared/rendererFactory.js';
 import { createEnvironmentSunShadowPass } from '../../../src/environment/environmentSunShadowPass.js';
 
 const REGENERATE_DEBOUNCE_MS = 150;
+const LOCAL_ROCK_MATERIAL_BASE_URL = '/assets-local/reference-environment';
+const LOCAL_ROCK_MATERIAL_LIBRARY_URL =
+  `${LOCAL_ROCK_MATERIAL_BASE_URL}/rock-material-library.json`;
 const MOVE_MODE_BUTTONS = Object.freeze({
   pan: THREE.MOUSE.PAN,
   rotate: THREE.MOUSE.ROTATE,
@@ -510,7 +516,9 @@ export function createRockEngine({ mount, store, urlParams }) {
         asset.sourceMaterial = sourceMaterial;
       }
       if (state.referenceMaterialMode === 'toonlab' && !asset.toonLabMaterial) {
-        toonRockMaterialIndexPromise ??= loadToonLabRockMaterialIndex();
+        toonRockMaterialIndexPromise ??= loadToonLabRockMaterialIndex({
+          url: LOCAL_ROCK_MATERIAL_LIBRARY_URL,
+        });
         const index = await toonRockMaterialIndexPromise;
         const materialReference = asset.localEntry.materials?.find(Boolean);
         const resolution = resolveToonLabRockMaterial(materialReference, {
@@ -522,6 +530,7 @@ export function createRockEngine({ mount, store, urlParams }) {
           throw new Error(`No ToonLab S_Rock material matches ${asset.entry.sourceAssetName}.`);
         }
         const toonLabMaterial = await loadToonRockMaterial({
+          baseUrl: LOCAL_ROCK_MATERIAL_BASE_URL,
           manifest: index.manifest,
           material: resolution.materialRecord,
           coordinates: {
@@ -1000,8 +1009,8 @@ export function createRockEngine({ mount, store, urlParams }) {
     // cascade shadows are not routed through ToonLab's custom shadow texture.
     const requestedAuthority = desiredRenderAuthority();
     setRenderAuthority('toonlab');
-    await convertRockMesh(sceneContext.ground, environmentBox);
-    // `convertRockMesh()` makes normal environment meshes both casters and
+    await convertRockGround(sceneContext.ground, environmentBox);
+    // `convertRockGround()` makes normal environment meshes both casters and
     // receivers. This validation floor must only receive; otherwise its
     // coplanar shadow-map render self-occludes the distant half of the disc
     // and disguises the rock's real footprint as a giant dark horizon band.

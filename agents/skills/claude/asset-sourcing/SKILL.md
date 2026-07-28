@@ -1,6 +1,6 @@
 ---
 name: asset-sourcing
-description: Help agents find, generate, import, and prepare assets — package-first procedural generation, the ToonLab MCP for external CC0 discovery/import and shared workspace state, licensing provenance, and portable urban-prop surface-role metadata for GLB materials.
+description: Help agents reuse, generate, discover, import, and prepare assets — approved stylized procedural base sets when reliable, curated CC0/CC-BY discovery for gaps, optional image-to-3D, licensing provenance, and portable rendering-domain/material labels.
 ---
 
 # Asset Sourcing
@@ -9,35 +9,47 @@ Use this skill when a developer needs an asset — a model, texture, HDRI,
 prop, tree, rock, building, material, or a saved look/behavior preset.
 
 Read first:
+- `docs/open-asset-library.md` for scene-kit coverage, approved generator
+  base sets, route selection, CC0/CC-BY policy, and acceptance evidence.
+- `docs/styles-and-bundles.md` for rendering domains, semantic labels,
+  support levels, and Call Me Sensei verification.
 - `docs/mcp.md` (only the MCP-routed steps need a connected server)
 - `docs/urban-prop-surface-roles.md` when generating, importing, or preparing
   an urban prop GLB, or when building a reusable prop shader. If the repo copy
   is unavailable, use `https://toonlab.io/docs/urban-prop-roles.md`.
 
-**The boundary:** the npm package is the default worker — anything it can do
-(procedural generation, style presets, texture baking) happens as code in the
-app or a short node script. Route through the ToonLab MCP only where it adds
-something beyond the package: external discovery, curation/moderation policy,
-download provenance, or shared workspace state. Do not use MCP tools as a
-proxy for package functions.
+**The boundary:** the npm package is the worker for approved procedural
+families, style presets, and texture baking. The gallery is optional. Route
+through MCP only where it adds something beyond the package: external
+discovery, curation/moderation policy, download provenance, shared workspace
+state, or explicitly requested managed generation. Do not use MCP tools as a
+proxy for package functions. ToonLab Pro may author and review stylized base
+sets; their approved documents, recipes, labels, seeds, and provenance must
+remain portable so OSS runtimes can use them without a database.
 
 ## Decision order
 
-Work down this list; stop at the first hit.
+Choose the first route that is both available and accepted for the requested
+scene-kit role.
 
 1. **Reuse what exists.** Earlier imports, saved presets, and exports live in
    `.toonlab/` on disk. Query via MCP (`list_my_creations` / `search_assets`
    with `source: 'workspace'` or `'library'`, then `get_my_creation` /
    `get_asset`) or read the folder directly when working inside the project.
    Never regenerate or re-download something already there.
-2. **Generate with the package (no server).** The built-in catalog ships in
+2. **Use an approved procedural family (no gallery).** The built-in catalog
+   ships in
    `@call-me-sensei/toonlab/catalog`: `catalog.list({ kind, cluster, tags,
    text })` to browse trees, rocks, debris, props, buildings, paths, then
    `catalog.spawn(id, { seed })` for a deterministic, placeable asset.
    Seamless stylized textures: `@call-me-sensei/toonlab/texgen`. This is the
-   best fit for a stylized/toon look and stays re-rollable and re-editable;
-   prefer it over downloads for anything the package covers.
-3. **Search CC0 sources (MCP earns its place here).**
+   direct route only when the requested family has an approved, versioned
+   stylized base set and passes the reliability gate in
+   `docs/open-asset-library.md`. Preserve base-set version, generator version,
+   recipe, seed, domain/material labels, and golden-seed verification. Do not
+   treat every legacy catalog entry as approved merely because it can spawn.
+3. **Search curated open sources when generation is not approved or is not
+   the best fit.**
    `search_cc0_assets({ query, kind, provider })` covers external providers
    for what procedural generation can't make: reference-quality PBR texture
    sets, HDRIs, and photoscanned props. Then `get_cc0_asset` for details and
@@ -45,8 +57,16 @@ Work down this list; stop at the first hit.
    with a provenance manifest. This route stays on MCP because it carries the
    network fetch, the owner curation policy, and licensing provenance —
    selection is by name/tags only, so always preview imports in-scene before
-   committing to them.
-4. **Generate style presets (package first).** Looks and behaviors (post
+   committing to them. Prefer CC0. Accept CC-BY only through a source path that
+   exposes the exact creator, asset URL, license/version/URL, provider credit,
+   and modification notice; do not assume a tool named `search_cc0_assets`
+   returns CC-BY.
+4. **Use image-to-3D for a named remaining gap.** First record why accepted
+   assets, approved procedural families, and curated open candidates were
+   inadequate. Check generation capabilities and rights for the input image.
+   Treat output as a candidate that still needs topology, UV, texture, scale,
+   collision, LOD, semantic-label, and Call Me Sensei review.
+5. **Generate style presets (package first).** Looks and behaviors (post
    grades, camera feel, game feel, lighting styles/fixtures) are generated in
    code: `create*GeneratorRecipe` → `createGenerated*PresetDocument` /
    `generate*Preset` from the matching subpath, deterministic per seed. Use
@@ -57,6 +77,12 @@ Work down this list; stop at the first hit.
 Persist anything worth keeping with `save_creation` (or write the JSON into
 the repo); `.toonlab/creations/` is the shared surface labs and later
 sessions read.
+
+For every completed asset request, update or report the scene family, kit
+role, selected route, license/provenance, rendering domain, material roles,
+support level, collision/LOD status, Call Me Sensei verification, and coverage
+gap that was closed. State explicitly when gallery search was skipped because
+an approved generator owned the role.
 
 ## Manufactured environment material contract
 
@@ -133,7 +159,8 @@ table, as the source of truth):
 - Seamless PBR material sets (brick, wood, ground …) → ambientCG.
 - Photoscanned props, HDRIs, high-end texture sets → Poly Haven.
 - Stylized/toon-ready models, vegetation, buildings → the built-in
-  procedural catalog first; external low-poly sources only if curated.
+  procedural catalog first only for families that passed the base-set
+  reliability gate; otherwise compare curated external candidates.
 - Stylized *seamless textures* → `@call-me-sensei/toonlab/texgen` in code
   (60+ presets); the catalog has no texture entries, so this route is a
   package import, not an MCP call.
@@ -155,6 +182,9 @@ asset tools). New sources appear over time; query rather than assume.
 - Every imported ref keeps `source` + attribution provenance. Preserve it;
   some sources (e.g. Poly Haven's API terms) want credit even though the
   assets are CC0. Surface attribution in the app's credits.
+- CC-BY additionally requires appropriate creator credit, the license link,
+  the source link when supplied, and an indication of modifications. Preserve
+  those fields through conversions, bundles, scenes, and exports.
 
 ## Verify
 

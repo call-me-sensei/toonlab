@@ -9,7 +9,7 @@ import { max, mix, normalize, positionLocal, pow, sRGBTransferEOTF, uniform, vec
 import { MeshBasicNodeMaterial } from 'three/webgpu';
 import { sampleEnvironmentTimeOfDay } from '../../../src/environment/environmentTimeOfDay.js';
 import {
-  WeatherPrecipitation,
+  WeatherFieldRenderer,
   getWeatherPresetOptions,
   resolveWeatherPreset,
 } from '../../../src/weather/index.js';
@@ -64,7 +64,9 @@ function createDomeMaterial() {
 }
 
 export function createSkyWeather({ engine, grass = null, store }) {
-  const { ambient, controls, hemi, scene, sun } = engine;
+  const {
+    ambient, camera, controls, hemi, scene, sun,
+  } = engine;
   const baseFog = { far: scene.fog.far, near: scene.fog.near };
 
   // --- Gradient sky dome ----------------------------------------------------
@@ -77,12 +79,17 @@ export function createSkyWeather({ engine, grass = null, store }) {
   scene.background = null;
 
   // --- Shared precipitation runtime -----------------------------------------
-  const precipitation = new WeatherPrecipitation({ maxParticles: 8000, seed: 31 });
+  const precipitation = new WeatherFieldRenderer({ seed: 31 });
   const precipitationCenter = new THREE.Vector3();
   scene.add(precipitation);
   engine.onFrame((delta) => {
     precipitationCenter.set(controls.target.x, 0, controls.target.z);
-    precipitation.update(delta, { center: precipitationCenter, renderer: engine.renderer });
+    precipitation.update(delta, {
+      camera,
+      center: precipitationCenter,
+      floorY: precipitationCenter.y,
+      renderer: engine.renderer,
+    });
   });
 
   // --- Apply hour + weather ---------------------------------------------------
@@ -115,7 +122,7 @@ export function createSkyWeather({ engine, grass = null, store }) {
     scene.fog.near = baseFog.near / weather.fogScale;
     scene.fog.far = baseFog.far / weather.fogScale;
 
-    precipitation.applySettings(weather.precipitation, weather.wind);
+    precipitation.applyWeatherSettings(weather.settings);
 
     // Grass reacts: cloud shadows sweep in cloudy weather.
     grass?.applySettings({

@@ -84,7 +84,7 @@ export function Select({
 }
 
 export function TextField({
-  onCommit, placeholder, testId, value,
+  disabled = false, onCommit, placeholder, testId, value,
 }) {
   return (
     <input
@@ -92,6 +92,7 @@ export function TextField({
       className="tk-text-field"
       data-testid={testId}
       defaultValue={value}
+      disabled={disabled}
       placeholder={placeholder}
       onBlur={(event) => onCommit(event.target.value)}
       onKeyDown={(event) => {
@@ -102,7 +103,7 @@ export function TextField({
 }
 
 export function SegmentedControl({
-  onChange, options, testId, value,
+  disabled = false, onChange, options, testId, value,
 }) {
   return (
     <div className="tk-segmented" data-testid={testId} role="group">
@@ -111,6 +112,7 @@ export function SegmentedControl({
           key={String(option.value)}
           type="button"
           aria-pressed={option.value === value}
+          disabled={disabled}
           title={option.title}
           onClick={() => onChange(option.value)}
         >
@@ -127,7 +129,7 @@ function channelToHex(channel) {
 
 /** value is an sRGB triplet [r, g, b] in 0..1 (the settings-schema shape). */
 export function ColorWell({
-  onChange, size = 'normal', testId, value,
+  disabled = false, onChange, size = 'normal', testId, value,
 }) {
   const hex = `#${channelToHex(value[0])}${channelToHex(value[1])}${channelToHex(value[2])}`;
   return (
@@ -135,6 +137,7 @@ export function ColorWell({
       <input
         type="color"
         data-testid={testId}
+        disabled={disabled}
         value={hex}
         onChange={(event) => {
           const raw = event.target.value.slice(1);

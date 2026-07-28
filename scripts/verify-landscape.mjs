@@ -566,9 +566,9 @@ check('wrong document type rejected', badType.ok === false);
 const badJson = await parseLandscapeProjectDocument('{nope');
 check('invalid JSON rejected', badJson.ok === false);
 
-// --- 8. Material preset + style-bundle slot ----------------------------------
+// --- 8. Material preset + package boundary -----------------------------------
 
-console.log('material preset / style bundle');
+console.log('material preset / package boundary');
 const { createLandscapeMaterialPresetDocument, parseLandscapeMaterialPresetDocument } = await import('../src/landscape/landscapeMaterialPreset.js');
 const materialPreset = createLandscapeMaterialPresetDocument('verify_material', {
   label: 'Verify material',
@@ -582,16 +582,7 @@ check('material preset round-trips', parsedMaterial.ok
   && parsedMaterial.value.materialLayers[0].textureRef.presetId === 'cliff-rock');
 const { STYLE_BUNDLE_SLOTS } = await import('../src/styles/styleBundle.js');
 const slot = STYLE_BUNDLE_SLOTS.landscapeMaterial;
-check('style bundle exposes the landscapeMaterial slot', Boolean(slot) && slot.selectionKind === 'document');
-const slotResolved = slot.resolve({ document: materialPreset });
-check('slot resolves an inline document', slotResolved.settings.macroNoiseAmount === 0.4);
-let slotThrew = false;
-try {
-  slot.resolve({ preset: 'nope' });
-} catch {
-  slotThrew = true;
-}
-check('slot rejects preset-only payloads', slotThrew);
+check('pre-beta landscape material is absent from the public style bundle', slot === undefined);
 
 // --- swept tunnels -----------------------------------------------------------
 

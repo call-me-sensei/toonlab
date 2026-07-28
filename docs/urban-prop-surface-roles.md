@@ -292,8 +292,16 @@ asset manifest.
 | Living room | Material-level glass, mirror, textile, metal, polymer, mineral, composite, and wood assignments; ambiguous foliage and generic surfaces remain audited |
 | Bicycle collection | Painted-metal bicycles and mineral planter surfaces use explicit manufactured assignments; `Arch-Leaf` and `Arch-Twig` route to the vegetation shader as `foliageCard` and `woodySurface`; the clean mixed-atlas bicycle is the true-black regression case |
 | Streetcar | Mixed reprojected atlases; uses `genericDielectric` and remains flagged for an ID-mask or material-split audit |
+| Burned-out cars | Distressed mixed atlas; uses `genericDielectric` and remains flagged for an ID-mask or material-split audit |
 | Beach props | One atlas spans several physical materials; uses `genericDielectric` and remains flagged for an ID-mask or material-split audit |
 | Ground-floor kit | One atlas mixes masonry, wood, metal, and recesses; uses `genericDielectric` and remains flagged for an ID-mask or material-split audit |
+| Wooden Crate 01 (redistributable sample) | Poly Haven CC0 sample; one atlas spans wood and metal hardware, so it uses `genericDielectric` and remains flagged for a split or material-ID mask |
+
+The nine private benchmark GLBs live under
+`assets-local/labs/manufactured-material/test-cases/<id>/model.glb`. They are
+gitignored and development-only. The lab also supports session GLB uploads,
+saved Asset Browser library entries, and the open gallery without mixing any
+of those preview identities into the authored look.
 
 Do not clear an audit by labeling a mixed atlas with whichever base material
 occupies the most pixels. Split the zones or add a stable material-ID mask.

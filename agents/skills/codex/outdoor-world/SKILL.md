@@ -139,7 +139,7 @@ everything downstream (masks, scatter, collision, minimap) derives from
     opacity <= 0.18. Never use opaque black blobs as AO.
 17. **Give the horizon a human scale anchor**: the default lush terrain ships
     one deterministic castle silhouette. Bespoke worlds need an equivalent
-    tower, city, ruin, or megastructure on the rim; noise-only peaks are not
+    tower, city, ruin, or landmark structure on the rim; noise-only peaks are not
     a landmark.
 18. **Far LODs keep real volume**: use the default instanced low-poly crown +
     crown proxy (<= 160 triangles/tree); keep trunks in near LOD only so they

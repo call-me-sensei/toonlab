@@ -118,7 +118,11 @@ check('tagged writers render both targets and publish the field', () => {
   });
 
   pass.update();
-  assert.equal(rendered, 2, 'one color pass + one height pass');
+  assert.equal(
+    rendered,
+    4,
+    'one color pass + one filtered-color pass + one surface pass + one height pass',
+  );
   assert.equal(bystanderVisibleDuringRender, false, 'non-writers hidden during the pass');
   assert.equal(bystander.visible, true, 'visibility restored after the pass');
   assert.equal(environmentGroundField.ready.value, true);
@@ -127,10 +131,10 @@ check('tagged writers render both targets and publish the field', () => {
   assert.ok(environmentGroundField.heightSpan.value > 0);
 
   pass.update();
-  assert.equal(rendered, 2, 'static scene renders once (signature gate)');
+  assert.equal(rendered, 4, 'static scene renders once (signature gate)');
   pass.invalidate();
   pass.update();
-  assert.equal(rendered, 4, 'invalidate() forces a re-render');
+  assert.equal(rendered, 8, 'invalidate() forces a re-render');
 
   pass.dispose();
   assert.equal(environmentGroundField.ready.value, false);

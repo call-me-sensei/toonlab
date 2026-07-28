@@ -751,7 +751,7 @@ export class StylizedGrassField extends THREE.Mesh {
     return this;
   }
 
-  setSun({ direction, color, sky } = {}) {
+  setSun({ direction, color, intensity, sky, skyIntensity } = {}) {
     const uniforms = this.material.uniforms;
     if (direction !== undefined) {
       const next = vectorArray(direction, this.settings.sunDirection, 3);
@@ -759,6 +759,12 @@ export class StylizedGrassField extends THREE.Mesh {
     }
     if (color !== undefined) setSrgbColor(uniforms.uSunColor.value, colorArray(color, this.settings.sunColor));
     if (sky !== undefined) setSrgbColor(uniforms.uSkyColor.value, colorArray(sky, this.settings.skyColor));
+    if (Number.isFinite(intensity) && uniforms.uSunIntensity) {
+      uniforms.uSunIntensity.value = Math.max(intensity, 0);
+    }
+    if (Number.isFinite(skyIntensity) && uniforms.uSkyIntensity) {
+      uniforms.uSkyIntensity.value = Math.max(skyIntensity, 0);
+    }
     return this;
   }
 

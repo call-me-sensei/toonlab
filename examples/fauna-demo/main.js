@@ -9,7 +9,7 @@
 //
 // The fauna cluster itself is imported RELATIVELY (the '@call-me-sensei/
 // toonlab/fauna' alias lands with the integration pass — see
-// src/fauna/INTEGRATION.md); everything else uses the public specifiers.
+// docs/fauna-integration.md); everything else uses the public specifiers.
 
 import * as THREE from 'three';
 import { WebGPURenderer } from 'three/webgpu';

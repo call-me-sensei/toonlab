@@ -11,11 +11,10 @@ import * as THREE from 'three';
 export const TOONLAB_SOURCE_SCHEMA =
   'toonlab.environment-material-source';
 
-export const DEFAULT_TOONLAB_SOURCE_BASE_URL =
-  '/assets-local/toonlab/material-source';
-
-export const DEFAULT_TOONLAB_SHOWCASE_WEIGHT_LAYER_BASE_URL =
-  '/assets-local/toonlab/landscape-weight-layers/ToonLabShowcase';
+// Asset locations are host configuration. The npm runtime never assumes a
+// repository-local asset mount.
+export const DEFAULT_TOONLAB_SOURCE_BASE_URL = null;
+export const DEFAULT_TOONLAB_SHOWCASE_WEIGHT_LAYER_BASE_URL = null;
 
 export const TOONLAB_MATERIAL_FAMILIES = Object.freeze([
   'landscape',
@@ -394,11 +393,15 @@ export function toonLabTexturePath(profile, name, fallback = null) {
 export class ToonLabSourceLibrary {
   constructor(manifest, {
     baseUrl = DEFAULT_TOONLAB_SOURCE_BASE_URL,
+    environmentBaseUrl = null,
     landscapeWeightmapSets = manifest.landscapeWeightmaps ?? {},
     textureLoader = new THREE.TextureLoader(),
   } = {}) {
     this.manifest = assertManifest(manifest);
-    this.baseUrl = String(baseUrl).replace(/\/$/, '');
+    this.baseUrl = typeof baseUrl === 'string' ? baseUrl.replace(/\/$/, '') : null;
+    this.environmentBaseUrl = typeof environmentBaseUrl === 'string'
+      ? environmentBaseUrl.replace(/\/$/, '')
+      : null;
     this.textureLoader = textureLoader;
     this.texturePromises = new Map();
     this.curveTextures = new Map();
@@ -529,9 +532,12 @@ export class ToonLabSourceLibrary {
         + inspection.errors.join('; '),
       );
     }
-    const baseUrl = String(
-      record?.baseUrl ?? DEFAULT_TOONLAB_SHOWCASE_WEIGHT_LAYER_BASE_URL,
-    ).replace(/\/$/, '');
+    const configuredBaseUrl =
+      record?.baseUrl ?? DEFAULT_TOONLAB_SHOWCASE_WEIGHT_LAYER_BASE_URL;
+    if (typeof configuredBaseUrl !== 'string' || !configuredBaseUrl.trim()) {
+      throw new Error('Landscape weight textures require a configured baseUrl.');
+    }
+    const baseUrl = configuredBaseUrl.replace(/\/$/, '');
     const packEntries = await Promise.all(inspection.runtimePacks.map(async (pack, packIndex) => {
       const url = joinUrl(baseUrl, pack.file);
       const key = `landscape-weight|${url}`;
@@ -724,6 +730,7 @@ export class ToonLabSourceLibrary {
 
 export async function loadToonLabSourceLibrary({
   baseUrl = DEFAULT_TOONLAB_SOURCE_BASE_URL,
+  environmentBaseUrl = null,
   fetchImpl = globalThis.fetch,
   landscapeWeightBaseUrl = DEFAULT_TOONLAB_SHOWCASE_WEIGHT_LAYER_BASE_URL,
   textureLoader,
@@ -731,12 +738,19 @@ export async function loadToonLabSourceLibrary({
   if (typeof fetchImpl !== 'function') {
     throw new Error('loadToonLabSourceLibrary requires a fetch implementation.');
   }
+  if (typeof baseUrl !== 'string' || !baseUrl.trim()) {
+    throw new Error('loadToonLabSourceLibrary requires a material baseUrl.');
+  }
+  if (typeof landscapeWeightBaseUrl !== 'string' || !landscapeWeightBaseUrl.trim()) {
+    throw new Error('loadToonLabSourceLibrary requires a landscapeWeightBaseUrl.');
+  }
   const [manifest, toonLabShowcaseWeightManifest] = await Promise.all([
     fetchManifest(baseUrl, fetchImpl),
     fetchLandscapeWeightManifest(landscapeWeightBaseUrl, fetchImpl),
   ]);
   return new ToonLabSourceLibrary(manifest, {
     baseUrl,
+    environmentBaseUrl,
     landscapeWeightmapSets: {
       [TOONLAB_SHOWCASE_WEIGHTMAP_CONTRACT.sourceAssetName]: {
         baseUrl: landscapeWeightBaseUrl,

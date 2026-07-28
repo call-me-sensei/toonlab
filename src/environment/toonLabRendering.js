@@ -1,5 +1,5 @@
 // Renderer-level contract extracted from the supplied ToonLab
-// project while M_Demonstration_Mega is running. This is intentionally
+// project while EnvironmentReferenceScene is running. This is intentionally
 // independent of the ToonLab export: PC_RPAsset, PC_Renderer, the active
 // camera, RenderSettings and the scene's Global Volume are the authority.
 
@@ -125,7 +125,7 @@ const COLOR_FILTER_SRGB = freezeArray([0.8867924, 0.8867924, 0.8867924]);
 
 export const TOONLAB_RENDER_CONTRACT = Object.freeze({
   authority: 'ToonLab reference renderer',
-  scene: 'Assets/ToonLab/Demo/M_Demonstration_Mega.toonlab',
+  scene: 'Assets/ToonLab/Demo/EnvironmentReferenceScene.toonlab',
   pipeline: Object.freeze({
     name: 'PC_RPAsset',
     renderer: 'PC_Renderer',

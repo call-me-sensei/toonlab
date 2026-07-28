@@ -335,7 +335,7 @@ export class StylizedFlowerField extends THREE.Mesh {
     return this;
   }
 
-  setSun({ direction, color, sky } = {}) {
+  setSun({ direction, color, intensity, sky, skyIntensity } = {}) {
     const uniforms = this.material.uniforms;
     if (direction !== undefined && uniforms.uSunDirection) {
       const next = vectorArray(direction, [0.35, 0.72, 0.42], 3);
@@ -343,6 +343,12 @@ export class StylizedFlowerField extends THREE.Mesh {
     }
     if (color !== undefined && uniforms.uSunColor) setSrgbColor(uniforms.uSunColor.value, colorArray(color, [1, 0.96, 0.84]));
     if (sky !== undefined && uniforms.uSkyColor) setSrgbColor(uniforms.uSkyColor.value, colorArray(sky, [0.62, 0.78, 0.95]));
+    if (Number.isFinite(intensity) && uniforms.uSunIntensity) {
+      uniforms.uSunIntensity.value = Math.max(intensity, 0);
+    }
+    if (Number.isFinite(skyIntensity) && uniforms.uSkyIntensity) {
+      uniforms.uSkyIntensity.value = Math.max(skyIntensity, 0);
+    }
     return this;
   }
 

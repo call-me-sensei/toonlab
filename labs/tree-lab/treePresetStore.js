@@ -49,8 +49,9 @@ export const BUILT_IN_TREE_PRESETS = Object.freeze([
     options: Object.freeze({
       seed: 21,
       size: 2.2,
-      canopyColor: '#5fae57',
+      canopyColor: '#4b944f',
       leafDensity: 0.9,
+      trunkColor: '#805b3d',
       trunk: Object.freeze({ height: 2.6, radiusBottom: 0.14, bend: 0.06, lean: 0.08 }),
       skeleton: Object.freeze({
         generator: 'branching', levels: 3, childrenCount: 6, branchAngle: 62,
@@ -76,6 +77,7 @@ export const BUILT_IN_TREE_PRESETS = Object.freeze([
         canopyLayout: { flatten: 0.55, lobeCount: 7, spread: 1.35 },
         seed: 31,
         size: 1.6,
+        trunkColor: '#745136',
         trunk: {
           bend: 0.14, gnarl: 0.45, height: 1.35, radiusBottom: 0.17, twist: 0.3,
         },
@@ -91,6 +93,7 @@ export const BUILT_IN_TREE_PRESETS = Object.freeze([
         canopyLayout: { flatten: 0.5, lobeCount: 8, spread: 1.45 },
         seed: 33,
         size: 2.6,
+        trunkColor: '#6f4d34',
         trunk: {
           bend: 0.12, gnarl: 0.5, height: 1.6, radiusBottom: 0.2, twist: 0.35,
         },
@@ -104,6 +107,7 @@ export const BUILT_IN_TREE_PRESETS = Object.freeze([
         leafDensity: 0.95,
         seed: 41,
         size: 2.1,
+        trunkColor: '#887052',
         skeleton: {
           branchAngle: 48, branchStart: 0.3, childrenCount: 5,
           forceStrength: 0.015, generator: 'branching', gnarliness: 0.22,
@@ -123,6 +127,7 @@ export const BUILT_IN_TREE_PRESETS = Object.freeze([
         leafDensity: 0.85,
         seed: 47,
         size: 2.3,
+        trunkColor: '#c0bdad',
         skeleton: {
           branchAngle: 62, branchStart: 0.55, childrenCount: 10,
           forceStrength: 0.045, generator: 'branching', gnarliness: 0.1,
@@ -140,10 +145,11 @@ export const BUILT_IN_TREE_PRESETS = Object.freeze([
       id: 'species_pine_stylized',
       label: 'Pine — Stylized Blob Stack',
       options: {
-        canopyColor: '#3f7d4f',
+        canopyColor: '#326b43',
         leafDensity: 1,
         seed: 53,
         size: 1.7,
+        trunkColor: '#6a4b35',
         canopy: {
           blobs: [
             { offset: [0, 0, 0], radius: 0.9 },
@@ -163,10 +169,11 @@ export const BUILT_IN_TREE_PRESETS = Object.freeze([
       id: 'species_pine_small',
       label: 'Pine — Small',
       options: {
-        canopyColor: '#4a8a58',
+        canopyColor: '#356f47',
         leafDensity: 1,
         seed: 53,
         size: 1.7,
+        trunkColor: '#684932',
         skeleton: {
           branchAngle: 100, branchStart: 0.3, childrenCount: 44,
           conifer: true, forceStrength: -0.006, generator: 'branching',
@@ -182,10 +189,11 @@ export const BUILT_IN_TREE_PRESETS = Object.freeze([
       id: 'species_pine_large',
       label: 'Pine — Large',
       options: {
-        canopyColor: '#3f7d51',
+        canopyColor: '#2f6542',
         leafDensity: 1,
         seed: 59,
         size: 2.9,
+        trunkColor: '#62452f',
         skeleton: {
           branchAngle: 104, branchStart: 0.24, childrenCount: 56,
           conifer: true, forceStrength: -0.008, generator: 'branching',
@@ -213,7 +221,13 @@ export const BUILT_IN_TREE_PRESETS = Object.freeze([
     id: 'example_bush',
     label: 'Example — Bush',
     builtIn: true,
-    options: Object.freeze({ seed: 4, size: 0.9, canopyColor: '#4da258', leafDensity: 1 }),
+    options: Object.freeze({
+      seed: 4,
+      size: 0.9,
+      canopyColor: '#4d9250',
+      leafDensity: 1,
+      trunkColor: '#745136',
+    }),
   }),
   // Flower plants: stem + branches tipped with blooms (species catalog in
   // src/vegetation/flowerSpecies.js).

@@ -1,143 +1,155 @@
-// Sky Lab state owns one portable, reusable sky-system preset. Camera, scene lights,
-// current weather are preview fixtures and never enter the
-// document snapshot, undo history, autosave, or exported JSON.
+// Sky Shader Lab owns one reusable sky appearance profile. Current time,
+// celestial direction, cloud context, weather, particles, camera, and source
+// assets are preview-only and never enter the exported document.
 
 import { createStore } from '../../shared/ui/createStore.js';
 import {
-  DEFAULT_SKY_SCENARIO,
-  SKY_PRESET_ALIASES,
-  createSkyPresetDocument,
-  createSkySettings,
-  getSkyPresetOptions,
-  getSkyScenarioOptions,
-  parseSkyPresetDocument,
-  serializeSkyPreset,
-} from '../../../src/sky/stylizedSky.js';
-import {
-  deleteLocalSkyPreset,
-  loadLocalSkyPresets,
-  upsertLocalSkyPresetDocument,
-  withoutSkyDomeRadius,
-} from '../skyPresetStore.js';
+  DEFAULT_SKY_SHADER_PRESET,
+  createSkyShaderPresetDocument,
+  createSkyShaderSettings,
+  getSkyShaderPresetOptions,
+  parseSkyShaderPresetDocument,
+  registerSkyShaderPreset,
+  serializeSkyShaderPreset,
+} from '../../../src/sky/skyShaderSettings.js';
 
-export const SKY_LAB_DOCUMENT_STORAGE_KEY = 'toonlab.skyLab.document.v1';
-export const SKY_LAB_PRESET_QUERY_PARAM = 'skyPreset';
-export const SKY_LAB_SCENARIO_QUERY_PARAM = 'skyScenario';
+export const SKY_LAB_DOCUMENT_STORAGE_KEY =
+  'toonlab.skyShaderLab.document.v2';
+export const SKY_LAB_PRESETS_STORAGE_KEY =
+  'toonlab.skyShaderLab.presets.v2';
+export const SKY_LAB_PRESET_QUERY_PARAM = 'skyShader';
 
 const UNDO_LIMIT = 50;
 const HISTORY_COALESCE_MS = 500;
 const DEFAULT_PREVIEW = Object.freeze({
-  ambientIntensity: 0.62,
-  quality: 'high',
-  sunIntensity: 1.35,
+  autoCycle: false,
+  cloudStyle: 'call_me_sensei',
+  hour: 13,
+  particles: false,
+  viewMode: 'sky',
   weather: 'authored',
 });
 
 function slug(value) {
-  return String(value || 'sky').toLowerCase().trim()
-    .replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+  return String(value || 'sky-shader').toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'sky_shader';
 }
 
-function authoredSettings(input = {}) {
-  return withoutSkyDomeRadius(createSkySettings(input));
-}
-
-function readDraft() {
+function readJson(key, fallback = null) {
   try {
-    const raw = window.localStorage?.getItem(SKY_LAB_DOCUMENT_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    const raw = window.localStorage?.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
   } catch {
-    return null;
+    return fallback;
   }
 }
 
-function writeDraft(document) {
+function writeJson(key, value) {
   try {
-    window.localStorage?.setItem(SKY_LAB_DOCUMENT_STORAGE_KEY, JSON.stringify(document));
+    window.localStorage?.setItem(key, JSON.stringify(value));
   } catch {
-    // Storage is a convenience, not a runtime requirement.
+    // Authoring remains available without browser persistence.
   }
 }
 
-function clearDraft() {
+function removeItem(key) {
   try {
-    window.localStorage?.removeItem(SKY_LAB_DOCUMENT_STORAGE_KEY);
+    window.localStorage?.removeItem(key);
   } catch {
-    // Ignore storage failures.
+    // Ignore unavailable browser storage.
   }
+}
+
+function loadLocalPresets() {
+  const documents = readJson(SKY_LAB_PRESETS_STORAGE_KEY, []);
+  if (!Array.isArray(documents)) return [];
+  const valid = [];
+  for (const document of documents) {
+    const result = parseSkyShaderPresetDocument(document);
+    if (!result.ok) continue;
+    registerSkyShaderPreset(result.value.id, result.value, { overwrite: true });
+    valid.push(result.value);
+  }
+  return valid;
+}
+
+function saveLocalPresets(documents) {
+  writeJson(SKY_LAB_PRESETS_STORAGE_KEY, documents);
 }
 
 function presetLabel(id) {
-  const option = getSkyPresetOptions().find((entry) => (entry.value ?? entry.id) === id);
-  if (option) return option.label;
-  // Legacy single-look ids read as the scenario they alias to.
-  const alias = SKY_PRESET_ALIASES[id];
-  if (alias) return scenarioLabel(alias.scenario);
-  return id;
+  return getSkyShaderPresetOptions()
+    .find((entry) => entry.value === id)?.label ?? id;
 }
 
-function scenarioLabel(id) {
-  return getSkyScenarioOptions().find((entry) => entry.id === id)?.label ?? id;
+function normalizeHour(value) {
+  const number = Number(value);
+  const base = Number.isFinite(number) ? number : DEFAULT_PREVIEW.hour;
+  return ((base % 24) + 24) % 24;
 }
 
-function normalizeScenarioId(value) {
-  return getSkyScenarioOptions().some((entry) => entry.id === value)
-    ? value
-    : DEFAULT_SKY_SCENARIO;
-}
-
-function bootDocument(urlParams) {
-  // Explicit links win over an unrelated local draft. Pro can hydrate a
-  // cloud document, register it, then launch this route with
-  // ?skyPreset=id (&skyScenario=id for a specific scenario of the style).
-  const linkedPresetId = urlParams.get(SKY_LAB_PRESET_QUERY_PARAM);
-  if (linkedPresetId) {
-    const linkedScenario = urlParams.get(SKY_LAB_SCENARIO_QUERY_PARAM);
-    const scenarioId = linkedScenario !== null
-      ? normalizeScenarioId(linkedScenario)
-      : normalizeScenarioId(SKY_PRESET_ALIASES[linkedPresetId]?.scenario);
-    return {
-      bootSource: 'preset',
-      name: presetLabel(linkedPresetId),
-      presetId: linkedPresetId,
-      scenarioId,
-      settings: authoredSettings({
-        preset: linkedPresetId,
-        ...(linkedScenario === null ? {} : { scenario: scenarioId }),
-      }),
-    };
-  }
-  const saved = readDraft();
-  if (saved?.settings) {
-    return {
-      bootSource: 'persisted',
-      name: saved.name || 'Untitled sky',
-      presetId: saved.presetId ?? null,
-      scenarioId: normalizeScenarioId(saved.scenarioId),
-      settings: authoredSettings(saved.settings),
-    };
-  }
-  const presetId = 'call_me_sensei';
+function normalizeView(input = {}) {
   return {
-    bootSource: 'fresh',
-    name: presetLabel(presetId),
-    presetId,
-    scenarioId: DEFAULT_SKY_SCENARIO,
-    settings: authoredSettings({ preset: presetId }),
+    ...DEFAULT_PREVIEW,
+    ...(input && typeof input === 'object' ? input : {}),
+    autoCycle: input?.autoCycle === true,
+    cloudStyle: ['call_me_sensei', 'neutral_review', 'hidden']
+      .includes(input?.cloudStyle)
+      ? input.cloudStyle
+      : DEFAULT_PREVIEW.cloudStyle,
+    hour: normalizeHour(input?.hour),
+    particles: input?.particles === true,
+    viewMode: ['sky', 'celestial', 'horizon'].includes(input?.viewMode)
+      ? input.viewMode
+      : DEFAULT_PREVIEW.viewMode,
+    weather: String(input?.weather || DEFAULT_PREVIEW.weather),
   };
 }
 
-function serializePortablePreset(id, definition) {
-  const document = JSON.parse(serializeSkyPreset(id, definition, { pretty: true }));
-  document.settings = withoutSkyDomeRadius(document.settings);
-  return JSON.stringify(document, null, 2);
+function linkedPreview(urlParams, fallback = {}) {
+  const linkedHour = urlParams.get('envTime');
+  const linkedView = urlParams.get('skyView');
+  return normalizeView({
+    ...fallback,
+    ...(linkedHour === null ? {} : { hour: Number(linkedHour) }),
+    ...(linkedView === null ? {} : { viewMode: linkedView }),
+  });
+}
+
+function bootDocument(urlParams) {
+  const linkedPreset = urlParams.get(SKY_LAB_PRESET_QUERY_PARAM);
+  if (linkedPreset) {
+    return {
+      bootSource: 'preset',
+      name: presetLabel(linkedPreset),
+      presetId: linkedPreset,
+      settings: createSkyShaderSettings({ preset: linkedPreset }),
+      view: linkedPreview(urlParams),
+    };
+  }
+  const saved = readJson(SKY_LAB_DOCUMENT_STORAGE_KEY);
+  if (saved?.settings) {
+    return {
+      bootSource: 'persisted',
+      name: saved.name || 'Untitled Sky Shader',
+      presetId: saved.presetId ?? null,
+      settings: createSkyShaderSettings(saved.settings),
+      view: linkedPreview(urlParams, saved.view),
+    };
+  }
+  return {
+    bootSource: 'fresh',
+    name: presetLabel(DEFAULT_SKY_SHADER_PRESET),
+    presetId: DEFAULT_SKY_SHADER_PRESET,
+    settings: createSkyShaderSettings({ preset: DEFAULT_SKY_SHADER_PRESET }),
+    view: linkedPreview(urlParams),
+  };
 }
 
 export function createSkyLabStore({
   urlParams = new URLSearchParams(window.location.search),
 } = {}) {
-  // Loading local presets registers them before URL/draft resolution.
-  const localPresets = loadLocalSkyPresets();
+  const localPresets = loadLocalPresets();
   const boot = bootDocument(urlParams);
   const undoStack = [];
   const redoStack = [];
@@ -149,14 +161,16 @@ export function createSkyLabStore({
     canRedo: false,
     canUndo: false,
     docRevision: 0,
+    engineReady: false,
     localPresets,
     name: boot.name,
     presetDirty: false,
     presetId: boot.presetId,
-    scenarioId: boot.scenarioId,
     settings: boot.settings,
-    status: boot.bootSource === 'persisted' ? 'Restored your last sky.' : '',
-    view: { ...DEFAULT_PREVIEW },
+    status: boot.bootSource === 'persisted'
+      ? 'Restored your last sky shader.'
+      : '',
+    view: boot.view,
   });
 
   const state = () => store.getState();
@@ -164,22 +178,28 @@ export function createSkyLabStore({
     name: state().name,
     presetDirty: state().presetDirty,
     presetId: state().presetId,
-    scenarioId: state().scenarioId,
     settings: state().settings,
   });
 
   function persist() {
-    writeDraft({
+    writeJson(SKY_LAB_DOCUMENT_STORAGE_KEY, {
       name: state().name,
       presetId: state().presetId,
-      scenarioId: state().scenarioId,
-      settings: withoutSkyDomeRadius(state().settings),
+      settings: state().settings,
+      view: state().view,
+    });
+  }
+
+  function updateHistoryFlags() {
+    store.setState({
+      canRedo: redoStack.length > 0,
+      canUndo: undoStack.length > 0,
     });
   }
 
   function pushHistory(key = null) {
     const now = Date.now();
-    if (key && lastHistoryKey === key && now - lastHistoryTime < HISTORY_COALESCE_MS) {
+    if (key && key === lastHistoryKey && now - lastHistoryTime < HISTORY_COALESCE_MS) {
       lastHistoryTime = now;
       return;
     }
@@ -190,11 +210,7 @@ export function createSkyLabStore({
     lastHistoryTime = now;
   }
 
-  function updateHistoryFlags() {
-    store.setState({ canRedo: redoStack.length > 0, canUndo: undoStack.length > 0 });
-  }
-
-  function commit(patch, { status = null } = {}) {
+  function commit(patch, status = null) {
     store.setState((previous) => ({
       ...patch,
       docRevision: previous.docRevision + 1,
@@ -204,21 +220,27 @@ export function createSkyLabStore({
     updateHistoryFlags();
   }
 
-  function restore(entry, destination) {
-    destination.push(snapshot());
-    const document = JSON.parse(entry);
-    commit({ ...document, settings: authoredSettings(document.settings) }, { status: 'History restored.' });
-  }
-
-  function replaceForStart(settings, { name, presetId = null, scenarioId = null, status }) {
+  function replace(settings, {
+    name,
+    presetId = null,
+    status,
+  }) {
     pushHistory();
-    store.setState({
+    commit({
       name,
       presetDirty: false,
       presetId,
-      ...(scenarioId === null ? {} : { scenarioId }),
-    });
-    commit({ settings: authoredSettings(settings) }, { status });
+      settings: createSkyShaderSettings(settings),
+    }, status);
+  }
+
+  function restore(entry, destination) {
+    destination.push(snapshot());
+    const restored = JSON.parse(entry);
+    commit({
+      ...restored,
+      settings: createSkyShaderSettings(restored.settings),
+    }, 'History restored.');
   }
 
   store.actions = {
@@ -226,48 +248,39 @@ export function createSkyLabStore({
       store.setState(patch);
     },
 
-    // Opens one scenario of a style. Every style resolves in every scenario;
-    // omitting `scenario` keeps the current one (legacy alias ids pick their
-    // own scenario inside the runtime).
-    applyPreset(id, scenario = undefined) {
-      const scenarioId = normalizeScenarioId(
-        scenario ?? SKY_PRESET_ALIASES[id]?.scenario ?? state().scenarioId,
-      );
-      replaceForStart({ preset: id, scenario: scenarioId }, {
+    applyPreset(id) {
+      replace({ preset: id }, {
         name: presetLabel(id),
         presetId: id,
-        scenarioId,
-        status: `Opened ${presetLabel(id)} · ${scenarioLabel(scenarioId)}.`,
+        status: `Opened ${presetLabel(id)}.`,
       });
-      return true;
-    },
-
-    setScenario(scenario) {
-      return store.actions.applyPreset(state().presetId ?? 'default', scenario);
     },
 
     deletePreset(id) {
-      deleteLocalSkyPreset(id);
+      const next = state().localPresets.filter((document) => document.id !== id);
+      saveLocalPresets(next);
       store.setState({
-        localPresets: loadLocalSkyPresets(),
+        localPresets: next,
         ...(state().presetId === id ? { presetId: null } : {}),
       });
       persist();
     },
 
     exportDocument() {
-      return serializePortablePreset(slug(state().name), {
-        label: state().name,
-        settings: state().settings,
-      });
+      return serializeSkyShaderPreset(
+        createSkyShaderPresetDocument(slug(state().name), {
+          label: state().name,
+          settings: state().settings,
+        }),
+      );
     },
 
     importDocument(text) {
-      const result = parseSkyPresetDocument(text);
+      const result = parseSkyShaderPresetDocument(text);
       if (!result.ok) return result;
-      replaceForStart(result.value.settings, {
-        name: result.value.label || 'Imported sky',
-        status: `Imported ${result.value.label || 'sky preset'}.`,
+      replace(result.value.settings, {
+        name: result.value.label,
+        status: `Imported ${result.value.label}.`,
       });
       return result;
     },
@@ -279,34 +292,34 @@ export function createSkyLabStore({
     },
 
     resetLab() {
-      clearDraft();
-      store.setState({ view: { ...DEFAULT_PREVIEW } });
-      replaceForStart({ preset: 'call_me_sensei', scenario: DEFAULT_SKY_SCENARIO }, {
-        name: presetLabel('call_me_sensei'),
-        presetId: 'call_me_sensei',
-        scenarioId: DEFAULT_SKY_SCENARIO,
-        status: 'Sky Lab reset.',
+      removeItem(SKY_LAB_DOCUMENT_STORAGE_KEY);
+      store.setState({ view: normalizeView() });
+      replace({ preset: DEFAULT_SKY_SHADER_PRESET }, {
+        name: presetLabel(DEFAULT_SKY_SHADER_PRESET),
+        presetId: DEFAULT_SKY_SHADER_PRESET,
+        status: 'Sky Shader Lab reset.',
       });
     },
 
     savePresetAs(name) {
       const cleanName = String(name || '').trim();
-      if (!cleanName) return { errors: ['Enter a name for the sky preset.'], ok: false };
-      const id = `local_${slug(cleanName)}_${Date.now().toString(36)}`;
-      try {
-        upsertLocalSkyPresetDocument(createSkyPresetDocument(id, {
-          label: cleanName,
-          settings: state().settings,
-        }));
-      } catch (error) {
-        return { errors: [error.message], ok: false };
+      if (!cleanName) {
+        return { errors: ['Enter a name for the sky shader.'], ok: false };
       }
+      const id = `local_${slug(cleanName)}_${Date.now().toString(36)}`;
+      const document = createSkyShaderPresetDocument(id, {
+        label: cleanName,
+        settings: state().settings,
+      });
+      const next = [...state().localPresets, document];
+      registerSkyShaderPreset(id, document, { overwrite: true });
+      saveLocalPresets(next);
       store.setState({
-        localPresets: loadLocalSkyPresets(),
+        localPresets: next,
         name: cleanName,
         presetDirty: false,
         presetId: id,
-        status: `Saved “${cleanName}” to your presets.`,
+        status: `Saved “${cleanName}” to your sky shaders.`,
       });
       persist();
       return { ok: true };
@@ -316,16 +329,28 @@ export function createSkyLabStore({
       pushHistory(`setting:${key}`);
       commit({
         presetDirty: true,
-        settings: authoredSettings({ ...state().settings, [key]: value }),
+        settings: createSkyShaderSettings({
+          ...state().settings,
+          [key]: value,
+        }),
       });
     },
 
-    setStatus(status) {
-      store.setState({ status: String(status || '') });
+    setPreviewAutoCycle(autoCycle) {
+      store.setState({
+        view: normalizeView({ ...state().view, autoCycle }),
+      });
+    },
+
+    setPreviewHour(hour) {
+      store.setState({
+        view: normalizeView({ ...state().view, hour }),
+      });
     },
 
     setView(patch) {
-      store.setState({ view: { ...state().view, ...patch } });
+      store.setState({ view: normalizeView({ ...state().view, ...patch }) });
+      persist();
     },
 
     undo() {

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import * as THREE from 'three';
 
 import {
@@ -14,6 +16,10 @@ import {
   resolveManufacturedMaterialLook,
   validateEnvironmentPresetDocument,
 } from '../src/environment/index.js';
+import {
+  MANUFACTURED_LOCAL_TEST_ASSETS,
+  MANUFACTURED_PUBLIC_SAMPLES,
+} from '../labs/manufactured-material-lab/previewAssets.js';
 
 function createTestAsset() {
   const root = new THREE.Group();
@@ -162,5 +168,80 @@ assert.ok(document.preset.materialLook.objectClasses.buildingExterior);
 const validated = validateEnvironmentPresetDocument(document);
 assert.equal(validated.ok, true, validated.errors.join(' '));
 assert.ok(validated.value.materialLook.contentFlags.graphic);
+
+assert.equal(
+  MANUFACTURED_LOCAL_TEST_ASSETS.length,
+  9,
+  'The private manufactured-material regression grid must retain all nine fixtures.',
+);
+assert.deepEqual(
+  MANUFACTURED_PUBLIC_SAMPLES.map((asset) => asset.id),
+  ['wooden-crate-01'],
+);
+
+const labIndex = readFileSync(
+  new URL('../manufactured-material-lab/index.html', import.meta.url),
+  'utf8',
+);
+const labApp = readFileSync(
+  new URL('../labs/manufactured-material-lab/ui/App.jsx', import.meta.url),
+  'utf8',
+);
+const labRuntime = readFileSync(
+  new URL('../examples/urban-prop-shader/main.js', import.meta.url),
+  'utf8',
+);
+assert.match(labIndex, /labs\/manufactured-material-lab\/ui\/main\.jsx/);
+assert.doesNotMatch(`${labIndex}\n${labApp}`, /Mint override/i);
+assert.doesNotMatch(labApp, /Blue treatment checkpoint/i);
+for (const sectionId of [
+  'reconstruction',
+  'surface',
+  'lighting',
+  'reflections',
+  'line-work',
+  'materials',
+]) {
+  assert.match(
+    labApp,
+    new RegExp(`id: '${sectionId}'|data-panel-view="${sectionId}"`),
+    `Missing the ${sectionId} manufactured-material inspector section.`,
+  );
+}
+assert.ok(
+  existsSync(new URL('../manufactured-material-lab/legacy/index.html', import.meta.url)),
+  'The previous one-off lab page must remain available as the legacy page.',
+);
+for (const asset of MANUFACTURED_LOCAL_TEST_ASSETS) {
+  assert.match(
+    labRuntime,
+    new RegExp(`assets-local/labs/manufactured-material/test-cases/${asset.id}/model\\.glb`),
+    `Missing organized local fixture path for ${asset.id}.`,
+  );
+}
+
+const sampleManifest = JSON.parse(readFileSync(
+  new URL('../public/manufactured-material-lab/cc0/manifest.json', import.meta.url),
+  'utf8',
+));
+assert.equal(sampleManifest.assets[0].assetId, 'polyhaven/wooden_crate_01');
+assert.equal(sampleManifest.assets[0].license, 'CC0-1.0');
+assert.equal(
+  sampleManifest.assets[0].callMeSenseiSupport,
+  'mixed-atlas compatibility',
+);
+assert.ok(existsSync(new URL(
+  '../public/manufactured-material-lab/cc0/polyhaven/wooden_crate_01/wooden_crate_01_1k.gltf',
+  import.meta.url,
+)));
+for (const [relativePath, expected] of Object.entries(
+  sampleManifest.assets[0].sourceFileHashesMd5,
+)) {
+  const bytes = readFileSync(new URL(
+    `../public/manufactured-material-lab/cc0/${relativePath}`,
+    import.meta.url,
+  ));
+  assert.equal(createHash('md5').update(bytes).digest('hex'), expected);
+}
 
 console.log('Manufactured material contract verified.');

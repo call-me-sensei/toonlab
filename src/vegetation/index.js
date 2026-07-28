@@ -15,6 +15,8 @@ export * from './stylizedForest.js';
 export * from './stylizedUnderstory.js';
 export * from './contactShadowField.js';
 export * from './vegetationShaders.js';
+export * from './p18VegetationShaderMaterial.js';
+export * from './retainedGrassShaderV2.js';
 export * from './importedVegetationMaterial.js';
 export * from './grassPalettes.js';
 export * from '../shaders-tsl/grass.js';

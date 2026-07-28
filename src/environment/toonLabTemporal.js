@@ -1,5 +1,5 @@
 // Source-exact ToonLab reference renderer TemporalAA High resolve used by the
-// supplied M_Demonstration_Mega spectator camera. Three's TRAANode constructor
+// supplied EnvironmentReferenceScene spectator camera. Three's TRAANode constructor
 // supplies common render-target/camera storage, but this node owns setup,
 // pipeline hooks, resolve, and per-frame history in full; no Three TRAA
 // weighting/clamping or previous-depth path remains.

@@ -16,7 +16,8 @@
 import * as THREE from 'three';
 import { WebGPURenderer } from 'three/webgpu';
 
-import { createStylizedTerrain, createStylizedWorld, createWorldMinimap } from '@call-me-sensei/toonlab';
+import { createStylizedTerrain, createWorldMinimap } from '@call-me-sensei/toonlab';
+import { createStylizedWorld } from '../../src/stylizedWorld.js';
 import { applyToonShader, createCharacterRenderPasses, createToonSettings } from '@call-me-sensei/toonlab/toon';
 import { createPostProcessingPipeline } from '@call-me-sensei/toonlab/post';
 import { loadModelAsset } from '@call-me-sensei/toonlab/loaders';

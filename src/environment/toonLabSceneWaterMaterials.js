@@ -68,7 +68,7 @@ export const TOONLAB_SCENE_WATERFALL_SHADER =
   'ToonLab Graphs/S_Waterfall';
 
 export const DEFAULT_TOONLAB_SCENE_WATER_BASE_URL =
-  '/assets-local/toonlab/mega-scene';
+  '/assets-local/reference-environment/environment-scene';
 
 const ACTIVE_PASSES = Object.freeze([
   'ForwardLit',

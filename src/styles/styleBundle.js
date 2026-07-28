@@ -52,33 +52,45 @@ import {
   SKY_PRESET_DOCUMENT_TYPE,
 } from '../sky/stylizedSky.js';
 import {
+  CLOUD_SHADER_DOCUMENT_TYPE,
+  createCloudShaderSettings,
+  parseCloudShaderPresetDocument,
+} from '../cloud/index.js';
+import {
   createGrassSettings,
   GRASS_PRESET_DOCUMENT_TYPE,
   parseGrassPresetDocument,
 } from '../vegetation/stylizedGrass.js';
 import { createFlowerSettings } from '../vegetation/stylizedFlowers.js';
 import {
+  createFlowerShaderProfileSettings,
+  createGrassShaderProfileSettings,
+  createTreeShaderSettings,
   createVegetationShaderSettings,
+  FLOWER_SHADER_PROFILE_DOCUMENT_TYPE,
+  GRASS_SHADER_PROFILE_DOCUMENT_TYPE,
   parseVegetationShaderPresetDocument,
+  parseFlowerShaderProfilePresetDocument,
+  parseGrassShaderProfilePresetDocument,
+  parseTreeShaderPresetDocument,
+  TREE_SHADER_DOCUMENT_TYPE,
   VEGETATION_SHADER_DOCUMENT_TYPE,
 } from '../vegetation/vegetationShaders.js';
 import {
   TREE_RECIPE_SCHEMA,
   validateTreeRecipeDocument,
 } from '../vegetation/treeRecipe.js';
-import { resolveLightingLookPreset } from '../lighting/lightingPresets.js';
 import {
-  LIGHTING_STYLE_DOCUMENT_TYPE,
-  parseLightingStylePresetDocument,
-  resolveLightingStylePreset,
-} from '../lighting/lightingStyle.js';
-import { normalizeRockgenStyleName } from '../rockgen/rockgenPresets.js';
+  createRockShaderSettings,
+  parseRockShaderPresetDocument,
+  ROCK_SHADER_DOCUMENT_TYPE,
+} from '../rock-shader/index.js';
 import {
-  LANDSCAPE_MATERIAL_PRESET_DOCUMENT_TYPE,
-  parseLandscapeMaterialPresetDocument,
-} from '../landscape/landscapeMaterialPreset.js';
+  createGroundShaderSettings,
+  GROUND_SHADER_DOCUMENT_TYPE,
+  parseGroundShaderPresetDocument,
+} from '../ground-shader/index.js';
 import { resolveDebrisStyleName } from '../debrisgen/debrisPresets.js';
-import { resolveVfxStyleName } from '../vfxgen/vfxPresets.js';
 
 export const STYLE_BUNDLE_DOCUMENT_TYPE = 'toonlab/style-bundle';
 export const STYLE_BUNDLE_SCHEMA_VERSION = 1;
@@ -101,6 +113,39 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
       const style = selectedStyleId(payload);
       return withStyleIdentity(createToonSettings({ preset: style }), style);
     },
+  }),
+  treeShader: Object.freeze({
+    documentType: TREE_SHADER_DOCUMENT_TYPE,
+    label: 'Tree shader',
+    parseDocument: parseTreeShaderPresetDocument,
+    selectionKind: 'style',
+    resolve: (payload) => (
+      payload.document
+        ? createTreeShaderSettings(payload.document.settings)
+        : createTreeShaderSettings({ preset: selectedStyleId(payload) })
+    ),
+  }),
+  grassShader: Object.freeze({
+    documentType: GRASS_SHADER_PROFILE_DOCUMENT_TYPE,
+    label: 'Grass shader',
+    parseDocument: parseGrassShaderProfilePresetDocument,
+    selectionKind: 'style',
+    resolve: (payload) => (
+      payload.document
+        ? createGrassShaderProfileSettings(payload.document.settings)
+        : createGrassShaderProfileSettings({ preset: selectedStyleId(payload) })
+    ),
+  }),
+  flowerShader: Object.freeze({
+    documentType: FLOWER_SHADER_PROFILE_DOCUMENT_TYPE,
+    label: 'Flower shader',
+    parseDocument: parseFlowerShaderProfilePresetDocument,
+    selectionKind: 'style',
+    resolve: (payload) => (
+      payload.document
+        ? createFlowerShaderProfileSettings(payload.document.settings)
+        : createFlowerShaderProfileSettings({ preset: selectedStyleId(payload) })
+    ),
   }),
   tree: Object.freeze({
     documentType: TREE_RECIPE_SCHEMA,
@@ -140,7 +185,7 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
   }),
   vegetationShader: Object.freeze({
     documentType: VEGETATION_SHADER_DOCUMENT_TYPE,
-    label: 'Vegetation shader',
+    label: 'Vegetation shader compatibility aggregate',
     parseDocument: parseVegetationShaderPresetDocument,
     selectionKind: 'style',
     resolve: (payload) => {
@@ -150,13 +195,17 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
     },
   }),
   rock: Object.freeze({
-    documentType: null,
-    label: 'Rocks',
-    parseDocument: null,
+    documentType: ROCK_SHADER_DOCUMENT_TYPE,
+    label: 'Rock shader',
+    parseDocument: parseRockShaderPresetDocument,
     selectionKind: 'style',
-    // Rock geometry remains a separate preset/project. Spread this descriptor
-    // into resolveRockgenPreset(assetPreset, settings.rock).
-    resolve: (payload) => ({ style: normalizeRockgenStyleName(selectedStyleId(payload)) }),
+    // Rock geometry and baked asset channels remain in a rockgen project.
+    // Apply this resolved material document afterwards with applyRockShader().
+    resolve: (payload) => (
+      payload.document
+        ? createRockShaderSettings(payload.document.settings)
+        : createRockShaderSettings({ preset: selectedStyleId(payload) })
+    ),
   }),
   debris: Object.freeze({
     documentType: null,
@@ -191,6 +240,17 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
       const styleIdentity = SKY_PRESET_ALIASES[payload.preset]?.preset ?? payload.preset;
       return withStyleIdentity(createSkySettings({ preset: payload.preset }), styleIdentity);
     },
+  }),
+  cloud: Object.freeze({
+    documentType: CLOUD_SHADER_DOCUMENT_TYPE,
+    label: 'Cloud shader',
+    parseDocument: parseCloudShaderPresetDocument,
+    selectionKind: 'style',
+    resolve: (payload) => (
+      payload.document
+        ? createCloudShaderSettings(payload.document.settings)
+        : createCloudShaderSettings({ preset: selectedStyleId(payload) })
+    ),
   }),
   weather: Object.freeze({
     documentType: WEATHER_PRESET_DOCUMENT_TYPE,
@@ -249,36 +309,6 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
       );
     },
   }),
-  lighting: Object.freeze({
-    documentType: LIGHTING_STYLE_DOCUMENT_TYPE,
-    label: 'Lighting',
-    parseDocument: parseLightingStylePresetDocument,
-    selectionKind: 'style',
-    // A lighting preset is a STYLE — a game-wide identity whose dayCycle
-    // resolves every time-of-day scenario internally. Resolves to lighting
-    // style settings for createLightingSystem({ style }) / setStyle().
-    // Legacy scenario-baked look ids (daylight, golden_hour, moonlit,
-    // character_studio, warm_interior) keep resolving for saved bundles and
-    // return the historical look document (rig recipe + quality +
-    // environment/post hints) unchanged.
-    resolve: (payload) => {
-      if (payload.document) return resolveLightingStylePreset(payload.document);
-      const style = selectedStyleId(payload);
-      try {
-        return withStyleIdentity(resolveLightingStylePreset(style), style);
-      } catch {
-        return resolveLightingLookPreset(style);
-      }
-    },
-  }),
-  vfx: Object.freeze({
-    documentType: null,
-    label: 'Gameplay VFX',
-    parseDocument: null,
-    selectionKind: 'style',
-    // Spread into createVfxSystem({ ...settings.vfx, seed, heightAt }).
-    resolve: (payload) => ({ style: resolveVfxStyleName(selectedStyleId(payload)) }),
-  }),
   post: Object.freeze({
     documentType: null,
     label: 'Post processing',
@@ -289,26 +319,16 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
       return withStyleIdentity(createPostProcessingSettings({ preset: style }), style);
     },
   }),
-  landscapeMaterial: Object.freeze({
-    documentType: LANDSCAPE_MATERIAL_PRESET_DOCUMENT_TYPE,
-    label: 'Landscape material',
-    // The style slice of a landscape: layer tints/textures + macro
-    // variation. Heights, splat weights, and foliage instances are PROJECT
-    // data (style-first contract) and never travel in a bundle. Apply
-    // settings over createLandscapeSettings and materialLayers to the
-    // material via resolveLayerTexture.
-    parseDocument: parseLandscapeMaterialPresetDocument,
-    selectionKind: 'document',
-    resolve: (payload) => {
-      if (payload.document) {
-        const result = parseLandscapeMaterialPresetDocument(payload.document);
-        if (!result.ok) throw new Error(result.errors.join(' '));
-        return result.value;
-      }
-      throw new Error(
-        'Style bundle slot "landscapeMaterial" has no built-in presets — inline a landscape-material-preset document.',
-      );
-    },
+  groundShader: Object.freeze({
+    documentType: GROUND_SHADER_DOCUMENT_TYPE,
+    label: 'Ground and terrain shader',
+    parseDocument: parseGroundShaderPresetDocument,
+    selectionKind: 'style',
+    resolve: (payload) => (
+      payload.document
+        ? createGroundShaderSettings(payload.document.settings)
+        : createGroundShaderSettings({ preset: selectedStyleId(payload) })
+    ),
   }),
 });
 
@@ -447,15 +467,17 @@ export function parseStyleBundleDocument(input) {
 
 /**
  * Resolve a validated bundle into per-system settings/style descriptors:
- * { toon?, tree?, grass?, flowers?, vegetationShader?, water?, sky?, weather?,
- * environment?, lighting?, post?, rock?, debris?, vfx? } — each ready to hand to
- * the matching apply/create call. Systems with an orthogonal runtime axis
- * expose a small descriptor (for example `settings.rock.style` or
- * `settings.weather.style`) so the host can apply the bundle style to
+ * { toon?, treeShader?, grassShader?, flowerShader?, groundShader?, rock?,
+ * water?, sky?, cloud?, weather?, environment?, post?, debris? }
+ * plus compatibility asset/aggregate slots — each ready to hand to the
+ * matching apply/create call. Systems with an orthogonal runtime axis
+ * expose a small descriptor (for example `settings.weather.style`) so the
+ * host can apply the bundle style to
  * whichever preset, condition, or scenario it selected.
- * (settings.tree is a recipe for createPlantFromRecipe, settings.lighting
- * lighting-style settings for createLightingSystem({ style }); legacy look
- * ids resolve to the historical look document). Unresolved by-reference slots
+ * Rock is different by design: settings.rock is the complete resolved
+ * rock-shader profile, independent from any rockgen asset preset.
+ * (settings.tree is a recipe for createPlantFromRecipe). Unresolved
+ * by-reference slots
  * ({ creation }) throw: fetch the bundle from toonlab.io (which inlines
  * references) or inline the documents first.
  */

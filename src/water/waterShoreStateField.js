@@ -396,7 +396,7 @@ export class WaterShoreStateField {
     }
 
     // Preserve one texture object across terrain switches. Updating its CPU
-    // data in-place avoids both the multi-megabyte retired-texture queue and
+    // data in-place avoids both the large retired-texture queue and
     // the WebGPU lifetime race caused by disposing a texture still referenced
     // by the current command encoder.
     const texture = this.bedTexture ?? new THREE.DataTexture(

@@ -183,7 +183,7 @@ function cloneToonLabTexture(source, {
   result.flipY = false;
   result.userData.toonLabNormalIntegration = {
     textureFlipY: false,
-    uvBridge: 'ToonLabShowcase ToonLab glTF V is inverse of the ToonLab Mega export V',
+    uvBridge: 'ToonLabShowcase ToonLab glTF V is inverse of the environment reference export V',
   };
   result.needsUpdate = true;
   return result;

@@ -932,7 +932,7 @@ function SeaRocks() {
   );
 }
 
-// Megascans scan-asset probes: Fab GLBs (baseColor + ORM + normal photoscan
+// photoscan catalogs scan-asset probes: Fab GLBs (baseColor + ORM + normal photoscan
 // textures) run through the same environment adapter as the procedural stage.
 // The mesh accessors are in centimeters but a wrapper node bakes the cm→m
 // conversion, so the loaded scene is real-world meters at scale 1.
@@ -1063,7 +1063,7 @@ const BENCH_SEAT = (() => {
   };
 })();
 
-function MegascanProps() {
+function PhotoscanProps() {
   return (
     <>
       {/* Rock cluster straddling the waterline (1.6x real size, hero
@@ -1569,7 +1569,7 @@ export {
   SeaRocks,
   ScanProp,
   BENCH_SEAT,
-  MegascanProps,
+  PhotoscanProps,
   BenchSitController,
   FishSchool,
   SeaBedCollider,

@@ -118,6 +118,29 @@ a {
   font-size: clamp(22px, 3vw, 32px);
 }
 
+.home-subsection-heading {
+  margin-top: 34px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--tl-line);
+}
+
+.home-subsection-heading h3 {
+  margin: 0;
+  font-family: var(--tl-font-display);
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.home-subsection-heading .dim {
+  color: var(--tl-ink-3);
+  font-weight: 600;
+}
+
+.home-subsection-heading + .lab-grid {
+  margin-top: 18px;
+}
+
 /* ---------- lab grid + cards ---------- */
 
 .lab-grid {
@@ -142,6 +165,14 @@ a {
 .lab-card:focus-visible {
   border-color: var(--tl-accent);
   outline: none;
+}
+
+.lab-card--unavailable {
+  cursor: default;
+}
+
+.lab-card--unavailable:hover {
+  border-color: var(--tl-line);
 }
 
 .lab-card-media {
@@ -240,6 +271,61 @@ a {
   text-shadow: 0 1px 6px rgb(0 0 0 / 0.7);
 }
 
+.lab-card-statuses {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.lab-card-status {
+  padding: 5px 8px;
+  border: 1px solid rgb(255 255 255 / 0.22);
+  border-radius: 999px;
+  background: rgb(10 11 15 / 0.82);
+  color: #fff;
+  font-family: var(--tl-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  backdrop-filter: blur(8px);
+}
+
+.lab-card[data-lab-status='beta'] .lab-card-status--editor,
+.lab-card[data-library-status='beta'] .lab-card-status--library {
+  border-color: rgb(99 214 139 / 0.65);
+  color: #a9f4be;
+}
+
+.lab-card[data-lab-status='migrationRequired'] .lab-card-status--editor,
+.lab-card[data-library-status='migrationRequired'] .lab-card-status--library {
+  border-color: rgb(245 177 72 / 0.65);
+  color: #ffd393;
+}
+
+.lab-card[data-lab-status='inProgress'] .lab-card-status--editor,
+.lab-card[data-library-status='inProgress'] .lab-card-status--library {
+  border-color: rgb(91 180 255 / 0.72);
+  color: #a8d9ff;
+}
+
+.lab-card[data-lab-status='notStarted'] .lab-card-status--editor,
+.lab-card[data-library-status='notStarted'] .lab-card-status--library,
+.lab-card[data-library-status='notApplicable'] .lab-card-status--library {
+  border-color: rgb(255 255 255 / 0.25);
+  color: var(--tl-ink-2);
+}
+
+.lab-card[data-lab-status='validation'] .lab-card-status--editor {
+  border-color: rgb(197 139 255 / 0.55);
+  color: #dec0ff;
+}
+
 .lab-card-body {
   display: flex;
   align-items: center;
@@ -254,6 +340,38 @@ a {
   font-size: 18px;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+
+.lab-card-family {
+  display: inline-flex;
+  margin-bottom: 7px;
+  padding: 2px 7px;
+  border: 1px solid rgb(232 51 46 / 0.34);
+  color: var(--tl-accent-hot);
+  font-family: var(--tl-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.lab-card-target {
+  overflow: hidden;
+  margin-bottom: 5px;
+  color: var(--tl-accent-hot);
+  font-family: var(--tl-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.015em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lab-card-artifact {
+  margin: -1px 0 5px;
+  color: var(--tl-ink-3);
+  font-family: var(--tl-font-mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .lab-card-body p {
@@ -276,6 +394,15 @@ a {
 .lab-card:focus-visible .lab-card-arrow {
   transform: translateX(6px);
   color: var(--tl-accent-hot);
+}
+
+.lab-card--unavailable:hover .lab-card-glyph {
+  color: rgb(242 240 233 / 0.08);
+}
+
+.lab-card--unavailable:hover .lab-card-arrow {
+  color: var(--tl-ink-3);
+  transform: none;
 }
 
 /* ---------- footer ---------- */

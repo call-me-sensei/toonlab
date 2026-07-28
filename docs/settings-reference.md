@@ -11,9 +11,10 @@ the **Portable** column makes that ownership explicit.
 
 - [Character toon shading](#character-toon-shading)
 - [Environment shading](#environment-shading)
+- [Rock shader profile](#rock-shader-profile)
 - [Water](#water)
 - [Post-processing](#post-processing)
-- [Vegetation shader profile](#vegetation-shader-profile)
+- [Vegetation shader family](#vegetation-shader-family)
 - [Grass](#grass)
 - [Flowers](#flowers)
 - [Trees](#trees)
@@ -485,7 +486,7 @@ Opt-in shell fur for matched materials (collars, trims, animal parts). Off by de
 
 ## Environment shading
 
-Module: `toonlab/environment` — 2 groups, 76 fields.
+Module: `toonlab/environment` — 2 groups, 87 fields.
 
 Settings are `{ features, parameters }`: `createEnvironmentSettings({ parameters: { exposure: 0.95 } })`.
 
@@ -573,11 +574,163 @@ Overrides numeric environment shader uniforms. Auto values preserve material def
 | `spotLightStrength` | number | — | 0 – 2 | Yes | Overrides spot light; leave unset in code to use the material default. |
 | `sunBoost` | number | — | 0 – 1 | Yes | Overrides sun boost; leave unset in code to use the material default. |
 | `sunBoostColor` | color | — | — | Yes | Overrides sun boost color; leave unset in code to use the material default. |
+| `cliffFade` | number | — | 0 – 1 | Yes | Overrides cliff fade; leave unset in code to use the material default. |
+| `cliffNoiseScale` | number | — | 0 – 1 | Yes | Overrides cliff noise scale; leave unset in code to use the material default. |
+| `cliffNoiseStrength` | number | — | 0 – 2 | Yes | Overrides cliff noise strength; leave unset in code to use the material default. |
+| `cliffStart` | number | — | 0 – 1 | Yes | Overrides cliff start; leave unset in code to use the material default. |
+| `colormapDecode` | number | — | 0 – 1 | Yes | Overrides colormap decode; leave unset in code to use the material default. |
+| `colormapMode` | number | — | 0 – 1 | Yes | Overrides colormap mode; leave unset in code to use the material default. |
+| `colormapStrength` | number | — | 0 – 2 | Yes | Overrides macro colormap; leave unset in code to use the material default. |
+| `dualDetailMix` | number | — | 0 – 1 | Yes | Overrides dual detail mix; leave unset in code to use the material default. |
+| `dualDetailScale` | number | — | 0 – 1 | Yes | Overrides dual detail scale; leave unset in code to use the material default. |
 | `triplanarDetail` | number | — | 0 – 1 | Yes | Overrides triplanar detail; leave unset in code to use the material default. |
 | `triplanarDetailScale` | number | — | 0.25 – 64 | Yes | Overrides triplanar detail scale; leave unset in code to use the material default. |
 | `triplanarEdgeHighlight` | number | — | 0 – 1 | Yes | Overrides rock edge highlight; leave unset in code to use the material default. |
 | `untexturedGradientStrength` | number | — | 0 – 2 | Yes | Overrides untextured gradient strength; leave unset in code to use the material default. |
+| `vtBlendHeight` | number | — | 0 – 1 | Yes | Overrides ground melt height; leave unset in code to use the material default. |
+| `vtBlendStrength` | number | — | 0 – 2 | Yes | Overrides ground melt; leave unset in code to use the material default. |
 | `vertexAoStrength` | number | — | 0 – 2 | Yes | Overrides vertex ao strength; leave unset in code to use the material default. |
+
+## Rock shader profile
+
+Module: `toonlab/rock-shader` — 11 groups, 58 fields.
+
+Reusable grouped material settings consumed by `applyRockShader(root, settings)`. Rock geometry, erosion, seed, LOD, collision, and current scene conditions remain separate.
+
+### Rock shader profile: Base Projection
+
+World-space base projection and graphic texture treatment.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `scale` | number | `1.6` | 0.05 – 256 | Yes | World-space size of the projected rock texture in meters. |
+| `saturation` | number | `0.78` | 0 – 2 | Yes | Saturation retained from the projected base texture. |
+| `contrast` | number | `1.12` | 0 – 3 | Yes | Contrast around the rock projection midpoint. |
+| `brightness` | number | `0.015` | -1 – 1 | Yes | Linear brightness offset applied after saturation and contrast. |
+| `projectionContrast` | number | `0.62` | 0.05 – 4 | Yes | Sharpness of the triplanar blend between projection axes. |
+| `sideOnly` | boolean | `false` | — | Yes | Restricts the base projection to side-oriented axes. |
+
+### Rock shader profile: Material Response
+
+Shared stone tint and physically based response.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `tint` | color | `[0.92, 0.88, 0.8]` (#ebe0cc) | — | Yes | IP-wide stone tint multiplied over asset color and projected detail. |
+| `metallic` | number | `0` | 0 – 1 | Yes | Metallic response of ordinary rock surfaces. |
+| `smoothness` | number | `0.08` | 0 – 1 | Yes | Base smoothness before top-layer masking and wetness. |
+| `useSmoothnessTexture` | boolean | `false` | — | Yes | Reads the optional smoothness texture instead of a constant source. |
+| `smoothnessContrast` | number | `1` | 0 – 4 | Yes | Contrast applied to the optional smoothness texture. |
+| `emissiveStrength` | number | `0` | 0 – 2 | Yes | Base emission multiplier for deliberately luminous stone styles. |
+
+### Rock shader profile: Distance Tint
+
+Distance color recession shared by rocks, cliffs, and mountains.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `closeDistance` | number | `18` | 0 – 2000 | Yes | World distance where the far tint begins. |
+| `farDistance` | number | `140` | 0.1 – 50000 | Yes | World distance where the far tint reaches full strength. |
+| `color` | color | `[0.55, 0.62, 0.66]` (#8c9ea8) | — | Yes | Atmospheric stone tint used at long distance. |
+| `strength` | number | `0.28` | 0 – 1 | Yes | Maximum blend toward the far-distance tint. |
+
+### Rock shader profile: Normal Detail
+
+Near and far normal-detail behavior.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `distance` | number | `75` | 0.1 – 50000 | Yes | Distance over which projected normal detail fades. |
+| `nearFlatten` | number | `0.08` | -0.5 – 1.5 | Yes | Amount of projected normal flattening near the camera. |
+| `farFlatten` | number | `0.75` | -0.5 – 1.5 | Yes | Amount of projected normal flattening at the fade distance. |
+| `useSmoothed` | boolean | `false` | — | Yes | Uses an optional authored smoothed-normal texture as the base normal. |
+| `normalGreenSign` | select | `1` | `-1` \| `1` | Yes | Normal-map green-channel convention: 1 retains Y, -1 flips it. |
+
+### Rock shader profile: Striping
+
+Optional graphic sediment or mineral striping over side faces.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `enabled` | boolean | `false` | — | Yes | Enables the optional side-projected stripe layer. |
+| `scale` | number | `3.5` | 0.05 – 5000 | Yes | World-space size of the stripe texture. |
+| `contrast` | number | `0.8` | 0 – 4 | Yes | Contrast of the stripe opacity mask. |
+| `color` | color | `[0.65, 0.48, 0.3]` (#a67a4d) | — | Yes | Graphic color overlaid through the stripe mask. |
+
+### Rock shader profile: Moss Response
+
+Slope-aware moss treatment; current climate coverage remains scene-owned.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `enabled` | boolean | `true` | — | Yes | Enables the style capability for slope-aware moss. |
+| `size` | number | `2.4` | 0.05 – 50 | Yes | World-space size of the projected moss pattern. |
+| `sharpness` | number | `2.4` | 0 – 8 | Yes | Sharpness of the upward-facing moss slope mask. |
+| `offset` | number | `0.35` | -1 – 1 | Yes | Upward-normal threshold where moss begins. |
+| `multiply` | number | `1.6` | 0 – 6 | Yes | Strength of the projected moss coverage pattern. |
+| `colorPower` | number | `1.25` | 0.1 – 6 | Yes | Contrast curve applied to the moss texture color. |
+| `lowColor` | color | `[0.18, 0.28, 0.09]` (#2e4717) | — | Yes | Dark end of the shared moss color range. |
+| `highColor` | color | `[0.42, 0.55, 0.2]` (#6b8c33) | — | Yes | Light end of the shared moss color range. |
+
+### Rock shader profile: Top-Layer Mask
+
+Shared upward-facing mask for geological top layers.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `useAssetMask` | boolean | `true` | — | Yes | Multiplies the slope mask by an optional asset-authored top mask. |
+| `sharpness` | number | `2.3` | 0 – 8 | Yes | Sharpness of the shared upward-facing layer transition. |
+| `offset` | number | `0.42` | -1 – 1 | Yes | Upward-normal threshold where top layers begin. |
+
+### Rock shader profile: Grass Layer
+
+Optional authored grass-over-rock layer, separate from current weather.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `enabled` | boolean | `false` | — | Yes | Enables grass texture projection on the shared top-layer mask. |
+| `scale` | number | `1.8` | 0.05 – 50 | Yes | World-space size of the projected grass texture. |
+| `tint` | color | `[0.65, 0.78, 0.42]` (#a6c76b) | — | Yes | Style tint multiplied over the grass layer. |
+| `saturation` | number | `0.8` | 0 – 2 | Yes | Saturation retained from the grass texture. |
+| `emission` | number | `0` | 0 – 2 | Yes | Emission multiplier for the grass layer. |
+
+### Rock shader profile: Snow Layer
+
+Authored snow response; the current snow amount remains runtime state.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `enabled` | boolean | `false` | — | Yes | Enables the material capability for a snow top layer. |
+| `scale` | number | `2` | 0.05 – 50 | Yes | World-space size of the projected snow texture. |
+| `tint` | color | `[0.9, 0.95, 1]` (#e6f2ff) | — | Yes | Shared snow tint. |
+| `saturation` | number | `0.3` | 0 – 2 | Yes | Saturation retained from the snow texture. |
+| `emission` | number | `0` | 0 – 2 | Yes | Emission multiplier for the snow layer. |
+
+### Rock shader profile: Sand Layer
+
+Optional authored sand-over-rock layer and its normal response.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `enabled` | boolean | `false` | — | Yes | Enables sand projection on the shared top-layer mask. |
+| `scale` | number | `1.5` | 0.05 – 50 | Yes | World-space size of the projected sand texture. |
+| `tint` | color | `[0.82, 0.65, 0.4]` (#d1a666) | — | Yes | Style tint multiplied over the sand layer. |
+| `saturation` | number | `0.65` | 0 – 2 | Yes | Saturation retained from the sand texture. |
+| `emission` | number | `0` | 0 – 2 | Yes | Emission multiplier for the sand layer. |
+| `normalScale` | number | `1.5` | 0.05 – 50 | Yes | World-space size of the projected sand normal. |
+| `normalStrength` | number | `0.35` | 0 – 2 | Yes | Strength of the sand-layer normal. |
+| `normalRotationDegrees` | number | `30` | -180 – 180 | Yes | Rotation of the sand normal projection in degrees. |
+
+### Rock shader profile: Asset Integration
+
+How stable asset-authored channels participate in the shared shader.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `sourceAlbedoMode` | select | `'replace'` | `replace` \| `blend` \| `retain` | Yes | Replace gives the strongest cross-library consistency; Blend admits a controlled amount of the imported texture; Retain uses it as the projected base. |
+| `sourceAlbedoStrength` | number | `0.2` | 0 – 1 | Yes | Imported-albedo influence when Source Albedo is Blend. Ignored by Replace and Retain. |
+| `vertexColorStrength` | number | `0.8` | 0 – 1 | Yes | Influence of asset-authored vertex color over projected rock detail. |
+| `vertexAoStrength` | number | `1` | 0 – 2 | Yes | Influence of the asset-authored envVertexAo channel. |
 
 ## Water
 
@@ -718,7 +871,7 @@ Shader quality tier gating caustics, sparkles, and noise octaves.
 
 ## Post-processing
 
-Module: `toonlab/post` — 2 groups, 37 fields.
+Module: `toonlab/post` — 2 groups, 44 fields.
 
 Settings are `{ features, parameters }`: `createPostProcessingSettings({ preset: "softAnime" })`.
 
@@ -728,6 +881,7 @@ Toggles for each optional screen-space effect in the final composite pass.
 
 | Field | Type | Default | Range / options | Portable | Description |
 |---|---|---|---|---|---|
+| `atmosphere` | boolean | `false` | — | Yes | Two-layer stylized atmosphere: distance/height mix fog plus an additive sun/moon glow halo, colored by the scene environment state. |
 | `bloom` | boolean | `false` | — | Yes | Adds glow around pixels brighter than the bloom threshold. |
 | `colorGrade` | boolean | `false` | — | Yes | Applies exposure, contrast, saturation, and warmth grading. |
 | `depthCue` | boolean | `false` | — | Yes | Fades distant pixels toward the depth cue color for atmospheric depth. |
@@ -751,6 +905,12 @@ Tuning values used by the post-processing effects when their feature toggles are
 | `bloomStrength` | number | `0` | 0 – 2 | Yes | Controls how strongly bloom is added to the image. |
 | `bloomThreshold` | number | `0.995` | 0 – 1 | Yes | Sets the luminance above which pixels start to bloom. |
 | `bottomDark` | number | `0` | 0 – 1 | Yes | Darkens the lower part of the frame in the vertical grade. |
+| `atmosphereBaseHeight` | number | `0` | -100 – 500 | Yes | World height where atmosphere fog is densest; fog thins above it. |
+| `atmosphereFar` | number | `900` | 10 – 4000 | Yes | View distance in meters where atmosphere fog reaches full strength. |
+| `atmosphereGlowStrength` | number | `1` | 0 – 3 | Yes | Multiplier on the environment-state sun/moon glow fog. |
+| `atmosphereHeightFalloff` | number | `0.012` | 0 – 0.2 | Yes | How quickly atmosphere fog thins with altitude above the base height. |
+| `atmosphereNear` | number | `60` | 0 – 1000 | Yes | View distance in meters where atmosphere fog starts. |
+| `atmosphereStrength` | number | `0.55` | 0 – 1 | Yes | Maximum blend of the atmospheric mix fog. |
 | `contrast` | number | `1` | 0 – 2 | Yes | Scales contrast around mid gray in the color grade. |
 | `depthCueColor` | color | `[0.3371636150376657, 0.4735314961384573, 0.6866853124288864]` (#5679af) | — | Yes | Sets the color distant pixels fade toward. |
 | `depthCueFar` | number | `24` | 0 – 200 | Yes | Sets the depth at which the depth cue reaches full strength. |
@@ -773,13 +933,13 @@ Tuning values used by the post-processing effects when their feature toggles are
 | `vignetteStrength` | number | `0` | 0 – 1 | Yes | Controls how strongly the vignette darkens the frame edges. |
 | `warmth` | number | `0` | -1 – 1 | Yes | Shifts the color grade warmer (positive) or cooler (negative). |
 
-## Vegetation shader profile
+## Vegetation shader family
 
-Module: `toonlab/vegetation` — 8 groups, 67 fields.
+Module: `toonlab/vegetation-shaders` — 8 groups, 104 fields.
 
-IP-wide grouped settings shared by semantic grass, foliage, flower, bark, and stem material roles. Asset albedo and current scene weather are separate inputs.
+Shared field registry for three independent portable profiles: Tree uses Shared/Foliage/Bark groups, Grass uses Shared/Grass groups, and Flower uses Shared/Foliage/Flower/Stem groups. Asset geometry, species, albedo, and current scene weather remain separate.
 
-### Vegetation shader profile: Shared Lighting
+### Vegetation shader family: Shared Lighting
 
 IP-wide light and shadow treatment shared by every vegetation surface.
 
@@ -792,7 +952,7 @@ IP-wide light and shadow treatment shared by every vegetation surface.
 | `rimStrength` | number | `0.12` | 0 – 1 | Yes | View-dependent silhouette fill shared by vegetation surfaces. |
 | `rimPower` | number | `3` | 0.5 – 12 | Yes | Falloff exponent of the shared vegetation rim. |
 
-### Vegetation shader profile: Thin Surfaces
+### Vegetation shader family: Thin Surfaces
 
 Lighting shared by thin blades, leaf cards, and petals.
 
@@ -805,7 +965,7 @@ Lighting shared by thin blades, leaf cards, and petals.
 | `normalUpBias` | number | `0` | 0 – 1 | Yes | Biases thin-surface shading normals toward world up. |
 | `twoSidedLighting` | number | `1` | 0 – 1 | Yes | Blends back-face normals into the shared thin-surface lighting model. |
 
-### Vegetation shader profile: Weather Response
+### Vegetation shader family: Weather Response
 
 How the IP shades wetness and snow; current weather amounts remain scene-owned.
 
@@ -814,16 +974,24 @@ How the IP shades wetness and snow; current weather amounts remain scene-owned.
 | `wetDarkening` | number | `0.15` | 0 – 1 | Yes | Maximum albedo darkening applied by wetness. |
 | `wetDesaturation` | number | `0.05` | 0 – 1 | Yes | Maximum desaturation applied by wetness. |
 | `wetHighlightStrength` | number | `0.2` | 0 – 1 | Yes | Stylized highlight added to wet vegetation. |
-| `snowTint` | color | `[0.92, 0.96, 1]` (#ebf5ff) | — | Yes | IP snow tint blended over retained snow coverage. |
-| `snowShadowStrength` | number | `0.65` | 0 – 1 | Yes | Shadow response retained by snow-covered vegetation. |
+| `snowTint` | color | `[0.92, 0.96, 1]` (#ebf5ff) | — | Yes | Vegetation-domain multiplier over the selected shared Snow Surface profile. The Snow Surface shader owns the base powder and shadow colors. |
+| `snowShadowStrength` | number | `0.65` | 0 – 1 | Yes | Vegetation-domain light visibility retained over the shared Snow Surface shadow body. |
 | `snowEdgeSoftness` | number | `0.2` | 0 – 1 | Yes | Softness of snow coverage transitions. |
 
-### Vegetation shader profile: Grass
+### Vegetation shader family: Grass
 
-Grass-only lighting, gradient, dense-field, gust, and bend treatment.
+Grass-only color, surface, lighting, dense-field, gust, and bend treatment.
 
 | Field | Type | Default | Range / options | Portable | Description |
 |---|---|---|---|---|---|
+| `styleColorStrength` | number | `0` | 0 – 1 | Yes | Blend from asset-authored blade color to the style-owned root and tip treatment. |
+| `baseColor` | color | `[0.172518, 0.317708, 0.052621]` (#2c510d) | — | Yes | Style-owned grass-root color. Call Me Sensei uses the accepted P18 MI_Grass Base Color. |
+| `tipBrightness` | number | `0.1` | -1 – 1 | Yes | Brightness added to root color before the blade-tip saturation and hue treatment. |
+| `tipDesaturation` | number | `-0.5` | -1 – 1 | Yes | Tip desaturation. Negative values increase saturation, matching the accepted P18 graph convention. |
+| `tipHueShift` | number | `-0.06` | -1 – 1 | Yes | Normalized HSV hue rotation applied to blade tips. |
+| `roughness` | number | `0.5` | 0 – 1 | Yes | Grass surface roughness used by the stylized highlight response. |
+| `specularStrength` | number | `0.04` | 0 – 1 | Yes | Grass direct-light highlight strength. |
+| `emissiveStrength` | number | `0` | 0 – 2 | Yes | Albedo-relative emission before scene exposure. |
 | `backlitStrength` | number | `0.4` | 0 – 1.5 | Yes | Grass transmission multiplier. |
 | `sceneShadowResponse` | number | `0.7` | 0 – 1 | Yes | Grass response to renderer shadow visibility. |
 | `cloudShadowResponse` | number | `0.35` | 0 – 1 | Yes | Grass response to the scene cloud-shadow field. |
@@ -840,12 +1008,24 @@ Grass-only lighting, gradient, dense-field, gust, and bend treatment.
 | `bendExponent` | number | `2` | 0.5 – 6 | Yes | Root-to-tip curve used by wind and interaction deformation. |
 | `interactionResponse` | number | `1` | 0 – 2 | Yes | Grass deformation response to a scene-owned interaction field. |
 
-### Vegetation shader profile: Foliage
+### Vegetation shader family: Foliage
 
-Leaf-card and canopy-volume treatment.
+Leaf-card gradient shaping, surface, subsurface, and canopy-volume treatment over the asset-authored foliage palette.
 
 | Field | Type | Default | Range / options | Portable | Description |
 |---|---|---|---|---|---|
+| `styleColorStrength` | number | `0` | 0 – 1 | Yes | Legacy aggregate-only blend into a global replacement palette. Canonical Tree and Flower Shader profiles preserve asset-authored foliage colors. |
+| `mainColor` | color | `[0.040915, 0.135633, 0.015209]` (#0a2304) | — | Yes | Legacy aggregate-only replacement color. Canonical profiles read the primary foliage color from the asset or species recipe. |
+| `gradientColor` | color | `[0.076185, 0.198069, 0.016807]` (#133304) | — | Yes | Legacy aggregate-only replacement color. Canonical profiles read the secondary foliage color from the asset or species recipe. |
+| `gradientOffset` | number | `0.088` | -1 – 1 | Yes | Offsets the normalized height transfer applied over the asset-authored foliage palette. |
+| `gradientContrast` | number | `0.821665` | -1 – 4 | Yes | Shapes the normalized height transfer applied over the asset-authored foliage palette. |
+| `hueVariation` | number | `0.1` | 0 – 1 | Yes | Style-owned hue-variation amplitude; the stable per-card seed remains asset or instance data. |
+| `hueShift` | number | `0` | -1 – 1 | Yes | Style-wide normalized HSV rotation applied after resolving the asset-authored foliage palette. |
+| `roughness` | number | `0.75` | 0 – 1 | Yes | Roughness of the stylized leaf highlight response over any asset-authored surface inputs. |
+| `specularStrength` | number | `0.1` | 0 – 1 | Yes | Leaf direct-light highlight strength. |
+| `emissiveStrength` | number | `0.25` | 0 – 2 | Yes | Albedo-relative leaf emission before scene exposure. |
+| `subsurfaceStrength` | number | `0.8` | 0 – 2 | Yes | Strength of foliage back-light transmission. |
+| `subsurfaceOpacity` | number | `0.3` | 0 – 1 | Yes | Opacity retained by foliage transmission. |
 | `backlitStrength` | number | `0.35` | 0 – 1.5 | Yes | Foliage transmission multiplier. |
 | `sceneShadowResponse` | number | `0.55` | 0 – 1 | Yes | Foliage response to renderer shadow visibility. |
 | `cloudShadowResponse` | number | `0` | 0 – 1 | Yes | Foliage response to the scene cloud-shadow field. |
@@ -858,12 +1038,19 @@ Leaf-card and canopy-volume treatment.
 | `cardVariationStrength` | number | `0.16` | 0 – 1 | Yes | Seeded per-card luminance variation. |
 | `transmissionPowerMultiplier` | number | `1` | 0.25 – 3 | Yes | Foliage multiplier over the shared thin-surface transmission concentration. |
 
-### Vegetation shader profile: Flower
+### Vegetation shader family: Flower
 
-Shared petal/center treatment across mesh, cutout, procedural, and billboard flowers.
+Shared petal/center cutout, surface, lighting, and subsurface treatment across flower variants.
 
 | Field | Type | Default | Range / options | Portable | Description |
 |---|---|---|---|---|---|
+| `textureTint` | color | `[1, 1, 1]` (#ffffff) | — | Yes | Legacy aggregate-only replacement tint. Canonical Flower Shader profiles preserve the asset/species petal and center palette. |
+| `tintStrength` | number | `1` | 0 – 1 | Yes | Legacy aggregate-only strength for the replacement flower tint. |
+| `roughness` | number | `0.5` | 0 – 1 | Yes | Flower surface roughness used by the stylized highlight response. |
+| `specularStrength` | number | `0.05` | 0 – 1 | Yes | Flower direct-light highlight strength. |
+| `emissiveStrength` | number | `0` | 0 – 2 | Yes | Albedo-relative flower emission before scene exposure. |
+| `subsurfaceStrength` | number | `0.3` | 0 – 2 | Yes | Strength of petal back-light transmission. |
+| `subsurfaceOpacity` | number | `0.08` | 0 – 1 | Yes | Opacity retained by petal transmission. |
 | `backlitStrength` | number | `0.35` | 0 – 1.5 | Yes | Petal transmission multiplier. |
 | `sceneShadowResponse` | number | `0.85` | 0 – 1 | Yes | Flower response to renderer shadow visibility. |
 | `bandThreshold` | number | `0.5` | 0 – 1 | Yes | Center of the flower direct-light toon transition. |
@@ -874,12 +1061,17 @@ Shared petal/center treatment across mesh, cutout, procedural, and billboard flo
 | `centerLightResponse` | number | `0.8` | 0 – 2 | Yes | Direct-light response of flower centers relative to petals. |
 | `centerShadowResponse` | number | `1` | 0 – 2 | Yes | Shadow response of flower centers relative to petals. |
 
-### Vegetation shader profile: Bark / Woody Surface
+### Vegetation shader family: Bark / Woody Surface
 
-Opaque woody treatment for trunks, branches, and roots.
+Opaque woody color, texture projection, surface, and lighting treatment for trunks, branches, and roots.
 
 | Field | Type | Default | Range / options | Portable | Description |
 |---|---|---|---|---|---|
+| `tint` | color | `[0.938, 0.3752, 0]` (#ef6000) | — | Yes | Style tint mixed over the asset-authored bark color. |
+| `tintStrength` | number | `0` | 0 – 1 | Yes | Strength of the bark style tint. |
+| `roughness` | number | `1` | 0 – 1 | Yes | Bark roughness used by the stylized highlight response. |
+| `normalFlatness` | number | `0` | 0 – 1 | Yes | Amount of asset-authored bark normal detail flattened by the style. |
+| `emissiveStrength` | number | `0` | 0 – 2 | Yes | Albedo-relative bark emission before scene exposure. |
 | `bandCount` | number | `3` | 2 – 6 | Yes | Cel bands across the woody light-to-shadow ramp. |
 | `bandSoftness` | number | `0` | 0 – 1 | Yes | Continuous softness of woody toon-band transitions. |
 | `shadowFloor` | number | `0.35` | 0 – 0.9 | Yes | Minimum brightness of a fully shadowed woody surface. |
@@ -889,12 +1081,17 @@ Opaque woody treatment for trunks, branches, and roots.
 | `specularStrength` | number | `0` | 0 – 1 | Yes | Stylized bark highlight strength. |
 | `verticalShadeStrength` | number | `0` | 0 – 1 | Yes | World-up gradient used to ground trunks without changing their albedo. |
 
-### Vegetation shader profile: Herbaceous Stem
+### Vegetation shader family: Herbaceous Stem
 
-Smooth herbaceous stem treatment, intentionally separate from woody bark.
+Smooth herbaceous stem surface and lighting treatment, intentionally separate from woody bark.
 
 | Field | Type | Default | Range / options | Portable | Description |
 |---|---|---|---|---|---|
+| `color` | color | `[0.155926, 0.332452, 0.066626]` (#285511) | — | Yes | Legacy aggregate-only replacement color. Canonical Flower Shader profiles read herbaceous stem color from the plant asset/species recipe. |
+| `colorStrength` | number | `0` | 0 – 1 | Yes | Legacy aggregate-only blend into the replacement stem color. |
+| `roughness` | number | `0.5` | 0 – 1 | Yes | Stem surface roughness used by the stylized highlight response. |
+| `specularStrength` | number | `0.05` | 0 – 1 | Yes | Stem direct-light highlight strength. |
+| `emissiveStrength` | number | `0` | 0 – 2 | Yes | Albedo-relative stem emission before scene exposure. |
 | `bandCount` | number | `3` | 2 – 6 | Yes | Cel bands across herbaceous stems. |
 | `bandSoftness` | number | `0.08` | 0 – 1 | Yes | Softness of herbaceous stem toon bands. |
 | `shadowFloor` | number | `0.42` | 0 – 0.9 | Yes | Minimum brightness of a fully shadowed stem. |
@@ -904,7 +1101,7 @@ Smooth herbaceous stem treatment, intentionally separate from woody bark.
 
 ## Grass
 
-Module: `toonlab/vegetation` — 9 groups, 24 fields.
+Module: `toonlab/vegetation` — 9 groups, 27 fields.
 
 Flat settings consumed by `new StylizedGrassField(options)` and `grass.applySettings(options)`. Portable grass preset v2 stores asset geometry, palette/material, and `windResponse` / `gustResponse`; current light, wind/gust field, cloud field, and push radius are scene/runtime inputs.
 
@@ -936,6 +1133,9 @@ The blades' coordinated base, tip, and material shadow colors — the grass's id
 |---|---|---|---|---|---|
 | `baseColor` | color | `[0.42, 0.68, 0.24]` (#6bad3d) | — | Yes | Blade color at the root. |
 | `tipColor` | color | `[0.74, 0.9, 0.42]` (#bde66b) | — | Yes | Blade color at the tip; blades gradient from base to tip. |
+| `groundAdoptStrength` | number | `0` | 0 – 1 | Yes | How strongly blades adopt the terrain color under them from the scene ground field (0 keeps the authored palette). Needs a world running the ground-field pass. |
+| `groundAdoptHeight` | number | `0.85` | 0.01 – 1 | Yes | Blade fraction the adopted ground color reaches before fading back to the palette tips. |
+| `groundAdoptTint` | color | `[1, 1, 1]` (#ffffff) | — | Yes | Multiplier applied to the adopted ground color — lift or warm the sampled terrain albedo before it colors the blades. |
 
 ### Grass: Lighting
 
@@ -1031,7 +1231,7 @@ Petal/center palette and scene-shadow darkening.
 
 ## Trees
 
-Module: `toonlab/vegetation` — 5 groups, 69 fields.
+Module: `toonlab/vegetation` — 5 groups, 77 fields.
 
 Grouped settings consumed by `new StylizedTree(options)` and `tree.applySettings(options)`.
 
@@ -1113,10 +1313,18 @@ Leaf-card canopy geometry: card counts, tuft clusters, and shell fill. Construct
 
 | Field | Type | Default | Range / options | Portable | Description |
 |---|---|---|---|---|---|
+| `architecture` | select | `'cloud-cards'` | `cloud-cards` \| `layered-sprays` \| `needle-whorls` \| `radial-fronds` | Yes | Branch-attached foliage layout: historical round clouds, stacked sprays, conifer whorls, or palm-like radial fronds. Construction-only. |
 | `cardCount` | number | `170` | 20 – 600 | Yes | Base leaf-card count before density and coverage scaling; few LARGE overlapping cards keep the crown one fluffy mass. Construction-only. |
 | `cardSizeRange` | vector2 | `[1, 1.6]` | — | Yes | Min/max leaf-cluster card size in meters. Construction-only. |
 | `cardsPerCluster` | number | `5` | 1 – 20 | Yes | Cards per leaf tuft around each branch attachment. Construction-only. (In tips placement the built-in default becomes 9.) |
 | `clusterRadius` | number | `0.48` | 0.1 – 1.5 | Yes | Radius in meters of each leaf tuft around its branch end. Construction-only. (In tips placement the built-in default becomes 0.62.) |
+| `sprayLayers` | number | `3` | 1 – 12 | Yes | Number of stacked foliage planes at each layered-spray attachment. Construction-only. |
+| `spraySpread` | number | `0.8` | 0.05 – 4 | Yes | Branch-local radius of each layered spray in meters. Construction-only. |
+| `sprayThickness` | number | `0.18` | 0 – 2 | Yes | Separation between the stacked spray planes in meters. Construction-only. |
+| `whorlArms` | number | `6` | 3 – 24 | Yes | Radial arm count around a conifer foliage attachment. Construction-only. |
+| `whorlRadius` | number | `0.48` | 0.05 – 3 | Yes | Radius of each conifer foliage whorl in meters. Construction-only. |
+| `frondCount` | number | `7` | 3 – 24 | Yes | Number of radial frond directions at each attachment. Construction-only. |
+| `frondLength` | number | `1.25` | 0.1 – 4 | Yes | Maximum radial frond reach in meters. Construction-only. |
 | `shellFill` | boolean | `true` | — | Yes | Fill the blob shells between tufts so the crown reads as one solid mass; off leaves bare wood between end bushes. Construction-only. (Tips placement turns this off by default.) |
 
 ### Trees: Foliage Material
@@ -1387,7 +1595,7 @@ Soft horizontal wisps scrolling with the wind, hugging water margins and low gro
 
 ## Gameplay VFX
 
-Module: `toonlab/vfxgen` — 6 groups, 47 fields.
+Module: `toonlab/vfxgen` — 7 groups, 80 fields.
 
 Settings are nested per group: `createVfxSystem({ settings: { impact: { sparkCount: 40 } } })`. Per-spawn `look` overrides re-tint one spawn without touching settings.
 
@@ -1398,7 +1606,8 @@ Budgets and global pacing for every effect. The one-shot backbone renders all bu
 | Field | Type | Default | Range / options | Portable | Description |
 |---|---|---|---|---|---|
 | `maxParticles` | number | `4096` | 256 – 32768 | Yes | Ring-buffer capacity of the one-shot backbone (sparks, embers, puffs, rings, flashes). Oldest instances are overwritten first. Construction-only. |
-| `maxProjectiles` | number | `8` | 1 – 32 | Yes | Pooled projectile core meshes (fireballs in flight). Spawns beyond this reuse the oldest. Construction-only. |
+| `maxProjectiles` | number | `8` | 1 – 32 | Yes | Pooled legacy billboard projectile cores (fireballs in flight). Spawns beyond this reuse the oldest. Construction-only. |
+| `maxLayeredProjectiles` | number | `8` | 1 – 32 | Yes | Pooled template-backed layered projectile roots. Spawns beyond this reuse the oldest. Construction-only. |
 | `maxTrails` | number | `8` | 1 – 32 | Yes | Pooled slash-trail ribbons live at once. Spawns beyond this reuse the oldest. Construction-only. |
 | `timeScale` | number | `1` | 0 – 2 | Yes | Global VFX clock multiplier — hit-stop and slow-motion hooks feed this. |
 
@@ -1452,6 +1661,45 @@ Projectile: a flame-shaded core billboard shedding embers in flight; explodes in
 | `explosionPower` | number | `1.6` | 0 – 5 | Yes | `power` handed to the impact burst + smoke on detonation. |
 | `scorchRing` | boolean | `true` | — | Yes | Expanding ground ring on detonation. |
 | `ringColor` | color | `[1, 0.55, 0.2]` (#ff8c33) | — | Yes | Scorch-ring glow color. |
+
+### Gameplay VFX: Charged Energy Shot
+
+Template-backed layered projectile: directional mesh core, animated energy shell and filaments, internal motes, boundary sparks, travel trail, local light, and impact presentation.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `enabled` | boolean | `true` | — | Yes | Master toggle for the effect. |
+| `length` | number | `1.8` | 0.6 – 4 | Yes | Projectile length in meters at full charge. |
+| `radius` | number | `0.46` | 0.12 – 1.2 | Yes | Projectile radius in meters at full charge. |
+| `coreIntensity` | number | `2.4` | 0 – 5 | Yes | Emission multiplier for the directional inner body. |
+| `shellIntensity` | number | `1.35` | 0 – 4 | Yes | Emission multiplier for the outer energy volume. |
+| `filamentDensity` | number | `1.25` | 0.25 – 3 | Yes | Density of animated veins across the outer shell. |
+| `filamentSpeed` | number | `1.2` | 0 – 4 | Yes | Flow speed of shell veins and internal streaks. |
+| `circulationEnabled` | boolean | `true` | — | Yes | Procedural seeded energy arcs that move over the projectile volume. |
+| `energyMotionTheme` | text | `'electric-orbit'` | — | Yes | Authored starting theme or custom parameter set. |
+| `circulationCount` | number | `6` | 1 – 12 | Yes | Primary surface arcs before branch forks. |
+| `circulationSpeed` | number | `1.6` | 0 – 4 | Yes | Cycles per authored motion unit. |
+| `circulationDirection` | text | `'alternating'` | — | Yes | Clockwise, counter-clockwise, or alternating per arc. |
+| `circulationCoverage` | number | `0.3` | 0.08 – 1 | Yes | Fraction of a full orbit covered by each arc. |
+| `circulationIrregularity` | number | `0.72` | 0 – 1 | Yes | Seeded angular and axial deviation from a uniform orbit. |
+| `circulationBranching` | number | `0.42` | 0 – 1 | Yes | Frequency and reach of connected lightning forks. |
+| `circulationThickness` | number | `0.022` | 0.006 – 0.08 | Yes | Normalized width of the bright surface ribbon. |
+| `circulationSurfaceOffset` | number | `1.68` | 1.05 – 2.4 | Yes | Visible gap between the main projectile body and the circulating lightning. |
+| `circulationAxialWander` | number | `0.52` | 0 – 1 | Yes | How far an arc travels between nose and tail. |
+| `circulationPlaneVariation` | number | `0.78` | 0 – 1 | Yes | Tilts arcs onto different seeded planes and adds non-planar depth wobble. |
+| `circulationFlicker` | number | `0.68` | 0 – 1 | Yes | Seeded disappearance and reformation instead of continuous uniform bands. |
+| `releaseDepth` | number | `0.28` | 0.05 – 0.65 | Yes | Out-of-plane depth along the firing axis. |
+| `releaseIrregularity` | number | `0.38` | 0 – 0.75 | Yes | Restrained seeded variation around the loop. |
+| `releaseLobes` | number | `3` | 2 – 7 | Yes | Gentle undulations around the closed loop. |
+| `turbulence` | number | `0.7` | 0 – 2 | Yes | Internal-particle motion and boundary instability. |
+| `trailLength` | number | `1.15` | 0 – 3 | Yes | Lifetime and visual reach of particles shed behind the projectile. |
+| `particleRate` | number | `160` | 0 – 500 | Yes | Internal motes and boundary sparks emitted per second. |
+| `impactPower` | number | `2.2` | 0 – 5 | Yes | Presentation power of the contact flash, shockwave, sparks, and smoke. |
+| `coreColor` | color | `[0.9, 0.98, 1]` (#e6faff) | — | Yes | Hot inner energy color. |
+| `edgeColor` | color | `[0.28, 0.62, 1]` (#479eff) | — | Yes | Outer shell and travel-trail color. |
+| `accentColor` | color | `[0.55, 0.82, 1]` (#8cd1ff) | — | Yes | Filament, compression-ring, and impact accent color. |
+| `lightIntensity` | number | `2.4` | 0 – 8 | Yes | Optional local point-light intensity at full charge. |
+| `bloomContribution` | number | `0.8` | 0 – 2 | Yes | Authored bloom recommendation exposed to compatible host post stacks. |
 
 ### Gameplay VFX: Footstep Dust
 

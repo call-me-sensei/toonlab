@@ -224,7 +224,7 @@ export function createAssetEngine({ mount }) {
         hasSun: true,
         parameters: { saturation: 1.1, ...preset.parameters },
         // Everything browsed here is a photoscan/photo texture; the 'auto'
-        // heuristic only recognizes Megascans/Fab naming, so force the
+        // heuristic only recognizes photoscan/Fab naming, so force the
         // painterly simplify pass (photo grain → gradients, detail-map
         // compression) — without it imports read as posterized photos.
         scanStylize: true,

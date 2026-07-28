@@ -2,5 +2,8 @@
 export * from './weatherSettings.js';
 export * from './weatherPresets.js';
 export * from './weatherPrecipitation.js';
+export * from './rainFieldRenderer.js';
+export * from './atmosphericEffectsRenderer.js';
+export * from './weatherFieldRenderer.js';
+export * from './snowSurfaceShader.js';
 export * from './weatherSystem.js';
-

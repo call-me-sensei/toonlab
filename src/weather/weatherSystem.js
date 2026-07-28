@@ -1,6 +1,4 @@
 import * as THREE from 'three';
-import { Fn, uniform, vec4 } from 'three/tsl';
-import { NodeMaterial } from 'three/webgpu';
 
 import { setEnvironmentCloudShadow } from '../environment/environmentShaderMaterials.js';
 import { environmentSharedUniformNodes } from '../shaders-tsl/environment.js';
@@ -16,7 +14,7 @@ import {
   interpolateWeatherSettings,
   mergeWeatherSettings,
 } from './weatherSettings.js';
-import { WeatherPrecipitation } from './weatherPrecipitation.js';
+import { WeatherFieldRenderer } from './weatherFieldRenderer.js';
 import { SKY_SCENE_OVERRIDE_PRIORITIES } from '../sky/sceneOverrideLayers.js';
 import { WATER_SCENE_OVERRIDE_PRIORITIES } from '../water/sceneOverrideLayers.js';
 
@@ -204,31 +202,16 @@ function targetWorldPosition(target, output) {
   return null;
 }
 
-function createLightningFlash() {
-  const uniforms = {
-    uColor: uniform(new THREE.Color(0xb8ccff)),
-    uIntensity: uniform(0),
-  };
-  const material = new NodeMaterial();
-  material.name = 'WeatherLightningFlash';
-  material.transparent = true;
-  material.depthTest = false;
-  material.depthWrite = false;
-  material.blending = THREE.AdditiveBlending;
-  material.fog = false;
-  material.lights = false;
-  material.side = THREE.BackSide;
-  material.fragmentNode = Fn(() => vec4(uniforms.uColor, uniforms.uIntensity))();
-  material.uniforms = uniforms;
-
-  const mesh = new THREE.Mesh(new THREE.SphereGeometry(420, 20, 12), material);
-  mesh.name = 'Weather lightning flash';
-  mesh.frustumCulled = false;
-  mesh.renderOrder = 100;
-  mesh.intensity = 0;
-  mesh.userData.environmentShaderExclude = true;
-  mesh.userData.waterExclude = true;
-  return mesh;
+function createLightningTelemetry() {
+  // Compatibility surface for hosts that read `lightningLight.intensity`.
+  // Rendering is owned by WeatherFieldRenderer's branch + cloud-flash field.
+  const object = new THREE.Object3D();
+  object.name = 'Weather lightning telemetry';
+  object.intensity = 0;
+  object.visible = false;
+  object.userData.environmentShaderExclude = true;
+  object.userData.waterExclude = true;
+  return object;
 }
 
 /**
@@ -303,18 +286,16 @@ export class WeatherSystem extends THREE.EventDispatcher {
     this._disposed = false;
     this._targetBaselines = new WeakMap();
 
-    const precipitation = new WeatherPrecipitation({
-      maxParticles: this.settings.precipitation.maxParticles,
+    const precipitation = new WeatherFieldRenderer({
+      electricalMode: 'manual',
       seed,
-      settings: this.settings.precipitation,
     });
     this.precipitation = precipitation;
     this.root.add(precipitation);
 
-    // A camera-enclosing additive flash avoids mutating the scene-light
-    // layout during a WebGPU submit. The public name stays `lightningLight`
-    // for compatibility with the original coordinator API.
-    this.lightningLight = createLightningFlash();
+    // Public compatibility telemetry; visible electrical rendering lives in
+    // the unified field renderer above.
+    this.lightningLight = createLightningTelemetry();
     this.root.add(this.lightningLight);
 
     this._originalFog = scene?.fog ?? null;
@@ -722,11 +703,7 @@ export class WeatherSystem extends THREE.EventDispatcher {
     resolveTarget(this.targets.grass)?.setSurfaceWeather?.(surfaceWeather);
     resolveTarget(this.targets.flowers)?.setSurfaceWeather?.(surfaceWeather);
     resolveTarget(this.targets.forest)?.setSurfaceWeather?.(surfaceWeather);
-    this.precipitation.applySettings(settings.precipitation, wind);
-    this.lightningLight.material.uniforms.uColor.value.setRGB(
-      ...settings.lightning.color,
-      THREE.SRGBColorSpace,
-    );
+    this.precipitation.applyWeatherSettings(settings);
     this.root.userData.weatherSurface = { ...settings.surface };
     this.onSurfaceChange?.({ ...settings.surface });
     this.dispatchEvent({ settings: copySettings(settings), type: 'change' });
@@ -766,6 +743,12 @@ export class WeatherSystem extends THREE.EventDispatcher {
       center.z + Math.sin(angle) * distance,
     );
     this._flashRemaining = lightning.duration;
+    this.lightningLight.intensity = lightning.intensity;
+    this.lightningLight.visible = true;
+    this.precipitation.triggerLightning({
+      duration: lightning.duration,
+      intensity: lightning.intensity,
+    });
     const thunderDelay = Math.max(distance / 343, 0.08);
     const event = { distance, position: this.lightningLight.position.clone(), thunderDelay, type: 'lightning' };
     this.dispatchEvent(event);
@@ -791,13 +774,11 @@ export class WeatherSystem extends THREE.EventDispatcher {
       const phase = this._flashRemaining / Math.max(lightning.duration, 0.01);
       const stutter = Math.sin(phase * 42) > 0.15 ? 1 : 0.22;
       this.lightningLight.intensity = lightning.intensity * phase * phase * stutter;
+      this.lightningLight.visible = this.lightningLight.intensity > 0;
     } else {
       this.lightningLight.intensity = 0;
+      this.lightningLight.visible = false;
     }
-    this.lightningLight.material.uniforms.uIntensity.value = Math.min(
-      this.lightningLight.intensity * 0.075,
-      0.72,
-    );
 
     for (let index = this._thunderQueue.length - 1; index >= 0; index -= 1) {
       const thunder = this._thunderQueue[index];
@@ -850,7 +831,12 @@ export class WeatherSystem extends THREE.EventDispatcher {
       this._applyFrame(this.settings);
     }
     const center = this._resolveCenter();
-    this.precipitation.update(dt, { center, renderer: resolveTarget(this.renderer) });
+    this.precipitation.update(dt, {
+      camera: resolveTarget(this.camera),
+      center,
+      floorY: center.y,
+      renderer: resolveTarget(this.renderer),
+    });
     this._updateLightning(dt);
     this._updateWaterRipples(dt, center);
     return this;
@@ -864,8 +850,6 @@ export class WeatherSystem extends THREE.EventDispatcher {
     if (this._disposed) return;
     this._disposed = true;
     this.precipitation.dispose();
-    this.lightningLight.geometry.dispose();
-    this.lightningLight.material.dispose();
     this.root.parent?.remove(this.root);
     const lighting = this.lightingSystem;
     this.targets.lighting = null;

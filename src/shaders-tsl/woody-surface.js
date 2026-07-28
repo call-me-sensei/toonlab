@@ -67,7 +67,11 @@ export function createWoodySurfaceNodeMaterial({
   material.fog = true;
   material.map = map;
   material.fragmentNode = Fn(() => {
-    const normal = normalize(normalWorld);
+    const normal = normalize(mix(
+      normalWorld,
+      normalize(vec3(normalWorld.x, normalWorld.y.mul(0.35), normalWorld.z)),
+      u.uStyleBarkNormalFlatness,
+    ));
     const sunDirection = normalize(u.uSunDirection);
     const light = clamp(dot(normal, sunDirection).mul(0.5).add(0.5), 0, 1).toVar();
     const steps = max(floor(u.uStyleBarkBandCount), 2);
@@ -83,7 +87,12 @@ export function createWoodySurfaceNodeMaterial({
       1,
       localHeight,
     );
-    const colorNode = albedo.mul(mix(u.uStyleBarkShadowFloor, 1, lit))
+    const styledAlbedo = mix(
+      albedo,
+      albedo.mul(u.uStyleBarkTint),
+      u.uStyleBarkTintStrength,
+    );
+    const colorNode = styledAlbedo.mul(mix(u.uStyleBarkShadowFloor, 1, lit))
       .mul(verticalShade).toVar();
 
     const shadowAmount = visibility.oneMinus()
@@ -99,7 +108,7 @@ export function createWoodySurfaceNodeMaterial({
       lit.mul(u.uStyleLightingSunTintStrength.add(u.uStyleBarkSunTintStrength)),
     ));
     colorNode.addAssign(
-      u.uSkyColor.mul(lit.oneMinus())
+      styledAlbedo.mul(u.uSkyColor).mul(lit.oneMinus())
         .mul(u.uStyleLightingSkyFillStrength.add(u.uStyleBarkSkyFillStrength)),
     );
 
@@ -109,12 +118,13 @@ export function createWoodySurfaceNodeMaterial({
       u.uStyleLightingRimPower,
     );
     colorNode.addAssign(
-      u.uSkyColor.mul(rim)
+      styledAlbedo.mul(u.uSkyColor).mul(rim)
         .mul(u.uStyleLightingRimStrength.add(u.uStyleBarkRimStrength)),
     );
 
     const halfVector = normalize(sunDirection.add(viewDirection));
-    const specular = pow(clamp(dot(normal, halfVector), 0, 1), 24)
+    const specularPower = mix(96, 8, u.uStyleBarkRoughness);
+    const specular = pow(clamp(dot(normal, halfVector), 0, 1), specularPower)
       .mul(visibility).mul(u.uStyleBarkSpecularStrength);
 
     const wet = clamp(u.uWetness.mul(u.uWetnessResponse), 0, 1).toVar();
@@ -145,6 +155,14 @@ export function createWoodySurfaceNodeMaterial({
       visibility,
     ));
     colorNode.assign(mix(colorNode, snowTint, snow));
+    const sceneLight = clamp(
+      u.uSkyIntensity.mul(0.5)
+        .add(u.uSunIntensity.mul(0.5).mul(band)),
+      0,
+      1.5,
+    );
+    colorNode.mulAssign(sceneLight);
+    colorNode.addAssign(styledAlbedo.mul(u.uStyleBarkEmissiveStrength));
 
     return vec4(colorNode, 1);
   })();
@@ -156,12 +174,20 @@ export function createWoodySurfaceNodeMaterial({
 export function setWoodySurfaceSun(material, {
   color = [1, 0.96, 0.86],
   direction = [0.45, 0.75, 0.5],
+  intensity,
   sky = [0.72, 0.87, 1],
+  skyIntensity,
 } = {}) {
   const uniforms = material?.uniforms;
   if (!uniforms) return material;
   uniforms.uSunDirection?.value.set(...direction).normalize();
   uniforms.uSunColor?.value.setRGB(...color, THREE.SRGBColorSpace);
   uniforms.uSkyColor?.value.setRGB(...sky, THREE.SRGBColorSpace);
+  if (Number.isFinite(intensity) && uniforms.uSunIntensity) {
+    uniforms.uSunIntensity.value = Math.max(intensity, 0);
+  }
+  if (Number.isFinite(skyIntensity) && uniforms.uSkyIntensity) {
+    uniforms.uSkyIntensity.value = Math.max(skyIntensity, 0);
+  }
   return material;
 }

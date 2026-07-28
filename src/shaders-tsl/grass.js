@@ -37,6 +37,7 @@ import {
   vec2,
   vec3,
   vec4,
+  wgslFn,
 } from 'three/tsl';
 import { NodeMaterial } from 'three/webgpu';
 
@@ -48,6 +49,29 @@ import {
   shadeVegetationSurface,
   tagVegetationRole,
 } from './chunks/vegetation-style.js';
+
+const vegetationHueNormalized = wgslFn(`
+  fn toonlabVegetationHueNormalized(sourceColor: vec3<f32>, offset: f32) -> vec3<f32> {
+    let p = select(
+      vec4<f32>(sourceColor.b, sourceColor.g, -1.0, 2.0 / 3.0),
+      vec4<f32>(sourceColor.g, sourceColor.b, 0.0, -1.0 / 3.0),
+      sourceColor.g >= sourceColor.b
+    );
+    let q = select(
+      vec4<f32>(p.x, p.y, p.w, sourceColor.r),
+      vec4<f32>(sourceColor.r, p.y, p.z, p.x),
+      sourceColor.r >= p.x
+    );
+    let difference = q.x - min(q.w, q.y);
+    let epsilon = 1e-4;
+    let value = select(q.x + epsilon, q.x, difference == 0.0);
+    var hue = abs(q.z + (q.w - q.y) / (6.0 * difference + epsilon)) + offset;
+    hue = fract(hue);
+    let saturation = difference / (q.x + epsilon);
+    let hueRgb = abs(fract(vec3<f32>(hue) + vec3<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+    return value * mix(vec3<f32>(1.0), clamp(hueRgb - 1.0, vec3<f32>(0.0), vec3<f32>(1.0)), saturation);
+  }
+`);
 
 export function createGrassNodeMaterial(settings, vegetationShader = null) {
   const styleUniforms = createVegetationStyleUniforms(vegetationShader, 'grassBlade');
@@ -184,7 +208,19 @@ export function createGrassNodeMaterial(settings, vegetationShader = null) {
       u.uStyleGrassTipGradientEnd,
       vUv.y.mul(vJitter.mul(0.3).add(0.85)),
     ).toVar();
-    const color = mix(u.uBaseColor, u.uTipColor, tipMix).toVar();
+    const sourceColor = mix(u.uBaseColor, u.uTipColor, tipMix).toVar();
+    const styleTipRaw = u.uStyleGrassBaseColor.add(u.uStyleGrassTipBrightness);
+    const styleTipLuminance = dot(styleTipRaw, vec3(0.3, 0.59, 0.11));
+    const styleTip = vegetationHueNormalized(
+      mix(styleTipRaw, vec3(styleTipLuminance), u.uStyleGrassTipDesaturation),
+      u.uStyleGrassTipHueShift,
+    );
+    const styleColor = mix(u.uStyleGrassBaseColor, styleTip, tipMix);
+    const color = mix(
+      sourceColor,
+      styleColor,
+      u.uStyleGrassStyleColorStrength,
+    ).toVar();
     // Ground adoption: the terrain's albedo drives the blade from the root
     // up to uGroundAdoptHeight, fading back to the palette at the tips —
     // grass, dirt paths, and meadow melt into one carpet. Weighted by field
@@ -233,6 +269,15 @@ export function createGrassNodeMaterial(settings, vegetationShader = null) {
     shaded.color.addAssign(
       u.uSunColor.mul(sheen).mul(u.uStyleGrassGustSheenStrength).mul(shaded.band),
     );
+    const viewDirection = normalize(cameraPosition.sub(vWorldPosition));
+    const halfVector = normalize(sunDirection.add(viewDirection));
+    const highlightPower = mix(96.0, 8.0, u.uStyleGrassRoughness);
+    const highlight = pow(
+      clamp(dot(normal, halfVector), 0, 1),
+      highlightPower,
+    ).mul(sceneShadow).mul(u.uStyleGrassSpecularStrength);
+    shaded.color.addAssign(u.uSunColor.mul(highlight));
+    shaded.color.addAssign(color.mul(u.uStyleGrassEmissiveStrength));
 
     return vec4(shaded.color, 1.0);
   })();

@@ -1,5 +1,5 @@
 // One source-of-truth for the coordinate, UV, and tangent-normal conventions
-// used by the supplied ToonLab assets. The Mega scene is emitted by
+// used by the supplied ToonLab assets. The reference scene is emitted by
 // ToonLabSceneExport.cs, while the ToonLabShowcase bridge consumes the supplied ToonLab
 // glTF. Those two geometry paths intentionally require different Texture.flipY
 // values even when they sample the same source PNG bytes.
@@ -23,7 +23,7 @@ export const TOONLAB_NORMAL_INTEGRATION_CONTRACT = freeze({
     importerGreenTransform: 'multiply decoded Y by -1 when flipGreenChannel=true',
     z: 'sqrt(max(1e-16, 1 - saturate(dot(xy, xy))))',
   }),
-  toonLabMegaScene: freeze({
+  environmentReferenceScene: freeze({
     geometryCoordinates: '(toonlab.x, toonlab.y, -toonlab.z)',
     tangent: '(toonlab.x, toonlab.y, -toonlab.z, -toonlab.w)',
     textureFlipY: true,
@@ -32,10 +32,10 @@ export const TOONLAB_NORMAL_INTEGRATION_CONTRACT = freeze({
     zSign: -1,
   }),
   toonLabShowcaseToonLabGltf: freeze({
-    geometryRelationToToonLabMega: '(-toonLabMega.x, toonLabMega.y, -toonLabMega.z)',
-    tangentWRelationToToonLabMega: 'same',
+    geometryRelationToEnvironmentReference: '(-environmentReference.x, environmentReference.y, -environmentReference.z)',
+    tangentWRelationToEnvironmentReference: 'same',
     textureFlipY: false,
-    uvRelationToToonLabMega: '(toonLabMega.u, 1 - toonLabMega.v)',
+    uvRelationToEnvironmentReference: '(environmentReference.u, 1 - environmentReference.v)',
   }),
   tangentOutput: 'decoded tangent normal -> exported/reflected TBN -> Three view space',
 });

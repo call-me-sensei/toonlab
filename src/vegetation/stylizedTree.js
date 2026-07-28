@@ -732,6 +732,8 @@ export function createBranchingTreeSkeleton({
   conifer = false,
   trunkSpine = null,
   radialSegments = 8,
+  meshSectionStride = 1,
+  meshLevelLimit = Infinity,
   tipRadius = 0.012,
   maxBranches = 420,
   leafSpacing = 0.3,
@@ -803,8 +805,6 @@ export function createBranchingTreeSkeleton({
     const origin = branch.origin.clone();
     const orientation = branch.quaternion.clone();
     const rings = [];
-    const vertexBase = positions.length / 3;
-    let travelled = 0;
 
     // Hand-drawn trunk: rings follow the doodle polyline instead of the
     // procedural walk; children still attach along it like any branch.
@@ -844,22 +844,7 @@ export function createBranchingTreeSkeleton({
         radius: ringRadius,
       });
 
-      // Ring vertices: pure radial normals, bark v tiles with arc length.
-      for (let j = 0; j <= segments; j += 1) {
-        const angle = (j / segments) * Math.PI * 2;
-        workVector.set(Math.cos(angle), 0, Math.sin(angle));
-        workVector.applyQuaternion(orientation);
-        normals.push(workVector.x, workVector.y, workVector.z);
-        positions.push(
-          origin.x + workVector.x * ringRadius,
-          origin.y + workVector.y * ringRadius,
-          origin.z + workVector.z * ringRadius,
-        );
-        uvs.push(j / segments, travelled * 2.2);
-      }
-
       if (i === sectionCount) break;
-      travelled += sectionLength;
 
       if (!spineSampler) {
         // Advance the growth state — the core growth loop.
@@ -893,12 +878,41 @@ export function createBranchingTreeSkeleton({
       }
     }
 
-    // Quad strips between consecutive rings.
-    for (let i = 0; i < sectionCount; i += 1) {
-      for (let j = 0; j < segments; j += 1) {
-        const a = vertexBase + i * (segments + 1) + j;
-        const b = a + segments + 1;
-        indices.push(a, b, a + 1, b, b + 1, a + 1);
+    // LOD meshes retain every procedural centerline and attachment, but may
+    // emit fewer longitudinal rings. This is materially different from
+    // deleting disconnected tube components: every retained branch remains
+    // continuous from base to tip and the tree does not change shape.
+    if (level <= meshLevelLimit) {
+      const stride = Math.max(1, Math.round(meshSectionStride));
+      const retainedRings = [];
+      for (let ringIndex = 0; ringIndex <= sectionCount; ringIndex += stride) {
+        retainedRings.push(ringIndex);
+      }
+      if (retainedRings[retainedRings.length - 1] !== sectionCount) {
+        retainedRings.push(sectionCount);
+      }
+      const vertexBase = positions.length / 3;
+      for (const ringIndex of retainedRings) {
+        const ring = rings[ringIndex];
+        for (let j = 0; j <= segments; j += 1) {
+          const angle = (j / segments) * Math.PI * 2;
+          workVector.set(Math.cos(angle), 0, Math.sin(angle));
+          workVector.applyQuaternion(ring.quaternion);
+          normals.push(workVector.x, workVector.y, workVector.z);
+          positions.push(
+            ring.origin.x + workVector.x * ring.radius,
+            ring.origin.y + workVector.y * ring.radius,
+            ring.origin.z + workVector.z * ring.radius,
+          );
+          uvs.push(j / segments, branch.length * (ringIndex / sectionCount) * 2.2);
+        }
+      }
+      for (let ring = 0; ring < retainedRings.length - 1; ring += 1) {
+        for (let j = 0; j < segments; j += 1) {
+          const a = vertexBase + ring * (segments + 1) + j;
+          const b = a + segments + 1;
+          indices.push(a, b, a + 1, b, b + 1, a + 1);
+        }
       }
     }
 
@@ -1231,7 +1245,7 @@ function booleanOption(value, fallback) {
 }
 
 function colorArray(value, fallback) {
-  if (value?.isColor) return [value.r, value.g, value.b];
+  if (value?.isColor) return value.clone().convertLinearToSRGB().toArray();
   if (Array.isArray(value) && value.length >= 3) {
     const next = value.slice(0, 3).map(Number);
     return next.every(Number.isFinite) ? next : fallback.slice();
@@ -1239,7 +1253,11 @@ function colorArray(value, fallback) {
   if (typeof value === 'number' || typeof value === 'string') {
     try {
       const color = new THREE.Color(value);
-      return [color.r, color.g, color.b];
+      // Public tree color arrays are authored sRGB values. THREE.Color stores
+      // constructor inputs in linear working space, so returning its raw
+      // channels here causes the material's sRGB setter to decode them a
+      // second time. Preserve the documented authored color space.
+      return color.convertLinearToSRGB().toArray();
     } catch {
       return fallback.slice();
     }

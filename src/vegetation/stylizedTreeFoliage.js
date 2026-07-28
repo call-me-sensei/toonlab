@@ -616,17 +616,18 @@ export function deriveCanopyPalette(color, overrides = {}) {
   const shadow = overrides.shadow
     ? setSrgb(new THREE.Color(), overrides.shadow)
     : new THREE.Color().setHSL(
-      (h + (warm ? -0.025 : 0.035) + 1) % 1,
-      Math.min(s + 0.025, 1),
-      // A relative floor protects dark source colors without ever making the
-      // shadow brighter than its lit tone. The old fixed -0.16 shift became
-      // a near-black canopy after sprite luminance and scene tint multiplied.
-      Math.min(Math.max(l - 0.1, l * 0.74, 0.16), l * 0.96),
+      (h + (warm ? -0.02 : 0.02) + 1) % 1,
+      Math.min(s + 0.02, 1),
+      // Keep shadow identity visibly below the lit value without returning
+      // to the old near-black floor. The previous 0.74 ratio plus a fixed
+      // 0.16 floor left ordinary green shadows almost as bright as the lit
+      // palette after output conversion.
+      Math.min(Math.max(l * 0.62, 0.1), l * 0.9),
     );
-  const crownShift = warm ? 0 : Math.max(h - 0.07, GOLD_HUE) - h;
+  const crownShift = warm ? 0 : Math.max(h - 0.035, GOLD_HUE) - h;
   const crown = overrides.crown
     ? setSrgb(new THREE.Color(), overrides.crown)
-    : lit.clone().offsetHSL(crownShift, 0.06, 0.14);
+    : lit.clone().offsetHSL(crownShift, 0.02, 0.07);
   return { lit, shadow, crown };
 }
 
@@ -639,12 +640,21 @@ function defaultLeafSprite() {
 // Shared uniform setters behind the setSun/setWind/... methods that every
 // canopy-bearing class exposes (StylizedTree, StylizedTreeFoliage,
 // StylizedBush): one implementation, thin delegates.
-export function setCanopySun(uniforms, { direction, color, sky } = {}) {
+export function setCanopySun(
+  uniforms,
+  { direction, color, intensity, sky, skyIntensity } = {},
+) {
   if (direction) {
     uniforms.uSunDirection.value.set(direction[0], direction[1], direction[2]).normalize();
   }
   if (color) setSrgb(uniforms.uSunColor.value, color);
   if (sky) setSrgb(uniforms.uSkyColor.value, sky);
+  if (Number.isFinite(intensity) && uniforms.uSunIntensity) {
+    uniforms.uSunIntensity.value = Math.max(intensity, 0);
+  }
+  if (Number.isFinite(skyIntensity) && uniforms.uSkyIntensity) {
+    uniforms.uSkyIntensity.value = Math.max(skyIntensity, 0);
+  }
 }
 
 export function setCanopyWind(uniforms, { direction, speed, strength } = {}) {

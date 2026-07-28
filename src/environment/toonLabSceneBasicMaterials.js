@@ -1,5 +1,5 @@
 // Source-faithful reconstruction of the opaque material families that remain
-// in the supplied M_Demonstration_Mega export:
+// in the supplied EnvironmentReferenceScene export:
 // - ToonLab Graphs/S_Snow
 // - ToonLab Graphs/S_StylizedBasic
 // - ToonLab Surface/Lit (the two embedded pine snow-cover records)
@@ -54,7 +54,7 @@ export const TOONLAB_SCENE_BASIC_SHADER = 'ToonLab Graphs/S_StylizedBasic';
 export const TOONLAB_SCENE_SURFACE_LIT_SHADER = 'ToonLab Surface/Lit';
 
 export const DEFAULT_TOONLAB_SCENE_BASIC_BASE_URL =
-  '/assets-local/toonlab/mega-scene';
+  '/assets-local/reference-environment/environment-scene';
 
 const TOONLAB_FLOAT_EPSILON = 5.960464478e-8;
 
@@ -572,7 +572,7 @@ export async function buildToonLabSceneSnowMaterial(
     createToonLabNormalIntegrationMetadata({
       coordinateZSign: -1,
       decode: 'geometry-only; generated NormalTS is IN.TangentSpaceNormal',
-      family: 'toonlab-mega-scene-snow',
+      family: 'toonlab-environment-scene-snow',
       textureFlipY: true,
     });
   installOpaquePassesAndLighting(material, TOONLAB_SCENE_SNOW_SHADER);
@@ -688,7 +688,7 @@ export async function buildToonLabSceneStylizedBasicMaterial(
           ? 'RG + importer green transform + reconstructed positive Z; ToonLab graph Normal Strength'
           : 'geometry-only fallback: active normal map but no tangent attribute'
         : 'geometry-only; _Normal_Map=false selects float3(0,0,1)',
-      family: 'toonlab-mega-scene-stylized-basic',
+      family: 'toonlab-environment-scene-stylized-basic',
       flipGreenChannel,
       textureFlipY: true,
     });
@@ -732,7 +732,7 @@ export function buildToonLabSceneSurfaceLitMaterial(materialRecord) {
     createToonLabNormalIntegrationMetadata({
       coordinateZSign: -1,
       decode: 'geometry-only; _NORMALMAP keyword absent selects float3(0,0,1)',
-      family: 'toonlab-mega-scene-toonlab-lit',
+      family: 'toonlab-environment-scene-toonlab-lit',
       textureFlipY: null,
     });
   installOpaquePassesAndLighting(material, TOONLAB_SCENE_SURFACE_LIT_SHADER);

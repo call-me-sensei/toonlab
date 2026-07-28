@@ -15,26 +15,28 @@ import {
   bumpDocumentRevision,
   compileDocument,
   createRockDocument,
-  createRockDocumentFromReference,
   createRockPiece,
   deserializeRockDocument,
-  getRockReferenceEntry,
   normalizeRockgenPresetName,
-  normalizeRockReferenceId,
   rebaseRockDocumentStyle,
   removePieceFromDocument,
-  ROCK_REFERENCE_CATALOG,
-  ROCK_REFERENCE_FAMILIES,
-  ROCK_REFERENCE_GEOMETRY_MODES,
-  ROCK_REFERENCE_MATERIAL_MODES,
   ROCK_SURFACE_TEXTURE_PRESETS,
   getRockgenPresetOptions,
   getRockgenStyleOptions,
   isRockHelperPiece,
-  listRockReferenceEntries,
   serializeRockDocument,
   normalizeRockgenStyleName,
 } from '../../../src/rockgen/index.js';
+import {
+  createRockDocumentFromReference,
+  getRockReferenceEntry,
+  listRockReferenceEntries,
+  normalizeRockReferenceId,
+  ROCK_REFERENCE_CATALOG,
+  ROCK_REFERENCE_FAMILIES,
+  ROCK_REFERENCE_GEOMETRY_MODES,
+  ROCK_REFERENCE_MATERIAL_MODES,
+} from '../../../src/rockgen/reference/index.js';
 import { loadRockProject, removeRockProject, saveRockProject } from '../rockProjectStore.js';
 import { setLabParams } from '../../shared/labParams.js';
 

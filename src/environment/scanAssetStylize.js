@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 import { copyTextureTransform } from './environmentTextureResolver.js';
 
-// Photoscan assets (Megascans/Fab exports) read as "posterized photos" under
+// Photoscan assets (photoscan/Fab exports) read as "posterized photos" under
 // the toon environment shader: their albedo carries photographic micro-detail
 // (grain, dirt, cracks, baked-in AO) that stylized stages never have, and
 // their detail maps (normal/AO) respond too literally to light. This module
@@ -20,10 +20,10 @@ import { copyTextureTransform } from './environmentTextureResolver.js';
 // 'auto' (detected scan assets only) or true; never applied when false or
 // when material.userData.envScanStylize === false.
 
-// Fab/Megascans exports name meshes `<assetId>_LOD0_TIER2_...` and materials
+// Fab/photoscan catalogs exports name meshes `<assetId>_LOD0_TIER2_...` and materials
 // `<Asset_Name>_<assetId>_<Quality>`; the LOD/TIER token is the reliable
-// tell. Explicit 'megascan'/'quixel' naming also qualifies.
-const SCAN_NAME_PATTERN = /(_lod\d+_tier\d+)|megascan|quixel/i;
+// tell. Explicit 'photoscan'/'quixel' naming also qualifies.
+const SCAN_NAME_PATTERN = /(_lod\d+_tier\d+)|photoscan|quixel/i;
 
 export function isScanAssetMaterial(obj, mat) {
   if (mat?.userData?.envScanStylize === false) return false;

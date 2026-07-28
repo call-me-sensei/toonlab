@@ -48,6 +48,36 @@ const vfxPresetRegistry = new Map([
         intensity: 1.45,
         ringColor: Object.freeze([1.0, 0.5, 0.15]),
       }),
+      // Charged energy: cool-white core, saturated blue shell, and a lighter
+      // cyan filament accent. Identity stays "charged projectile"; this entry
+      // selects only the IP-wide rendering treatment.
+      chargedShot: Object.freeze({
+        accentColor: Object.freeze([0.55, 0.86, 1.0]),
+        coreColor: Object.freeze([0.92, 0.99, 1.0]),
+        coreIntensity: 2.65,
+        edgeColor: Object.freeze([0.22, 0.54, 1.0]),
+        filamentDensity: 1.4,
+        filamentSpeed: 1.35,
+        circulationEnabled: true,
+        energyMotionTheme: 'electric-orbit',
+        circulationCount: 6,
+        circulationSpeed: 1.65,
+        circulationDirection: 'alternating',
+        circulationCoverage: 0.3,
+        circulationIrregularity: 0.74,
+        circulationBranching: 0.46,
+        circulationThickness: 0.022,
+        circulationSurfaceOffset: 1.72,
+        circulationAxialWander: 0.56,
+        circulationPlaneVariation: 0.8,
+        circulationFlicker: 0.7,
+        releaseDepth: 0.3,
+        releaseIrregularity: 0.4,
+        releaseLobes: 3,
+        lightIntensity: 2.8,
+        particleRate: 190,
+        shellIntensity: 1.5,
+      }),
       // Ground feedback stays subtle and cool so the glows own the frame.
       footstep: Object.freeze({
         color: Object.freeze([0.72, 0.7, 0.66]),

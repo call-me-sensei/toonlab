@@ -17,6 +17,9 @@ import {
   createManufacturedReflectionProbe,
 } from '../../src/environment/manufacturedReflectionProvider.js';
 import {
+  loadImportedModel,
+} from '../../src/assetlib/loadImported.js';
+import {
   createImportedVegetationMaterial,
 } from '../../src/vegetation/importedVegetationMaterial.js';
 import {
@@ -31,7 +34,7 @@ import {
 const PASTEL_TARGET_STRENGTH = 0.10;
 const SHADOW_PASTEL_TARGET_STRENGTH = 0.80;
 
-const TEST_MODELS = Object.freeze({
+const TEST_MODELS = {
   dumpster: {
     assetId: 'dumpster-free-game-asset-agustin-honnun',
     cameraScale: { single: 1, split: 1 },
@@ -41,7 +44,7 @@ const TEST_MODELS = Object.freeze({
     rotationY: -0.24,
     splitOffset: 1.85,
     targetY: 1.25,
-    url: '/assets-local/props/buildings/dumpster_free_game_asset_agustin_honnun.glb',
+    url: '/assets-local/labs/manufactured-material/test-cases/dumpster/model.glb',
   },
   streetcar: {
     assetId: 'broken-old-streetcar',
@@ -52,7 +55,18 @@ const TEST_MODELS = Object.freeze({
     rotationY: -0.24,
     splitOffset: 2.35,
     targetY: 0.72,
-    url: '/assets-local/props/buildings/broken_old_streetcar.glb',
+    url: '/assets-local/labs/manufactured-material/test-cases/streetcar/model.glb',
+  },
+  'burned-out-cars': {
+    assetId: 'burned-out-cars',
+    cameraScale: { single: 0.92, split: 1.18 },
+    fitWidth: 4.4,
+    label: 'burned-out cars',
+    objectClass: 'vehicle',
+    rotationY: -0.24,
+    splitOffset: 2.85,
+    targetY: 0.9,
+    url: '/assets-local/labs/manufactured-material/test-cases/burned-out-cars/model.glb',
   },
   beach: {
     assetId: 'old-beach-props',
@@ -63,7 +77,7 @@ const TEST_MODELS = Object.freeze({
     rotationY: -0.24,
     splitOffset: 2.65,
     targetY: 0.7,
-    url: '/assets-local/props/buildings/old_beach_props.glb',
+    url: '/assets-local/labs/manufactured-material/test-cases/beach/model.glb',
   },
   'bus-station': {
     assetId: 'bus-station',
@@ -74,10 +88,10 @@ const TEST_MODELS = Object.freeze({
     rotationY: -0.24,
     splitOffset: 2.4,
     targetY: 1,
-    url: '/assets-local/props/buildings/bus_station.glb',
+    url: '/assets-local/labs/manufactured-material/test-cases/bus-station/model.glb',
   },
   apartment: {
-    assetId: 'mega-modular-apartment-building',
+    assetId: 'modular-apartment-building',
     cameraScale: { single: 0.9, split: 1.38 },
     fitWidth: 4.8,
     label: 'apartment building',
@@ -85,7 +99,7 @@ const TEST_MODELS = Object.freeze({
     rotationY: -0.38,
     splitOffset: 3.05,
     targetY: 1.22,
-    url: '/assets-local/props/buildings/Mega Moduler Apartment Building.glb',
+    url: '/assets-local/labs/manufactured-material/test-cases/apartment/model.glb',
   },
   'ground-floor-kit': {
     assetId: 'modular-building-ground-floor-kit-wmfiaaldw-mid',
@@ -96,7 +110,7 @@ const TEST_MODELS = Object.freeze({
     rotationY: -0.38,
     splitOffset: 3.05,
     targetY: 1.42,
-    url: '/assets-local/props/buildings/modular_building_ground_floor_kit_wmfiaaldw_mid.glb',
+    url: '/assets-local/labs/manufactured-material/test-cases/ground-floor-kit/model.glb',
   },
   'living-room': {
     assetId: 'living-room-with-curtains',
@@ -112,7 +126,7 @@ const TEST_MODELS = Object.freeze({
     singleOffsetX: 0.8,
     splitOffset: 2.65,
     targetY: 1.1,
-    url: '/assets-local/props/buildings/living_room_with_curtains.glb',
+    url: '/assets-local/labs/manufactured-material/test-cases/living-room/model.glb',
   },
   'bicycle-collection': {
     assetId: 'bicycle-collection',
@@ -123,9 +137,20 @@ const TEST_MODELS = Object.freeze({
     rotationY: -0.24,
     splitOffset: 2.85,
     targetY: 0.9,
-    url: '/assets-local/props/buildings/bicycle_collection.glb',
+    url: '/assets-local/labs/manufactured-material/test-cases/bicycle-collection/model.glb',
   },
-});
+  'wooden-crate-01': {
+    assetId: 'polyhaven-wooden-crate-01',
+    cameraScale: { single: 0.92, split: 1 },
+    fitWidth: 2.2,
+    label: 'Wooden Crate 01',
+    objectClass: 'prop',
+    rotationY: -0.24,
+    splitOffset: 1.55,
+    targetY: 0.52,
+    url: '/manufactured-material-lab/cc0/polyhaven/wooden_crate_01/wooden_crate_01_1k.gltf',
+  },
+};
 
 // These are import annotations for source GLBs that do not yet carry
 // urbanMaterial in glTF extras. They describe material identity once; they
@@ -143,6 +168,28 @@ const BENCHMARK_IMPORT_CLASSIFICATIONS = Object.freeze({
       value: {
         baseMaterial: 'genericDielectric',
         confidence: 0.25,
+        finish: 'matte',
+        classificationSource: 'mixedAtlas',
+        structuralRole: 'primaryMass',
+      },
+    },
+  ]),
+  'burned-out-cars': Object.freeze([
+    {
+      value: {
+        baseMaterial: 'genericDielectric',
+        confidence: 0.25,
+        finish: 'matte',
+        classificationSource: 'mixedAtlas',
+        structuralRole: 'primaryMass',
+      },
+    },
+  ]),
+  'wooden-crate-01': Object.freeze([
+    {
+      value: {
+        baseMaterial: 'genericDielectric',
+        confidence: 0.35,
         finish: 'matte',
         classificationSource: 'mixedAtlas',
         structuralRole: 'primaryMass',
@@ -925,8 +972,16 @@ function renderMaterialInspector(root, modelId, onClassificationChange) {
 }
 
 function setPanelView(requestedView) {
-  const view = requestedView === 'materials' ? 'materials' : 'look';
-  document.querySelectorAll('.panel > [data-panel-view]').forEach((section) => {
+  const sections = [
+    ...document.querySelectorAll('.panel > [data-panel-view]'),
+  ];
+  const fallbackView = sections[0]?.dataset.panelView ?? 'look';
+  const view = sections.some(
+    (section) => section.dataset.panelView === requestedView,
+  )
+    ? requestedView
+    : fallbackView;
+  sections.forEach((section) => {
     section.hidden = section.dataset.panelView !== view;
   });
   document.querySelectorAll('[data-panel-view-button]').forEach((button) => {
@@ -1030,7 +1085,8 @@ async function main() {
   renderer.toneMappingExposure = 1.04;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
-  document.body.appendChild(renderer.domElement);
+  (document.getElementById('stage') ?? document.body).appendChild(renderer.domElement);
+  document.body.dataset.rendererBackend = 'webgl2-fallback';
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x090b17);
@@ -1206,9 +1262,11 @@ async function main() {
 
     const spec = TEST_MODELS[modelId];
     const preparation = (async () => {
-      const gltf = await loader.loadAsync(spec.url);
-      const sourceModel = cloneForComparison(gltf.scene);
-      const lockedModel = cloneForComparison(gltf.scene);
+      const loadedModel = spec.download
+        ? await loadImportedModel(spec.download)
+        : (await loader.loadAsync(spec.url)).scene;
+      const sourceModel = cloneForComparison(loadedModel);
+      const lockedModel = cloneForComparison(loadedModel);
       fitModelToMeters(sourceModel, spec.fitWidth);
       fitModelToMeters(lockedModel, spec.fitWidth);
       sourceModel.userData.benchmarkBaseX = sourceModel.position.x;
@@ -1237,6 +1295,7 @@ async function main() {
     loading.hidden = false;
     loading.textContent = `Loading the ${spec.label} benchmark…`;
     document.body.dataset.modelLoading = modelId;
+    document.body.dataset.modelReady = 'loading';
 
     try {
       const pair = await prepareModel(modelId);
@@ -1254,6 +1313,7 @@ async function main() {
       setMode(currentMode);
 
       document.body.dataset.model = modelId;
+      document.body.dataset.modelReady = 'true';
       delete document.body.dataset.modelLoading;
       document.querySelectorAll('[data-model-button]').forEach((button) => {
         button.dataset.active = String(button.dataset.modelButton === modelId);
@@ -1267,10 +1327,32 @@ async function main() {
     } catch (error) {
       if (request !== modelRequest) return;
       delete document.body.dataset.modelLoading;
+      document.body.dataset.modelReady = 'error';
       loading.hidden = true;
-      if (!original || !styled) throw error;
       console.error(`Failed to load ${modelId}`, error);
+      throw error;
     }
+  }
+
+  function registerModel(modelId, spec) {
+    const id = String(modelId ?? '').trim();
+    if (!id) throw new Error('A preview asset id is required.');
+    if (!spec?.url && !spec?.download) {
+      throw new Error('A preview asset needs a URL or a saved-library download recipe.');
+    }
+    TEST_MODELS[id] = {
+      assetId: spec.assetId ?? id,
+      cameraScale: { single: 1, split: 1, ...(spec.cameraScale ?? {}) },
+      fitWidth: spec.fitWidth ?? 3,
+      label: spec.label ?? id,
+      objectClass: spec.objectClass ?? 'prop',
+      rotationY: spec.rotationY ?? -0.24,
+      splitOffset: spec.splitOffset ?? 1.85,
+      targetY: spec.targetY ?? 0.8,
+      ...spec,
+    };
+    preparedModels.delete(id);
+    return TEST_MODELS[id];
   }
 
   async function rebuildCurrentModel() {
@@ -1459,7 +1541,10 @@ async function main() {
   setMode(currentMode);
   applyLighting(params.get('lighting') ?? 'day');
   setBlueTreatment('pastel');
-  await setModel(params.get('model') ?? 'dumpster');
+  const defaultModel = location.pathname.includes('/legacy/')
+    ? 'dumpster'
+    : 'wooden-crate-01';
+  await setModel(params.get('model') ?? defaultModel);
   window.addEventListener('keydown', (event) => {
     if (event.key.toLowerCase() !== 'c') return;
     frameCamera(document.body.dataset.mode);
@@ -1489,11 +1574,26 @@ async function main() {
       document.body.appendChild(failure);
     }
   });
+
+  return {
+    frameCamera: () => frameCamera(document.body.dataset.mode),
+    getCurrentModel: () => currentModel,
+    registerModel,
+    setLighting: applyLighting,
+    setMode,
+    setModel,
+  };
 }
 
-main().catch((error) => {
-  console.error(error);
-  document.body.dataset.stageReady = 'error';
-  const loading = document.getElementById('loading');
-  if (loading) loading.textContent = `Failed to load the benchmark: ${error.message}`;
-});
+main()
+  .then((api) => {
+    window.__manufacturedMaterialLab = api;
+    window.dispatchEvent(new CustomEvent('toonlab:manufactured-material-ready'));
+  })
+  .catch((error) => {
+    console.error(error);
+    document.body.dataset.stageReady = 'error';
+    document.body.dataset.modelReady = 'error';
+    const loading = document.getElementById('loading');
+    if (loading) loading.textContent = `Failed to load the benchmark: ${error.message}`;
+  });

@@ -1,8 +1,8 @@
-// Rockgen has two independent axes:
-//   preset — asset identity / geometry (boulder, sea stack, cliff wall, ...)
-//   style  — IP-wide rendition applied across every preset
-// Presets may carry their own material defaults, while styles refine those
-// defaults without becoming an asset card themselves.
+// Rockgen's historical `style` axis is an asset-generation surface base. It
+// changes baked color/zones and generator defaults; it is not the reusable
+// runtime rock shader. New code selects the material independently through
+// @call-me-sensei/toonlab/rock-shader. The public names remain for project and
+// URL compatibility.
 
 /** Document type tag for shareable rockgen preset JSON documents. */
 export const ROCKGEN_PRESET_DOCUMENT_TYPE = 'toonlab/rockgen-preset';
@@ -83,7 +83,7 @@ export function getRockgenPresetOptions(kind = null) {
     .map(([value, preset]) => ({ label: preset.label, value }));
 }
 
-/** Lists IP-wide rock styles, never asset presets. */
+/** Lists legacy baked surface bases, never runtime rock-shader presets. */
 export function getRockgenStyleOptions() {
   return Array.from(ROCKGEN_STYLES.entries()).map(([value, style]) => ({
     description: style.description,
@@ -113,7 +113,7 @@ export function resolveRockgenPreset(name, { style } = {}) {
 }
 
 registerRockgenStyle('default', {
-  description: 'Preset-authored rock materials and geometry without an IP-wide rendition layer.',
+  description: 'Preset-authored asset color and geometry without a project-specific baked surface base.',
   label: 'Default',
 });
 
@@ -628,14 +628,13 @@ registerRockgenPreset('shard-monolith', {
   },
 });
 
-// Studio-managed signature STYLE, curated by Call Me Sensei and updated over
-// releases. It covers every rock preset with one geological surface language
-// instead of masquerading as a sixteenth rock asset. The boulder variant keeps
-// the historical shallow signature strata for legacy
+// Historical studio asset base. It covers every rock preset with one set of
+// baked color/zoning defaults and does not configure the runtime rock shader.
+// The boulder variant keeps the historical shallow signature strata for legacy
 // `preset: 'call_me_sensei'` calls; other presets retain their own geometry.
 registerRockgenStyle('call_me_sensei', {
-  description: 'Studio-managed signature rock style: warm limestone bands, dark seams, lifted tops, and restrained moss across every rock preset.',
-  label: 'Call Me Sensei',
+  description: 'Legacy asset-generation base: bakes warm limestone zones, dark seams, lifted tops, and restrained moss into generated asset channels.',
+  label: 'Call Me Sensei asset base',
   presets: {
     boulder: {
       piece: {

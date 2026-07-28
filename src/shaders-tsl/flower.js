@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import {
   abs,
   atan,
+  cameraPosition,
   cameraProjectionMatrix,
   cameraViewMatrix,
   clamp,
@@ -102,8 +103,15 @@ function shadeFlowerHead({
   worldPosition,
 }) {
   const cloudShadow = flowerCloudShadow(u, worldPosition);
+  const flowerTint = mix(
+    vec3(1),
+    u.uStyleFlowerTextureTint,
+    u.uStyleFlowerTintStrength,
+  );
+  const styledPetalColor = petalBaseColor.mul(flowerTint);
+  const styledCenterColor = centerBaseColor.mul(flowerTint);
   const petal = shadeVegetationSurface({
-    baseColor: petalBaseColor,
+    baseColor: styledPetalColor,
     bandSoftness: u.uStyleFlowerBandSoftness,
     bandThreshold: u.uStyleFlowerBandThreshold,
     cloudShadow,
@@ -116,12 +124,14 @@ function shadeFlowerHead({
     sunColor: u.uSunColor,
     sunDirection: u.uSunDirection,
     transmissionMultiplier: u.uStyleFlowerBacklitStrength.div(0.35)
-      .mul(u.uStyleFlowerPetalTransmissionMultiplier),
+      .mul(u.uStyleFlowerPetalTransmissionMultiplier)
+      .mul(u.uStyleFlowerSubsurfaceStrength)
+      .mul(u.uStyleFlowerSubsurfaceOpacity.oneMinus().mul(0.5).add(0.5)),
     u,
     worldPosition,
   });
   petal.color.addAssign(
-    petalBaseColor.mul(petal.band.oneMinus()).mul(u.uStyleFlowerUnlitPetalLift),
+    styledPetalColor.mul(petal.band.oneMinus()).mul(u.uStyleFlowerUnlitPetalLift),
   );
 
   // Centers are opaque botanical structures, not thin petals. They share the
@@ -129,7 +139,7 @@ function shadeFlowerHead({
   // diffuse-wrap, two-sided, normal-bias, and transmission profile controls.
   const centerSceneShadow = mix(1.0, sceneShadow, u.uStyleFlowerCenterShadowResponse);
   const center = shadeVegetationSurface({
-    baseColor: centerBaseColor,
+    baseColor: styledCenterColor,
     bandSoftness: u.uStyleFlowerBandSoftness,
     bandThreshold: u.uStyleFlowerBandThreshold,
     cloudShadow,
@@ -150,8 +160,25 @@ function shadeFlowerHead({
     u,
     worldPosition,
   });
-  const centerColor = mix(centerBaseColor, center.color, u.uStyleFlowerCenterLightResponse);
-  return mix(petal.color, centerColor, centerMask);
+  const centerColor = mix(
+    styledCenterColor,
+    center.color,
+    u.uStyleFlowerCenterLightResponse,
+  );
+  const result = mix(petal.color, centerColor, centerMask).toVar();
+  const viewDirection = normalize(cameraPosition.sub(worldPosition));
+  const halfVector = normalize(normalize(u.uSunDirection).add(viewDirection));
+  const highlightPower = mix(96.0, 8.0, u.uStyleFlowerRoughness);
+  const highlight = pow(
+    clamp(dot(normal, halfVector), 0, 1),
+    highlightPower,
+  ).mul(sceneShadow).mul(u.uStyleFlowerSpecularStrength);
+  result.addAssign(u.uSunColor.mul(highlight));
+  result.addAssign(
+    mix(styledPetalColor, styledCenterColor, centerMask)
+      .mul(u.uStyleFlowerEmissiveStrength),
+  );
+  return result;
 }
 
 // Textured head variants carry petal and center pixels in one draw call. The
@@ -483,9 +510,14 @@ export function createFlowerStemNodeMaterial({
     const intervals = max(steps.sub(1.0), 1.0);
     const stepped = floor(clamp(wrap, 0, 1).mul(intervals).add(1e-4)).div(intervals);
     const band = mix(stepped, wrap, u.uStyleStemBandSoftness);
+    const stemColor = mix(
+      u.uBaseColor,
+      u.uStyleStemColor,
+      u.uStyleStemColorStrength,
+    );
     const shaded = shadeVegetationSurface({
       bandOverride: band,
-      baseColor: u.uBaseColor,
+      baseColor: stemColor,
       bandSoftness: u.uStyleStemBandSoftness,
       bandThreshold: 0.5,
       cloudShadow: flowerCloudShadow(u, positionWorld),
@@ -508,6 +540,15 @@ export function createFlowerStemNodeMaterial({
       u,
       worldPosition: positionWorld,
     });
+    const viewDirection = normalize(cameraPosition.sub(positionWorld));
+    const halfVector = normalize(sunDirection.add(viewDirection));
+    const highlightPower = mix(96.0, 8.0, u.uStyleStemRoughness);
+    const highlight = pow(
+      clamp(dot(normal, halfVector), 0, 1),
+      highlightPower,
+    ).mul(u.uStyleStemSpecularStrength);
+    shaded.color.addAssign(u.uSunColor.mul(highlight));
+    shaded.color.addAssign(stemColor.mul(u.uStyleStemEmissiveStrength));
     return vec4(shaded.color, 1.0);
   })();
 

@@ -26,8 +26,7 @@ import {
   vec4,
 } from 'three/tsl';
 
-export const DEFAULT_TOONLAB_SOURCE_TEMPORAL_DITHER_NOISE_URL =
-  '/assets-local/toonlab/temporal-dither/Good64x64TilingNoiseHighFreq.png';
+export const DEFAULT_TOONLAB_SOURCE_TEMPORAL_DITHER_NOISE_URL = null;
 
 export const TOONLAB_SOURCE_TEMPORAL_CONTRACT = Object.freeze({
   antiAliasingMethod: 2,
@@ -336,6 +335,9 @@ export async function loadToonLabSourceTemporalDitherNoiseTexture({
   textureLoader = new THREE.TextureLoader(),
   url = DEFAULT_TOONLAB_SOURCE_TEMPORAL_DITHER_NOISE_URL,
 } = {}) {
+  if (typeof url !== 'string' || !url.trim()) {
+    throw new Error('A configured temporal dither noise URL is required.');
+  }
   const key = String(url);
   if (!noiseTexturePromises.has(key)) {
     noiseTexturePromises.set(key, textureLoader.loadAsync(key).then((result) => {

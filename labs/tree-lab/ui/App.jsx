@@ -533,28 +533,84 @@ function StatusBar({ actions, engine, state }) {
   // Re-read the engine's dataset stats after every rebuild.
   const [, setTick] = useState(0);
   useEffect(() => engine.onRebuilt(() => setTick((tick) => tick + 1)), [engine]);
+  useEffect(() => engine.onPreviewChanged(() => setTick((tick) => tick + 1)), [engine]);
   const cards = document.body.dataset.treeCardCount ?? '0';
+  const previewLevel = state.previewLod;
+  const previewTriangles = document.body.dataset.treePreviewTriangles;
+  const previewMaterials = document.body.dataset.treePreviewMaterials;
+  const previewCap = document.body.dataset.treePreviewTriangleCap;
+  const previewOverage = Math.max(0, Number(previewTriangles) - Number(previewCap));
   return (
     <footer className="td-status tk" data-testid="status-bar">
       <span>{state.status}</span>
-      <span className="td-status-stats">
-        seed {state.settings.plant.seed} · {Number(cards).toLocaleString()} cards
+      <span
+        className="td-status-stats"
+        data-over-cap={previewLevel !== null && previewOverage > 0 ? 'true' : undefined}
+      >
+        {previewLevel === null
+          ? <>seed {state.settings.plant.seed} · {Number(cards).toLocaleString()} cards</>
+          : previewTriangles
+            ? (
+              <>
+                LOD{previewLevel} · {Number(previewTriangles).toLocaleString()} triangles ·{' '}
+                {previewMaterials} material{previewMaterials === '1' ? '' : 's'} · cap{' '}
+                {Number(previewCap).toLocaleString()}
+                {previewOverage > 0 && <> · {previewOverage.toLocaleString()} over cap</>}
+              </>
+            )
+            : <>LOD{previewLevel} preview unavailable</>}
       </span>
     </footer>
+  );
+}
+
+function LodPreviewControl({ actions, state }) {
+  const options = [
+    { label: 'Edit', title: 'Editable live tree with wind and authoring handles.', value: null },
+    { label: 'LOD0', title: 'Preview the exact compiled LOD0 export mesh.', value: 0 },
+    { label: 'LOD1', title: 'Preview the exact compiled LOD1 export mesh.', value: 1 },
+    { label: 'LOD2', title: 'Preview the exact compiled LOD2 export mesh.', value: 2 },
+  ];
+  return (
+    <span
+      className="td-lod-preview"
+      data-testid="lod-preview-control"
+      title="Inspect the exact meshes produced by the tree LOD compiler. This choice is preview-only."
+    >
+      <span className="td-lod-preview-label">Mesh</span>
+      <span className="tk-segmented" role="group" aria-label="Tree mesh preview level">
+        {options.map((option) => (
+          <button
+            key={option.label}
+            type="button"
+            aria-pressed={state.previewLod === option.value}
+            data-testid={`preview-${option.label.toLowerCase()}`}
+            title={option.title}
+            onClick={() => {
+              actions.setPreviewLod(option.value);
+              document.activeElement?.blur?.();
+            }}
+          >
+            {option.label}
+          </button>
+        ))}
+      </span>
+    </span>
   );
 }
 
 // Scene-preview configuration — the bottom bar over the viewport (shared
 // PreviewBar): time of day, weather, scale mannequin, walking. All
 // presentation, never part of the recipe or the shader preset.
-function TreePreviewBar({ actions, state }) {
+function TreePreviewBar({ actions, labKind, state }) {
   const hour = state.sky.hour;
   const clock = `${String(Math.floor(hour)).padStart(2, '0')}:${String(Math.round((hour % 1) * 60)).padStart(2, '0')}`;
   return (
     <PreviewBar
       hint={state.walkPreview ? 'WASD/arrows move · Shift runs · Space jumps' : null}
-      title="Preview only — time, weather, mannequin, and walking are presentation; never part of the recipe or exports."
+      title="Preview only — LOD selection, time, weather, mannequin, and walking are presentation; never saved into the recipe."
     >
+      {labKind === 'tree' && <LodPreviewControl actions={actions} state={state} />}
       <span className="tk-previewbar-slider" title={`Time of day — ${clock}`}>
         <span>{clock}</span>
         <Slider defaultValue={12} max={24} min={0} onChange={(value) => actions.setSky({ hour: value })} step={0.5} testId="sky-hour" value={hour} />
@@ -644,7 +700,7 @@ export function App({ engine, labKind = 'tree', sketchBindings, store }) {
             <OptionsBar actions={actions} labKind={labKind} state={state} />
           </>
         )}
-      <TreePreviewBar actions={actions} state={state} />
+      <TreePreviewBar actions={actions} labKind={labKind} state={state} />
       <BranchInspectorPopover actions={actions} state={state} />
       {state.view.export && (
         <ExportDialog

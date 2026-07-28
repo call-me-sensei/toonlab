@@ -29,5 +29,6 @@ Available feature skills (start with `game-dev` for whole-game work):
 - `water`
 - `weather`
 
-These resources are not part of the npm package. The npm package stays
-runtime-only.
+These text-only resources ship with the npm package beside the runtime source.
+The package does not include ToonLab lab applications, examples, review
+fixtures, models, textures, or other visual assets.

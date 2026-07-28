@@ -42,6 +42,7 @@ import {
   vec4,
   viewZToOrthographicDepth,
   viewZToPerspectiveDepth,
+  wgslFn,
 } from 'three/tsl';
 import { NodeMaterial } from 'three/webgpu';
 
@@ -55,6 +56,28 @@ import {
   vegetationBand,
   vegetationVisibility,
 } from './chunks/vegetation-style.js';
+
+const foliageHueNormalized = wgslFn(`
+  fn toonlabFoliageHueNormalized(sourceColor: vec3<f32>, offset: f32) -> vec3<f32> {
+    let p = select(
+      vec4<f32>(sourceColor.b, sourceColor.g, -1.0, 2.0 / 3.0),
+      vec4<f32>(sourceColor.g, sourceColor.b, 0.0, -1.0 / 3.0),
+      sourceColor.g >= sourceColor.b
+    );
+    let q = select(
+      vec4<f32>(p.x, p.y, p.w, sourceColor.r),
+      vec4<f32>(sourceColor.r, p.y, p.z, p.x),
+      sourceColor.r >= p.x
+    );
+    let difference = q.x - min(q.w, q.y);
+    let epsilon = 1e-4;
+    let value = select(q.x + epsilon, q.x, difference == 0.0);
+    let hue = fract(abs(q.z + (q.w - q.y) / (6.0 * difference + epsilon)) + offset);
+    let saturation = difference / (q.x + epsilon);
+    let hueRgb = abs(fract(vec3<f32>(hue) + vec3<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+    return value * mix(vec3<f32>(1.0), clamp(hueRgb - 1.0, vec3<f32>(0.0), vec3<f32>(1.0)), saturation);
+  }
+`);
 
 // Shared card-placement vertex logic (color + depth variants). Returns the
 // clip position; assigns the provided varyings when given.
@@ -138,6 +161,13 @@ export function createTreeLeafNodeMaterial(settings, vegetationShader = null) {
 
   const material = new NodeMaterial();
   material.name = 'StylizedTreeFoliage';
+  // Leaf cards are view/light-facing cutouts. Three reverses ordinary
+  // FrontSide geometry for BasicShadowMap passes; that culls a billboard
+  // which has already rotated to face the shadow camera, leaving only the
+  // volumetric trunk/branches in the shadow map. Keep cutout foliage
+  // explicitly two-sided in both the color and native shadow passes.
+  material.side = THREE.DoubleSide;
+  material.shadowSide = THREE.DoubleSide;
   // Manual fog (see chunks/foliage-fog.js): the custom billboard vertexNode
   // makes three's built-in node fog read the wrong view depth.
   material.fog = false;
@@ -170,11 +200,6 @@ export function createTreeLeafNodeMaterial(settings, vegetationShader = null) {
       u.uStyleFoliageCloudShadowResponse,
     ).toVar();
 
-    const litBand = vegetationBand(
-      wrap,
-      u.uStyleFoliageBandThreshold,
-      u.uStyleFoliageBandSoftness,
-    ).mul(sunVisibility).toVar();
     const crestBand = vegetationBand(
       wrap,
       u.uStyleFoliageCrestThreshold,
@@ -182,16 +207,56 @@ export function createTreeLeafNodeMaterial(settings, vegetationShader = null) {
     ).mul(sunVisibility)
       .mul(smoothstep(0.3, 0.8, vHeightT.mul(normal.y.mul(0.5).add(0.5).mul(0.3).add(0.7))));
 
-    const color = mix(u.uShadowColor, u.uLitColor, litBand).toVar();
-    color.assign(mix(color, u.uCrownColor, crestBand));
+    const gradientInput = vHeightT.add(u.uStyleFoliageGradientOffset);
+    const gradient = clamp(
+      gradientInput.sub(0.5)
+        .mul(u.uStyleFoliageGradientContrast.add(1))
+        .add(0.5),
+      0,
+      1,
+    );
+    // The asset owns its palette. Shape that palette with the portable
+    // height-transfer controls, then light it. The separate global palette
+    // blend remains only for aggregate-v1 compatibility; canonical Tree and
+    // Flower profiles never serialize or write those replacement colors.
+    const assetGradient = mix(
+      u.uLitColor,
+      u.uCrownColor,
+      gradient,
+    );
+    const assetColor = mix(assetGradient, u.uCrownColor, crestBand);
+    const legacyReplacement = mix(
+      u.uStyleFoliageGradientColor,
+      u.uStyleFoliageMainColor,
+      gradient,
+    );
+    const color = mix(
+      assetColor,
+      legacyReplacement,
+      u.uStyleFoliageStyleColorStrength,
+    ).toVar();
+    const styleHue = vTint.sub(0.5).mul(2)
+      .mul(u.uStyleFoliageHueVariation)
+      .add(u.uStyleFoliageHueShift);
+    color.assign(foliageHueNormalized(color, styleHue));
+    const shadowColor = foliageHueNormalized(
+      u.uShadowColor,
+      styleHue,
+    ).toVar();
 
     // Baked per-leaf luminance + per-card jitter.
-    color.mulAssign(sprite.r.mul(u.uStyleFoliageSpriteLuminanceStrength)
-      .add(u.uStyleFoliageSpriteLuminanceStrength.mul(0.611111).oneMinus()));
-    color.mulAssign(vTint.sub(0.5).mul(u.uStyleFoliageCardVariationStrength).add(1.0));
+    const spriteLuminance = sprite.r.mul(u.uStyleFoliageSpriteLuminanceStrength)
+      .add(u.uStyleFoliageSpriteLuminanceStrength.mul(0.611111).oneMinus());
+    const cardVariation = vTint.sub(0.5)
+      .mul(u.uStyleFoliageCardVariationStrength).add(1.0);
+    color.mulAssign(spriteLuminance);
+    color.mulAssign(cardVariation);
+    shadowColor.mulAssign(spriteLuminance);
+    shadowColor.mulAssign(cardVariation);
 
     const shaded = shadeVegetationSurface({
       baseColor: color,
+      bandShadowColor: shadowColor,
       bandSoftness: u.uStyleFoliageBandSoftness,
       bandThreshold: u.uStyleFoliageBandThreshold,
       cloudShadow,
@@ -204,7 +269,12 @@ export function createTreeLeafNodeMaterial(settings, vegetationShader = null) {
       sunColor: u.uSunColor,
       sunDirection,
       transmissionMultiplier: u.uStyleFoliageBacklitStrength.div(0.35)
-        .mul(sprite.r.mul(0.7).add(0.3)),
+        .mul(u.uStyleFoliageSubsurfaceStrength)
+        .mul(mix(
+          u.uStyleFoliageSubsurfaceOpacity,
+          1,
+          sprite.r,
+        )),
       transmissionPower: u.uStyleThinSurfaceTransmissionPower
         .mul(u.uStyleFoliageTransmissionPowerMultiplier),
       u,
@@ -217,6 +287,16 @@ export function createTreeLeafNodeMaterial(settings, vegetationShader = null) {
       1.0,
       sceneShadow,
     ));
+    const viewDirection = normalize(cameraPosition.sub(vWorldPosition));
+    const halfVector = normalize(sunDirection.add(viewDirection));
+    const highlightPower = mix(96.0, 8.0, u.uStyleFoliageRoughness);
+    const highlight = pow(
+      clamp(dot(normal, halfVector), 0, 1),
+      highlightPower,
+    ).mul(sceneShadow).mul(u.uSunIntensity)
+      .mul(u.uStyleFoliageSpecularStrength);
+    shaded.color.addAssign(u.uSunColor.mul(highlight));
+    shaded.color.addAssign(color.mul(u.uStyleFoliageEmissiveStrength));
 
     // Manual linear scene fog on the true billboarded depth (see foliage-fog).
     shaded.color.assign(applyFoliageFog(shaded.color, vViewZ, u));

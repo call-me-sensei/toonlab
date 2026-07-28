@@ -1,4 +1,4 @@
-// Manifest-driven reconstruction of the supplied ToonLab Mega scene's
+// Manifest-driven reconstruction of the supplied environment reference scene's
 // S_StylizedSky and S_StylizedClouds ToonLab graph families.
 //
 // Exact graph work and renderer adaptation are deliberately separated:
@@ -40,7 +40,7 @@ export const TOONLAB_SCENE_CLOUDS_SHADER =
   'ToonLab Graphs/S_StylizedClouds';
 
 export const DEFAULT_TOONLAB_SCENE_SKY_BASE_URL =
-  '/assets-local/toonlab/mega-scene';
+  '/assets-local/reference-environment/environment-scene';
 
 export const TOONLAB_SCENE_SKY_TEXTURE_PROPERTY =
   '_Texture2DAsset_8ff54427fb104a16b9f878dc11b132ea_Out_0_Texture2D';
@@ -687,7 +687,7 @@ export async function buildToonLabSceneCloudMaterial(
   return material;
 }
 
-/** Isolated family dispatcher for integration into the Mega scene loader. */
+/** Isolated family dispatcher for integration into the reference scene loader. */
 export async function buildToonLabSceneSkyFamilyMaterial(
   materialRecord,
   manifest,

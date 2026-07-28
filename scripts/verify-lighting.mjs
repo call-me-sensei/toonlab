@@ -15,15 +15,19 @@ function check(label, callback) {
   console.log(`ok   ${label}`);
 }
 
-check('lighting API is available from the root export', () => {
-  assert.equal(root.createLightingManager, lighting.createLightingManager);
-  assert.equal(root.exportLightingRecipeToToonLab, lighting.exportLightingRecipeToToonLab);
+check('pre-beta lighting API is absent from the root export', () => {
+  assert.equal(root.createLightingManager, undefined);
+  assert.equal(root.exportLightingRecipeToToonLab, undefined);
 });
 
-const selfImport = await import('@call-me-sensei/toonlab/lighting');
-check('package lighting subpath resolves', () => {
-  assert.equal(selfImport.LIGHTING_RECIPE_SCHEMA_VERSION, 1);
-  assert.equal(typeof selfImport.createLightingManager, 'function');
+let packageImportError = null;
+try {
+  await import('@call-me-sensei/toonlab/lighting');
+} catch (error) {
+  packageImportError = error;
+}
+check('pre-beta lighting package subpath is not exported', () => {
+  assert.equal(packageImportError?.code, 'ERR_PACKAGE_PATH_NOT_EXPORTED');
 });
 
 check('all four reusable preset families are registered', () => {
@@ -509,10 +513,13 @@ check('the environment sun rig applies a true direction in non-square worlds', (
   rig.dispose();
 });
 
-check('the system surface is exported from the package root', () => {
-  assert.equal(root.createLightingSystem, lighting.createLightingSystem);
-  assert.equal(typeof root.resolveFixturePlacement, 'function');
-  assert.equal(typeof root.resolveLightingStyleGeneratorRecipe, 'function');
+check('the pre-beta system surface remains local-only', () => {
+  assert.equal(typeof lighting.createLightingSystem, 'function');
+  assert.equal(typeof lighting.resolveFixturePlacement, 'function');
+  assert.equal(typeof lighting.resolveLightingStyleGeneratorRecipe, 'function');
+  assert.equal(root.createLightingSystem, undefined);
+  assert.equal(root.resolveFixturePlacement, undefined);
+  assert.equal(root.resolveLightingStyleGeneratorRecipe, undefined);
 });
 
 console.log(`\nverify-lighting: ${checks} checks passed`);

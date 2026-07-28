@@ -1,6 +1,6 @@
 // Manifest-driven reconstruction of ToonLab's S_FoliageShader family.
 //
-// This module intentionally consumes the canonical M_Demonstration_Mega
+// This module intentionally consumes the canonical EnvironmentReferenceScene
 // scene export instead of maintaining another table of material values. The
 // graph topology and constants come from the supplied ToonLab Shader
 // Graph assets; only the renderer integration is adapted to Three/WebGPU.
@@ -47,7 +47,7 @@ export const TOONLAB_SCENE_FOLIAGE_SHADER =
   'ToonLab Graphs/S_FoliageShader';
 
 export const DEFAULT_TOONLAB_SCENE_FOLIAGE_BASE_URL =
-  '/assets-local/toonlab/mega-scene';
+  '/assets-local/reference-environment/environment-scene';
 
 export const TOONLAB_SCENE_FOLIAGE_NOISE_PROPERTY =
   '_SampleTexture2D_5e94c4f2e64d493eb9de801992ecd837_Texture_1_Texture2D';
@@ -286,7 +286,7 @@ export function sampleToonLabSceneFoliageGradient(value) {
 
 /**
  * Recover the supplied ToonLab world's XZ basis from ToonLab's reflected Three
- * basis. The Mega exporter preserves X/Y and negates every ToonLab Z value, so
+ * basis. The reference exporter preserves X/Y and negates every ToonLab Z value, so
  * world/object-position driven texture and random seeds must negate Z once
  * before evaluating the source ToonLab graph.
  */
@@ -611,7 +611,7 @@ export async function buildToonLabSceneFoliageMaterial(
     createToonLabNormalIntegrationMetadata({
       coordinateZSign: -1,
       decode: 'geometry-only; Cull Off preserves interpolated normal on back faces',
-      family: 'toonlab-mega-scene-foliage',
+      family: 'toonlab-environment-scene-foliage',
       textureFlipY: true,
     });
   installToonLabSurfaceLighting(material, { workflow: 'specular' });

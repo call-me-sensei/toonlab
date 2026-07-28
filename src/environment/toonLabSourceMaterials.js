@@ -49,7 +49,7 @@ import {
 import {
   loadToonLabMountainMaterial,
   loadToonRockMaterial,
-} from '../rockgen/reference/toonRockMaterial.js';
+} from '../rock-shader/rockMaterial.js';
 import {
   sampleGroundColor,
   sampleGroundHeight,
@@ -933,8 +933,13 @@ function wetSurface(colorNode, roughnessNode, profile, state) {
   }
   const wet = clamp(state.uniforms.rainWetness, 0, 1);
   const darkening = scalar(profile, 'Puddle Darkening', 0.18);
+  const desaturation = scalar(profile, 'Puddle Desaturation', 0);
+  const wetColor = sourceDesaturate(
+    colorNode,
+    wet.mul(desaturation),
+  ).mul(float(1).sub(wet.mul(Math.min(darkening, 0.85))));
   return {
-    colorNode: colorNode.mul(float(1).sub(wet.mul(Math.min(darkening, 0.85)))),
+    colorNode: wetColor,
     roughnessNode: mix(
       roughnessNode,
       scalar(profile, 'Wet Roughness', 0.3),
@@ -1152,7 +1157,10 @@ function createStateUniforms(snapshot) {
     rainPuddles: uniform(scalarValue('Rain Puddles', 0)),
     rainStrength: uniform(scalarValue('Rain Strength', 0)),
     rainWetness: uniform(scalarValue('Rain Wetness', 0)),
+    skyColor: uniform(new THREE.Color(0.45, 0.62, 0.9)),
+    snowCover: uniform(0),
     sunDirection: uniform(new THREE.Vector3(sun[0], sun[1], sun[2]).normalize()),
+    sunColor: uniform(new THREE.Color(1, 0.9, 0.72)),
     swayDamping: uniform(scalarValue('Global Sway Damping', 0.5)),
     swayLean: uniform(scalarValue('Global Sway Lean', 3)),
     swaySpeed: uniform(scalarValue('Global Sway Speed', 0.25)),
@@ -1193,6 +1201,7 @@ export function updateToonLabSourceEnvironmentState(state, values = {}) {
     rainPuddles: 'rainPuddles',
     rainStrength: 'rainStrength',
     rainWetness: 'rainWetness',
+    snowCover: 'snowCover',
     swayDamping: 'swayDamping',
     swayLean: 'swayLean',
     swaySpeed: 'swaySpeed',
@@ -1214,6 +1223,8 @@ export function updateToonLabSourceEnvironmentState(state, values = {}) {
       direction.z ?? direction[2] ?? 0,
     ).normalize();
   }
+  if (values.sunColor) u.sunColor.value.copy(values.sunColor);
+  if (values.skyColor) u.skyColor.value.copy(values.skyColor);
   if (values.moonDirection) {
     const direction = values.moonDirection;
     u.moonDirection.value.set(
@@ -1406,7 +1417,10 @@ async function buildLeaves(profile, context) {
 async function buildFoliage(profile, context) {
   if (isToonLabGrassProfile(profile)
     && context.sourceAssetName !== TOONLAB_SHOWCASE_SOURCE_ASSET) {
-    const material = await buildToonLabGrassMaterial(profile, context);
+    const material = await buildToonLabGrassMaterial(profile, {
+      ...context,
+      baseUrl: context.library?.environmentBaseUrl,
+    });
     finalizeMaterial(material, profile, 'foliage');
     Object.assign(material.userData.toonLabSource, {
       reconstruction: 'toonlab-s-foliage',
@@ -1953,7 +1967,7 @@ async function buildSnow(profile, context) {
   });
 }
 
-async function buildLandscape(profile, context) {
+export async function buildToonLabLandscapeMaterial(profile, context) {
   const { library, state } = context;
   const maps = await loadProfileTextures(library, profile, [
     'Color Map',
@@ -1983,7 +1997,7 @@ async function buildLandscape(profile, context) {
   const isToonLabShowcase = context.sourceAssetName === TOONLAB_SHOWCASE_SOURCE_ASSET;
   // ToonLabShowcase is an ToonLab-authored Landscape with ten painted weight layers,
   // AutoCliff, height blending, rain wetness, and scene-specific textures.
-  // ToonLab Terrain/Lit belongs to M_Demonstration_Mega and cannot be combined
+  // ToonLab Terrain/Lit belongs to EnvironmentReferenceScene and cannot be combined
   // with these masks for an apple-to-apple scene comparison.
   const toonLabTerrainLayers = null;
   if (toonLabTerrainLayers) {
@@ -2086,7 +2100,15 @@ async function buildLandscape(profile, context) {
   }
 
   const windColor = landscapeWindColor(profile, state, maps, sourceWorldXY);
-  const windColorBoost = lerpFive(1.2, 1, 1, 1, 1.2, state.uniforms.dayCycleProgress);
+  const windColorBoostAmount = scalar(profile, 'Wind Color Boost', 1.2);
+  const windColorBoost = lerpFive(
+    windColorBoostAmount,
+    1,
+    1,
+    1,
+    windColorBoostAmount,
+    state.uniforms.dayCycleProgress,
+  );
   grassColor = mix(grassColor, grassColor.mul(windColorBoost), windColor);
   const grassSpecular = mix(
     0.1,
@@ -2323,7 +2345,9 @@ async function buildLandscape(profile, context) {
     );
     const desertGrassSurface = {
       color: desertGrassColor,
-      emissive: vec3(0),
+      emissive: desertGrassColor.mul(
+        scalar(profile, 'Desert Grass Emission', 0.2),
+      ),
       metalness: float(0),
       normal: normalViewGeometry,
       roughness: float(scalar(profile, 'Desert Grass Roughness', 0.4)),
@@ -2351,7 +2375,9 @@ async function buildLandscape(profile, context) {
     );
     const desertDirtSurface = {
       color: desertDirtColor,
-      emissive: vec3(0),
+      emissive: desertDirtColor.mul(
+        scalar(profile, 'Desert Dirt Emissive', 0.1),
+      ),
       metalness: float(0),
       normal: maps.desertDirtNormal
         ? normalMapNode(
@@ -3361,7 +3387,7 @@ async function buildTemplate(profile, context) {
         ? buildToonLabPineBark(profile, context)
         : buildBark(profile, context);
     case 'treeLod': return buildTreeLod(profile, context);
-    case 'landscape': return buildLandscape(profile, context);
+    case 'landscape': return buildToonLabLandscapeMaterial(profile, context);
     case 'snow': return buildSnow(profile, context);
     case 'water':
     case 'waterLegacy': return buildWater(profile, context);
@@ -3369,6 +3395,48 @@ async function buildTemplate(profile, context) {
     case 'clouds': return buildClouds(profile, context);
     default: return buildFallback(profile, context);
   }
+}
+
+/**
+ * Builds one uncached material from an already-resolved source profile.
+ *
+ * Shader-profile adapters use this path when editor settings deliberately
+ * create a new parameterized profile with the same source material path.
+ * The ordinary `createToonLabSourceMaterial()` cache is path-based and is
+ * therefore correct for immutable source profiles but not for live authoring.
+ */
+export async function createToonLabSourceMaterialFromProfile(profileReference, {
+  hasUv2 = false,
+  hasVertexColors = false,
+  library,
+  sourceActorIdentity = null,
+  sourceAssetName = null,
+  sourceSceneVariant = null,
+  state = null,
+} = {}) {
+  if (!library) {
+    throw new Error('createToonLabSourceMaterialFromProfile requires a source library.');
+  }
+  const resolved = library.resolveMaterial(profileReference);
+  if (!resolved) {
+    throw new Error(`Unknown ToonLab material profile: ${profileReference}`);
+  }
+  const profile = sourceSceneProfile(
+    resolved,
+    sourceAssetName,
+    sourceSceneVariant,
+  );
+  const environmentState = state ?? createToonLabSourceEnvironmentState(library);
+  const material = await buildTemplate(profile, {
+    hasUv2,
+    hasVertexColors,
+    library,
+    sourceActorIdentity,
+    sourceAssetName,
+    sourceSceneVariant,
+    state: environmentState,
+  });
+  return rehydrateToonLabSourceMaterialLighting(material);
 }
 
 export async function createToonLabSourceMaterial(profileReference, {

@@ -62,34 +62,50 @@ OAuth, and keeps work on disk. See [Local MCP and workspace](docs/mcp.md).
 Lab UIs are development tools and are not published in the npm package. The
 Labs home (`/`) presents them by the artifact they author:
 
-- **Shader Labs** — Character Shader Lab (`/shader-lab/`), Vegetation Shader
-  Lab (`/vegetation-shader-lab/`), and Environment Shader Lab
-  (`/environment-lab/`) each save one reusable IP-wide material treatment.
-- **Asset Labs** — Rock, Tree, Flower, Grass, Debris, and Texture Labs author
-  geometry, material data, recipes, and exports for individual asset classes.
-  Grass color palettes coordinate base, tip, and shadow tint as one set.
-- **World Systems** — Water Lab (`/water-lab/`) authors waves, surface
-  shading, foam, reflections, interaction, and quality as one runtime preset;
-  Sky Lab (`/sky-lab/`) authors the gradient, sun, clouds, stars, and cloud
-  motion as one runtime preset. Their shader controls are embedded in the
-  complete system labs rather than duplicated as separate shader labs.
+Every canonical card shows two separate statuses: the editor/lab status and
+the portable npm-library status. Character & Creature Shader and Rock &
+Geology Shader are the explicitly approved Ready/Ready items; Manufactured
+Surface remains In progress as a lab while its runtime library is Ready. See the
+[definitive lab inventory and npm roadmap](docs/lab-roadmap.md) for the 69-lab
+matrix and acceptance gates.
+
+Every lab also uses one shared 24-hour preview harness with Dawn, Day, Sunset,
+and Night captures. The Day reference must visibly show Call Me Sensei's
+cool/blue shadow response. See the
+[universal preview contract](docs/lab-preview-environment.md).
+
+- **Look Development** — fourteen shader-facing profiles, including separate
+  Tree, Grass, and Flower profiles over the shared Vegetation family, plus
+  Ground, Water, Sky, Atmosphere, Weather, and VFX; Lighting, Post, Linework,
+  and UI complete the family.
+- **Asset Creation & Assembly** — high-quality modular assembly plus proven
+  procedural workflows for rocks, vegetation, paths, textures, graphics, VFX
+  sources, and audio sources. Raw Prop/Building generators are not canonical.
+- **Motion & Performance** — rigging, retargeting, animation clips, runtime
+  motion, facial performance, secondary motion, cameras, and cinematics.
+- **Effects & Audio** — VFX effects, ambient VFX, game feel, SFX cues, spatial
+  mix, soundscapes, adaptive music, and voice/dialogue.
+- **World Building & Simulation** — landscape, hydrology, biome, settlement,
+  interior layout, scene composition, climate/time, weather state, populations,
+  physics, navigation, and streaming.
+- **Pipeline & Shipping** — Style Bundle, Gallery/licensing, import/labeling,
+  routing/audit, reconstruction, procedural base sets, coverage, performance,
+  export, regression, and npm release.
 - **Playgrounds & demos** — Playground, Water Playground, Outdoor World, VFX
   Arena, Fauna Demo, and Ambient VFX Demo validate the authored artifacts in
   interactive scenes.
 
-Supporting editors remain available by direct URL: Weather Lab
-(`/weather-lab/`) coordinates current atmosphere, wind, precipitation,
-lightning, and surface state; Lighting Lab (`/lighting-lab/`) authors light
-rigs and budgets; Gallery
-(`/gallery/`) searches supported open-asset sources. The procedural Catalog
-is exposed through `@call-me-sensei/toonlab/catalog`. See
-[Lab responsibilities](docs/lab-architecture.md) for the scope rules and
-[Getting started](docs/getting-started.md) for every direct route.
+Existing editors link to their standalone pages; missing editors remain
+visible as non-clickable roadmap cards. The procedural
+Catalog is exposed through `@call-me-sensei/toonlab/catalog`. See
+[Lab responsibilities](docs/lab-architecture.md) for scope rules and
+[Getting started](docs/getting-started.md) for current direct routes.
 
-Sky and Water are integrated runtime systems, not extra Shader Labs. Their
-`.settings` are authored preset data; current Lighting and Weather state is
-composed through named transient layers and exposed as `.renderedSettings`
-without changing exported presets. Create a `LightingSystem`, then call
+Sky, Water, Atmosphere, and Weather Rendering are explicit look-development
+shader profiles. Their current runtime state remains separate: current
+Lighting and Weather state is composed through named transient layers and
+exposed as `.renderedSettings` without changing exported presets. Create a
+`LightingSystem`, then call
 `lighting.attachWorld(world)` to own the Lighting layers and connect the
 world's Weather coordinator as modulation, so each system can detach only its
 own layer. The shared `world.setSun({ direction, color, sky })` adapter keeps
@@ -113,18 +129,22 @@ Point any model-aware lab at your own model with the Model URL input or
 
 | Cluster | Import | What you get |
 |---|---|---|
+| Styles and bundles | `@call-me-sensei/toonlab/styles` | Local, versioned style-bundle documents that coordinate domain profiles without storing asset identity or current scene state. Create, validate, serialize, parse, and resolve JSON with no account or database; hosts currently route explicitly labeled assets through each owning runtime. [Contract](docs/styles-and-bundles.md) |
 | Toon character shading | `@call-me-sensei/toonlab/toon` | Modern anime character shader: cel bands with art-directed face lighting, skin-tone shadow management, shadow-color HSV control, scene/self/contact shadows, average-shadow smoothing, rim light (fresnel or screen-space depth), stylized + anisotropic hair highlights, eye catchlights, role-aware specular, source map routing (normal/AO/emissive/MatCap/ramp/detail), inverted-hull outlines, glitter, stickers, perspective removal, shell fur, dither fades — 23 settings groups, all preset-serializable. [Docs](docs/toon-shading.md) |
 | Environment shading | `@call-me-sensei/toonlab/environment` | Modern anime-style scene shader for texture packs, standard glTF, and untextured scenes: material-role classification, wrapped lighting, packed-map hints, window cutouts, sun/lamp rigs, time-of-day, six-direction ambient probe, planar floor reflections, BVH vertex-AO baking, height fog, cloud shadows. [Docs](docs/environment.md) |
 | Lighting | `@call-me-sensei/toonlab/lighting` | Versioned lighting recipes and looks, physical/artistic intensity helpers, reusable luminaire/rig/look/quality presets, deterministic light and shadow budgets, capability diagnostics, runtime Three.js realization, and a data-only ToonLab Many Lights/Dynamic GI handoff. [Docs](docs/lighting.md) |
+| Atmospheric conditions | `@call-me-sensei/toonlab/atmospheric-condition` | Portable air, cloud-ceiling, fog, precipitation, light, electrical, and flow state plus deterministic transitions and sequence playback. The shipped fifteen-profile collection is explicitly the Call Me Sensei set; shader styles and generated source assets remain independent. [Docs](docs/climate-system.md) |
 | Weather | `@call-me-sensei/toonlab/weather` | Shared cross-system weather coordinator with 21 conditions rendered through an independent IP-wide style, smooth transitions, one-draw GPU precipitation (rain, snow, sleet, hail, dust), lightning/thunder events, and normalized wetness/snow/ice outputs. It drives sky, sun, fog, cloud shadows, wind, vegetation, water, fauna, and ambient effects through their public adapters. [Docs](docs/weather.md) |
 | Water | `@call-me-sensei/toonlab/water` | Fully procedural integrated water system: Gerstner wave stack with a calm→storm dial, wave sets, plunging breakers you can surf, three-stop absorption color, refraction/caustics/foam, GPU ripple sim, splashes, wakes, rain, kelp, underwater view, construction-time quality, and a CPU mirror of the whole spectrum for buoyancy. [Docs](docs/water.md) |
 | Vegetation | `@call-me-sensei/toonlab/vegetation` | Instanced grass and flower fields, procedural trees/flowers with serializable recipes, coordinated grass palettes (base, tip, and shadow tint), and one semantic-role `VegetationShaderProfile` shared across grass, foliage, flowers, bark, and stems. Asset identity and current wind/weather remain separate. [Docs](docs/vegetation-sky.md) |
+| Rock shader | `@call-me-sensei/toonlab/rock-shader` | Detailed, versioned rock-material profiles with projected detail, distance tint, normal fading, striping, moss and optional top layers, plus explicit source-albedo and vertex-color/AO integration. Call Me Sensei is the default. Geometry generation remains separate in `rockgen`. [Docs](docs/rock-shader.md) |
 | Paths, roads & bridges | `@call-me-sensei/toonlab/pathgen` | Seeded path networks routed over any `heightAt`: cost-field router (slope/water aware), hand-drawn ribbon overlay in dirt/stone/planks, arched plank bridges with collision, stepped stone climbs, flattened `paths.heightAt` for walkability, scatter exclusion mask, minimap overlay. |
 | Asset placement | `@call-me-sensei/toonlab/propgen` | The universal placement pipeline (the PropAsset contract: grounded, collided, instanced, hi/lo LOD by true 3D distance). `propAssetFromObject` drops any imported GLB — e.g. a CC0 model found through MCP — into the pipeline. |
 | Fauna | `@call-me-sensei/toonlab/fauna` | Instanced GPU-animated ambient creatures: flocking birds that perch and flush, butterflies over flower masks, hovering dragonflies, schooling koi — staggered boids, hard population budgets, ≤ 1 ms CPU at defaults. |
 | Ambient VFX | `@call-me-sensei/toonlab/ambientfx` | One GPU particle backbone, five effects: falling petals and leaves, dusk fireflies, backlit pollen, shoreline mist — follow-window emission, shared wind with grass, time-of-day gates, 3 draw calls total. |
 | Asset catalog | `@call-me-sensei/toonlab/catalog` | Every recipe/preset as a searchable manifest with one headline call: `catalog.spawn(id, { seed })` → a placeable PropAsset for trees, rocks, and debris. `catalog.addSource(url)` mounts remote registries. |
 | Sky | `@call-me-sensei/toonlab/sky` | Integrated gradient/sun/painterly-cloud/star system with exactly 46 portable art fields, named live scene layers, compile-time quality tiers/custom 1–5 cloud octaves, meaningful built-in looks, and water-reflection compatibility. [Docs](docs/sky.md) |
+| Cloud shader | `@call-me-sensei/toonlab/cloud` | Independent 18-field cloud appearance profile for composition, procedural shape, two-tone lighting, and drift response. Call Me Sensei is the default; current sky, time, condition, particles, and quality remain outside the document. [Docs](docs/cloud-shader.md) |
 | Post-processing | `@call-me-sensei/toonlab/post` | Optional single-pipeline compositor: character-aware bloom, color grade, LUT, vignette, screen outline, depth cue — schema-driven, preset-serializable. [Docs](docs/post-processing.md) |
 | Camera | `@call-me-sensei/toonlab/camera` | Extensible camera operator stack, generated recipe/preset documents, follow/framing/collision/damping/noise/impulse behavior, and a director for blending reusable rigs. [Style domain docs](docs/style-labs.md#camera) |
 | Game feel | `@call-me-sensei/toonlab/game-feel` | Event-driven response scheduler for camera punches, hit-stop/time warp, squash, flashes, audio, and haptics through capability-safe adapters, extensible effect factories, and bounded concurrency. [Style domain docs](docs/style-labs.md#game-feel) |
@@ -273,8 +293,21 @@ stack, with WebGL2 fallback through the same TSL path.
   MCP setup, the prompt cookbook, and the full settings reference. Hosted
   features are marked "Pro"; the extended hosted docs live at
   [toonlab.io/docs](https://toonlab.io/docs).
-- [Lab responsibilities](docs/lab-architecture.md) — the boundary between
-  Shader Labs, Asset Labs, World Systems, and preview-only scene state.
+- [Lab responsibilities](docs/lab-architecture.md) — the finalized artifact,
+  production-method, editor/library, and preview-state boundaries.
+- [Definitive lab inventory and npm roadmap](docs/lab-roadmap.md) — all 69
+  canonical labs, dual statuses, npm owners, coverage matrix, and gates.
+- [Universal lab preview environment](docs/lab-preview-environment.md) —
+  shared 24-hour controls, four-state regression matrix, and required cool/blue
+  daylight-shadow verification.
+- [Rock shader](docs/rock-shader.md) — the separate generator/material
+  architecture, 58-field public configuration, import policy, and bundle use.
+- [Styles, style bundles, and asset routing](docs/styles-and-bundles.md) —
+  rendering domains, required asset labels, fallback policy, bundle ownership,
+  OSS application boundaries, and the shader/lab migration contract.
+- [Open asset library and scene coverage](docs/open-asset-library.md) —
+  measurable scene-kit coverage, curated stylized generator base sets,
+  CC0/CC-BY provenance, gallery routing, and generation fallback policy.
 - [Getting started](docs/getting-started.md) — clone, run, tour the labs,
   load your own models.
 - [Toon character shading](docs/toon-shading.md)
@@ -289,6 +322,7 @@ stack, with WebGL2 fallback through the same TSL path.
   package runtimes, quality budgets, and engine design references.
 - [Water](docs/water.md)
 - [Sky system](docs/sky.md)
+- [Cloud shader](docs/cloud-shader.md)
 - [Vegetation](docs/vegetation-sky.md)
 - [Post-processing](docs/post-processing.md)
 - [Texture Lab and texgen](docs/texture-lab.md)
@@ -307,8 +341,9 @@ stack, with WebGL2 fallback through the same TSL path.
 ToonLab is designed to be driven by a coding agent (Claude Code, Codex,
 Cursor, …). The recommended setup has three parts: give the agent the ToonLab
 skills, connect an MCP server for asset discovery, then start from a goal
-prompt and iterate. Everything the agent needs ships in this repo under
-`agents/` (not in the npm package — the package stays runtime-only).
+prompt and iterate. The npm package ships runtime source plus the small
+text-only `agents/` guidance bundle. It does not ship labs, examples, review
+fixtures, model files, textures, or other visual assets.
 
 ### 1. Install the ToonLab skills in your game project
 
@@ -322,16 +357,17 @@ checkpoint hoops, and tapered speed trails.
 ```bash
 # Claude Code — feature skills + project guidance
 mkdir -p .claude/skills
-cp -R path/to/toonlab/agents/skills/claude/* .claude/skills/
-cat path/to/toonlab/agents/codex/AGENTS.md >> CLAUDE.md
+cp -R node_modules/@call-me-sensei/toonlab/agents/skills/claude/* .claude/skills/
+cat node_modules/@call-me-sensei/toonlab/agents/claude/CLAUDE.md >> CLAUDE.md
 
 # Codex — shared guide + Codex-oriented skills
-cat path/to/toonlab/agents/codex/AGENTS.md >> AGENTS.md
-cp -R path/to/toonlab/agents/skills/codex path/to/your-game/docs/toonlab-skills
+cat node_modules/@call-me-sensei/toonlab/agents/codex/AGENTS.md >> AGENTS.md
+mkdir -p docs/toonlab-skills
+cp -R node_modules/@call-me-sensei/toonlab/agents/skills/codex/* docs/toonlab-skills/
 
 # Cursor — rule file
 mkdir -p .cursor/rules
-cp path/to/toonlab/agents/cursor/toonlab.mdc .cursor/rules/
+cp node_modules/@call-me-sensei/toonlab/agents/cursor/toonlab.mdc .cursor/rules/
 ```
 
 See [`agents/README.md`](agents/README.md) for the full layout.

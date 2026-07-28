@@ -17,6 +17,13 @@ import {
   TerminalSquare,
 } from 'lucide-react';
 import settingsReferenceRaw from './settings-reference.md?raw';
+import labRoadmapRaw from './lab-roadmap.md?raw';
+import labPreviewEnvironmentRaw from './lab-preview-environment.md?raw';
+import rockShaderRaw from './rock-shader.md?raw';
+import snowSurfaceShaderRaw from './snow-surface-shader.md?raw';
+import openAssetLibraryRaw from './open-asset-library.md?raw';
+import generatedAssetLabelingRaw from './generated-asset-labeling.md?raw';
+import stylesAndBundlesRaw from './styles-and-bundles.md?raw';
 import urbanPropSurfaceRolesRaw from './urban-prop-surface-roles.md?raw';
 import '../labs/shared/siteHeader.js';
 import './docs.css';
@@ -114,10 +121,10 @@ function Overview() {
       <p>
         <span className="docs-step-label">01</span>
         <strong>Install the runtime and the agent skills.</strong> <code>npm install
-        @call-me-sensei/toonlab</code>, then copy the feature skills from{' '}
-        <a href={`${GITHUB}/tree/main/agents`} target="_blank" rel="noreferrer"><code>agents/</code></a>{' '}
-        into your project — they teach the agent the assembly order, the frame-loop contract, and
-        each subsystem&apos;s API. Start with <code>game-dev</code>.
+        @call-me-sensei/toonlab</code>, then copy the feature skills from the installed
+        package&apos;s <code>agents/</code> directory into your project. They teach the agent the
+        assembly order, frame-loop contract, and each subsystem&apos;s API. Start with{' '}
+        <code>game-dev</code>. The package contains no lab applications or visual assets.
       </p>
       <p>
         <span className="docs-step-label">02</span>
@@ -128,9 +135,9 @@ function Overview() {
       <p>
         <span className="docs-step-label">03</span>
         <strong>Author looks visually, apply them from code.</strong> Tune shaders and world
-        systems in the labs, export presets, and load them in your game — or fetch a published{' '}
-        <a href="https://toonlab.io/styles" target="_blank" rel="noreferrer">style bundle</a> with{' '}
-        <code>fetchStyleBundle</code>.
+        systems in the labs, export presets, and compose them into a local style bundle. Bundle
+        JSON is an OSS artifact; a published bundle loaded with <code>fetchStyleBundle</code> is
+        an optional transport.
       </p>
       <p>
         <span className="docs-step-label">04</span>
@@ -145,6 +152,26 @@ function Overview() {
           <BookOpenText size={18} aria-hidden />
           <strong>Using the library</strong>
           <span>Bootstrap a world, customize shaders, author assets, share your work.</span>
+        </a>
+        <a className="docs-card" href="#/styles-and-bundles">
+          <Sparkles size={18} aria-hidden />
+          <strong>Styles and bundles</strong>
+          <span>Rendering domains, required labels, routing, fallbacks, and OSS ownership.</span>
+        </a>
+        <a className="docs-card" href="#/lab-roadmap">
+          <BookOpenText size={18} aria-hidden />
+          <strong>Lab &amp; npm roadmap</strong>
+          <span>Every required editor, its ownership, visible status, npm target, and release gate.</span>
+        </a>
+        <a className="docs-card" href="#/snow-surface-shader">
+          <Sparkles size={18} aria-hidden />
+          <strong>Snow Surface Shader</strong>
+          <span>Shared snow appearance, accumulation boundary, receiving roles, parameters, and release gates.</span>
+        </a>
+        <a className="docs-card" href="#/open-asset-library">
+          <BookOpenText size={18} aria-hidden />
+          <strong>Open asset library</strong>
+          <span>Scene coverage, procedural base sets, open licenses, and generation routing.</span>
         </a>
         <a className="docs-card" href="#/mcp">
           <Plug size={18} aria-hidden />
@@ -232,18 +259,36 @@ const textures = syncTextureMapTextures(maps); // THREE.DataTexture per map
 material.map = textures.albedo;
 material.normalMap = textures.normal;`;
 
-const BUNDLE_SNIPPET = `import { fetchStyleBundle } from '@call-me-sensei/toonlab/styles';
+const BUNDLE_SNIPPET = `import {
+  createStyleBundleDocument,
+  resolveStyleBundleSettings,
+  serializeStyleBundle,
+} from '@call-me-sensei/toonlab/styles';
 
-// One published document that styles many systems at once. Fetching public
-// bundles needs no account; authoring them happens on toonlab.io (Pro).
-const { settings } = await fetchStyleBundle('sakura-dusk'); // slug or full URL
+// Local OSS document: commit it, save it in .toonlab, or use any host store.
+const bundle = createStyleBundleDocument('studio-signature', {
+  label: 'Studio Signature',
+  slots: {
+    toon: { style: 'call_me_sensei' },
+    environment: { style: 'call_me_sensei' },
+    treeShader: { style: 'call_me_sensei' },
+    grassShader: { style: 'call_me_sensei' },
+    flowerShader: { style: 'call_me_sensei' },
+    rock: { style: 'call_me_sensei' },
+    sky: { style: 'call_me_sensei' },
+    water: { style: 'call_me_sensei' },
+    post: { style: 'call_me_sensei' },
+  },
+});
 
+const json = serializeStyleBundle(bundle);
+const settings = resolveStyleBundleSettings(bundle);
+
+// A bundle selects treatments; explicit asset labels select destinations.
 applyToonShader(characterRoot, { settings: settings.toon });
-sky.setStyle(settings.sky.style, { scenario: 'golden_hour' });
-water.setStyle(settings.water.style); // keeps its current lake/river/ocean preset
-weather.setStyle(settings.weather.style); // keeps its current condition
-// Other slots: environment, weather, grass, flowers, vegetationShader,
-// tree, lighting, post — apply each through its system's runtime.`;
+applyToonShader(equipmentRoot, { settings: settings.toon });
+// Apply environment, Tree/Grass/Flower, rock, sky, water, and post through
+// their owning runtimes. Bundle resolution does not classify the scene.`;
 
 function Library() {
   return (
@@ -294,16 +339,19 @@ function Library() {
             </tr>
           </thead>
           <tbody>
+            <tr><td>/styles</td><td>Local, versioned style-bundle documents: create, validate, serialize, parse, and resolve coordinated domain settings without a database.</td></tr>
             <tr><td>/toon</td><td>Anime character shader: cel bands, face lighting, rim, hair highlights, outlines — 23 preset-serializable settings groups.</td></tr>
             <tr><td>/environment</td><td>Scene shader for texture packs and glTF: material-role classification, wrapped lighting, time-of-day, fog, cloud shadows.</td></tr>
             <tr><td>/water</td><td>Gerstner-wave water with a calm→storm dial, breakers, foam, caustics, ripples, and a CPU spectrum mirror for buoyancy.</td></tr>
             <tr><td>/sky</td><td>Gradient/sun/painterly-cloud/star system — 46 portable art fields per preset.</td></tr>
+            <tr><td>/atmospheric-condition</td><td>Portable 48-field atmospheric-condition recipes. The shipped fifteen-profile collection is the Call Me Sensei set; shader styles and generated source assets stay separate.</td></tr>
             <tr><td>/weather</td><td>Cross-system coordinator: 21 conditions rendered through an independent IP-wide style, plus GPU precipitation and lightning; drives sky, water, wind, vegetation, and fog.</td></tr>
             <tr><td>/vegetation</td><td>Instanced grass and flower fields, procedural trees, palettes, masks, and scatter helpers.</td></tr>
             <tr><td>/lighting</td><td>Versioned light recipes, budgets, runtime realization, and a data-only ToonLab handoff.</td></tr>
             <tr><td>/post, /camera, /game-feel</td><td>Compositor pipeline, camera operator stack + director, and hit-stop/punch/flash game feel.</td></tr>
             <tr><td>/texgen</td><td>Seamless CPU-baked PBR texture generator with 60+ presets and a natural-language recipe mapper.</td></tr>
             <tr><td>/rockgen, /pathgen</td><td>Seeded rock generation and road/bridge networks routed over any terrain.</td></tr>
+            <tr><td>/rock-shader</td><td>Reusable detailed rock material profiles, independent from rock generation.</td></tr>
             <tr><td>/vfxgen, /ambientfx, /fauna</td><td>Gameplay VFX (trails, impacts, weapons), ambient particles (petals, fireflies), and GPU-animated creatures.</td></tr>
             <tr><td>/catalog, /loaders, /debug</td><td>Searchable asset manifest with <code>catalog.spawn</code>, model loaders (GLB/VRM/PMX/FBX), and the schema-driven tuning panel.</td></tr>
           </tbody>
@@ -335,6 +383,12 @@ function Library() {
         stable material, finish, rendering, structural, and content classifications while each
         shader supplies global settings and sparse profile layers.
       </p>
+      <p>
+        Before applying several shader profiles together, read the{' '}
+        <a href="#/styles-and-bundles">style bundle and asset-routing contract</a>. It defines
+        which shader owns characters, equipment, manufactured props, vegetation, rocks, water,
+        sky, and VFX—and which labels an imported asset needs before its result is production-safe.
+      </p>
 
       <h2>Create assets</h2>
       <p>
@@ -349,11 +403,12 @@ function Library() {
       <h2>Apply a style bundle</h2>
       <CodeBlock label="Style bundle in the runtime" code={BUNDLE_SNIPPET} />
       <p>
-        Bundles resolve through <code>GET https://toonlab.io/api/v1/bundles/:slug</code> — public,
-        no API key. Pass a full URL to use a self-hosted bundle document instead. Authoring and
-        publishing bundles happens in the{' '}
-        <a href="https://toonlab.io/styles" target="_blank" rel="noreferrer">bundle builder</a>{' '}
-        <ProBadge />.
+        Creating, validating, serializing, parsing, and resolving local bundle JSON is part of the
+        OSS package and requires no account or database. <code>fetchStyleBundle</code> can
+        optionally load a public or self-hosted document. Cloud persistence, collaboration, and
+        publishing through the{' '}
+        <a href="https://toonlab.io/styles" target="_blank" rel="noreferrer">hosted bundle builder</a>{' '}
+        are <ProBadge /> features.
       </p>
 
       <h2>Share your work</h2>
@@ -511,13 +566,16 @@ and swim.`}
 
       <h2>Dress the world with assets</h2>
       <PromptBlock
-        title="CC0 import via the local server"
-        prompt={`Use the toonlab-local MCP server to furnish the fishing village: search
-CC0 sources for lanterns, crates, barrels, and a pier (search_cc0_assets),
-import the best fits with import_cc0_asset, and place every import with
-propAssetFromObject so they are grounded, collided, and LOD'd. Show me what
-came from where with attribution.`}
-        note="import_cc0_asset writes the files and an attribution manifest into .toonlab/imports for direct use by the project."
+        title="Fill a scene from assets and reliable generators"
+        prompt={`Read docs/open-asset-library.md and inventory the missing scene-kit roles for
+the fishing village. Reuse accepted project assets first. For any role owned
+by an approved procedural family, generate from its approved base set and
+record the recipe and seed without browsing the gallery. For remaining roles,
+search curated CC0 and then CC-BY sources, import with provenance, and produce
+the required credits. Label every root and material, verify it with the Call
+Me Sensei bundle, and report the coverage manifest changes. Use image-to-3D
+only for a named gap that neither reliable generation nor open assets cover.`}
+        note="Gallery discovery is optional. The chosen route must preserve provenance, semantic labels, and Call Me Sensei verification."
       />
       <PromptBlock
         title="Procedural set dressing"
@@ -550,11 +608,16 @@ generating, call get_generation_capabilities and tell me the credit cost.`}
         note="AI generation runs on toonlab.io (Pro plan + credits). The local texgen recipe above is the free procedural alternative."
       />
       <PromptBlock
-        title="Apply a style bundle"
-        prompt={`Fetch the public "sakura-dusk" style bundle (fetchStyleBundle in
-@call-me-sensei/toonlab/styles) and apply every filled slot — toon shading,
-sky, water, environment, post — so the whole game matches it. Wire it behind
-a setStyle() function so I can swap bundles later.`}
+        title="Create and apply a local style bundle"
+        prompt={`Read docs/styles-and-bundles.md. Inventory every renderable root and assign an
+explicit rendering domain, then label every material with the semantic role
+required by that domain. Report mixed atlases, missing masks, transparency,
+and custom shaders. Create a local style bundle document with
+@call-me-sensei/toonlab/styles and apply every filled slot through its owning
+runtime. Preserve asset presets and current conditions, wire it behind a
+setStyle() function, and finish with a routing audit that lists every fallback
+or exemption.`}
+        note="The bundle chooses coordinated treatments; durable asset labels determine where those treatments apply."
       />
 
       <h2>Atmosphere and feel</h2>
@@ -637,6 +700,10 @@ function referenceHtml() {
     /<h([123])>([^<]+)<\/h\1>/g,
     (_m, level, text) => `<h${level} id="${slugify(text)}">${text}</h${level}>`,
   );
+  html = html.replace(
+    /href="lab-preview-environment\.md[^"]*"/g,
+    'href="#/lab-preview-environment"',
+  );
   html = html.replace(/<h1[^>]*>[\s\S]*?<\/h1>/, '');
   html = html.replace(
     /href="([\w-]+\.md)"/g,
@@ -699,11 +766,254 @@ function UrbanPropSurfaceRoles() {
   );
 }
 
+/* ---------------------------------------------------------- styles/bundles */
+
+let stylesAndBundlesHtmlCache = null;
+
+function stylesAndBundlesHtml() {
+  if (stylesAndBundlesHtmlCache) return stylesAndBundlesHtmlCache;
+  let html = marked.parse(stylesAndBundlesRaw, { async: false });
+  html = html.replace(
+    /<h([123])>([^<]+)<\/h\1>/g,
+    (_m, level, text) => `<h${level} id="${slugify(text)}">${text}</h${level}>`,
+  );
+  html = html.replace(
+    /href="urban-prop-surface-roles\.md"/g,
+    'href="#/urban-prop-roles"',
+  );
+  html = html.replace(
+    /href="open-asset-library\.md"/g,
+    'href="#/open-asset-library"',
+  );
+  html = html.replace(
+    /href="generated-asset-labeling\.md"/g,
+    'href="#/generated-asset-labeling"',
+  );
+  html = html.replace(
+    /href="snow-surface-shader\.md"/g,
+    'href="#/snow-surface-shader"',
+  );
+  stylesAndBundlesHtmlCache = html;
+  return html;
+}
+
+function StylesAndBundles() {
+  const html = useMemo(stylesAndBundlesHtml, []);
+  return (
+    <article>
+      <div className="docs-eyebrow">Rendering style contract</div>
+      <div className="docs-md" dangerouslySetInnerHTML={{ __html: html }} />
+    </article>
+  );
+}
+
+/* ------------------------------------------------------- open asset library */
+
+let openAssetLibraryHtmlCache = null;
+
+function openAssetLibraryHtml() {
+  if (openAssetLibraryHtmlCache) return openAssetLibraryHtmlCache;
+  let html = marked.parse(openAssetLibraryRaw, { async: false });
+  html = html.replace(
+    /<h([123])>([^<]+)<\/h\1>/g,
+    (_m, level, text) => `<h${level} id="${slugify(text)}">${text}</h${level}>`,
+  );
+  html = html.replace(
+    /href="styles-and-bundles\.md"/g,
+    'href="#/styles-and-bundles"',
+  );
+  openAssetLibraryHtmlCache = html;
+  return html;
+}
+
+function OpenAssetLibrary() {
+  const html = useMemo(openAssetLibraryHtml, []);
+  return (
+    <article>
+      <div className="docs-eyebrow">Content coverage contract</div>
+      <div className="docs-md" dangerouslySetInnerHTML={{ __html: html }} />
+    </article>
+  );
+}
+
+/* ------------------------------------------------ generated asset labeling */
+
+let generatedAssetLabelingHtmlCache = null;
+
+function generatedAssetLabelingHtml() {
+  if (generatedAssetLabelingHtmlCache) return generatedAssetLabelingHtmlCache;
+  const html = marked.parse(generatedAssetLabelingRaw, { async: false }).replace(
+    /<h([123])>([^<]+)<\/h\1>/g,
+    (_m, level, text) => `<h${level} id="${slugify(text)}">${text}</h${level}>`,
+  );
+  generatedAssetLabelingHtmlCache = html;
+  return html;
+}
+
+function GeneratedAssetLabeling() {
+  const html = useMemo(generatedAssetLabelingHtml, []);
+  return (
+    <article>
+      <div className="docs-eyebrow">Generator output contract</div>
+      <div className="docs-md" dangerouslySetInnerHTML={{ __html: html }} />
+    </article>
+  );
+}
+
+/* -------------------------------------------------------------- lab roadmap */
+
+let labRoadmapHtmlCache = null;
+
+function labRoadmapHtml() {
+  if (labRoadmapHtmlCache) return labRoadmapHtmlCache;
+  let html = marked.parse(labRoadmapRaw, { async: false });
+  html = html.replace(
+    /<h([123])>([^<]+)<\/h\1>/g,
+    (_m, level, text) => `<h${level} id="${slugify(text)}">${text}</h${level}>`,
+  );
+  html = html.replace(
+    /href="generated-asset-labeling\.md"/g,
+    'href="#/generated-asset-labeling"',
+  );
+  html = html.replace(
+    /href="snow-surface-shader\.md"/g,
+    'href="#/snow-surface-shader"',
+  );
+  labRoadmapHtmlCache = html;
+  return html;
+}
+
+function LabRoadmap() {
+  const html = useMemo(labRoadmapHtml, []);
+  return (
+    <article>
+      <div className="docs-eyebrow">Product inventory</div>
+      <div className="docs-md" dangerouslySetInnerHTML={{ __html: html }} />
+    </article>
+  );
+}
+
+/* ----------------------------------------------------- preview environment */
+
+let labPreviewEnvironmentHtmlCache = null;
+
+function labPreviewEnvironmentHtml() {
+  if (labPreviewEnvironmentHtmlCache) return labPreviewEnvironmentHtmlCache;
+  const html = marked.parse(labPreviewEnvironmentRaw, { async: false }).replace(
+    /<h([123])>([^<]+)<\/h\1>/g,
+    (_m, level, text) => `<h${level} id="${slugify(text)}">${text}</h${level}>`,
+  );
+  labPreviewEnvironmentHtmlCache = html;
+  return html;
+}
+
+function LabPreviewEnvironmentDocs() {
+  const html = useMemo(labPreviewEnvironmentHtml, []);
+  return (
+    <article>
+      <div className="docs-eyebrow">Universal lab acceptance harness</div>
+      <div className="docs-md" dangerouslySetInnerHTML={{ __html: html }} />
+    </article>
+  );
+}
+
+/* ------------------------------------------------------- snow surface shader */
+
+let snowSurfaceShaderHtmlCache = null;
+
+function snowSurfaceShaderHtml() {
+  if (snowSurfaceShaderHtmlCache) return snowSurfaceShaderHtmlCache;
+  const html = marked.parse(snowSurfaceShaderRaw, { async: false }).replace(
+    /<h([123])>([^<]+)<\/h\1>/g,
+    (_m, level, text) => `<h${level} id="${slugify(text)}">${text}</h${level}>`,
+  );
+  snowSurfaceShaderHtmlCache = html;
+  return html;
+}
+
+function SnowSurfaceShaderDocs() {
+  const html = useMemo(snowSurfaceShaderHtml, []);
+  return (
+    <article>
+      <div className="docs-eyebrow">Cross-domain accumulated surface</div>
+      <div className="docs-md" dangerouslySetInnerHTML={{ __html: html }} />
+    </article>
+  );
+}
+
+/* --------------------------------------------------------------- rock shader */
+
+let rockShaderHtmlCache = null;
+
+function rockShaderHtml() {
+  if (rockShaderHtmlCache) return rockShaderHtmlCache;
+  let html = marked.parse(rockShaderRaw, { async: false });
+  html = html.replace(
+    /<h([123])>([^<]+)<\/h\1>/g,
+    (_m, level, text) => `<h${level} id="${slugify(text)}">${text}</h${level}>`,
+  );
+  html = html.replace(
+    /href="lab-architecture\.md[^"]*"/g,
+    'href="#/lab-roadmap"',
+  );
+  html = html.replace(
+    /href="generated-asset-labeling\.md"/g,
+    'href="#/generated-asset-labeling"',
+  );
+  rockShaderHtmlCache = html;
+  return html;
+}
+
+function RockShaderDocs() {
+  const html = useMemo(rockShaderHtml, []);
+  return (
+    <article>
+      <div className="docs-eyebrow">Rock rendering domain</div>
+      <div className="docs-md" dangerouslySetInnerHTML={{ __html: html }} />
+    </article>
+  );
+}
+
 /* --------------------------------------------------------------------- app */
 
 const SECTIONS = [
   { hash: '', label: 'Overview', component: Overview },
   { hash: '#/library', label: 'Using the library', component: Library },
+  {
+    hash: '#/styles-and-bundles',
+    label: 'Styles & bundles',
+    component: StylesAndBundles,
+  },
+  {
+    hash: '#/lab-roadmap',
+    label: 'Lab & npm roadmap',
+    component: LabRoadmap,
+  },
+  {
+    hash: '#/lab-preview-environment',
+    label: 'Lab preview environment',
+    component: LabPreviewEnvironmentDocs,
+  },
+  {
+    hash: '#/rock-shader',
+    label: 'Rock shader',
+    component: RockShaderDocs,
+  },
+  {
+    hash: '#/snow-surface-shader',
+    label: 'Snow Surface Shader',
+    component: SnowSurfaceShaderDocs,
+  },
+  {
+    hash: '#/open-asset-library',
+    label: 'Open asset library',
+    component: OpenAssetLibrary,
+  },
+  {
+    hash: '#/generated-asset-labeling',
+    label: 'Generated asset labels',
+    component: GeneratedAssetLabeling,
+  },
   {
     hash: '#/urban-prop-roles',
     label: 'Environment materials',

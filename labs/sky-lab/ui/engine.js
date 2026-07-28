@@ -1,30 +1,49 @@
-// Sky Lab preview: the production StylizedSky over a compact existing
-// stylized-terrain stage. Weather and lights are scene fixtures. The editor
-// document only drives the sky subsystem's authored appearance settings.
+// Sky Shader Lab preview.
+//
+// The authored document drives the accepted P18 sky-dome graph. Clouds,
+// source assets, current time, celestial direction, weather, particles, and
+// camera remain preview/runtime inputs and never enter the exported profile.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 import {
-  SKY_PRESET_DOCUMENT_TYPE,
-  StylizedSky,
-} from '../../../src/sky/stylizedSky.js';
-import { createStylizedTerrain } from '../../../src/stylizedTerrain.js';
+  SKY_SHADER_DOCUMENT_TYPE,
+  applySkyShaderSettings,
+} from '../../../src/sky/skyShaderSettings.js';
 import { WeatherSystem } from '../../../src/weather/weatherSystem.js';
-import { createLabRenderer, whenRendererReady } from '../../shared/rendererFactory.js';
+import {
+  createLabRenderer,
+  whenRendererReady,
+} from '../../shared/rendererFactory.js';
+import {
+  loadP18ReferenceContract,
+  sampleP18ReferenceTime,
+} from '../../shared/p18/referenceEnvironment.js';
+import { createP18PreviewReferenceSky } from '../../shared/p18/referenceSky.js';
 
-const CAMERA_VIEW = Object.freeze({
-  position: Object.freeze([48, 28, 62]),
-  target: Object.freeze([0, 5, 0]),
-});
-const WEATHER_RESTART_DELAY_MS = 140;
+function stagePoint([x, y, z]) {
+  return new THREE.Vector3(x, y, -z);
+}
 
-function setSrgbColor(color, channels) {
-  color.setRGB(channels[0], channels[1], channels[2], THREE.SRGBColorSpace);
+function cameraView(contract, mode) {
+  const position = stagePoint(contract.camera.position);
+  const target = stagePoint(contract.camera.lookAt);
+  if (mode === 'sky' || mode === 'celestial') {
+    target.y += 10;
+  }
+  return { position, target };
+}
+
+function setLinearColor(target, channels) {
+  target.setRGB(channels[0], channels[1], channels[2]);
 }
 
 export function createSkyLabEngine({ mount, store }) {
-  const renderer = createLabRenderer({ antialias: true });
+  const renderer = createLabRenderer({
+    antialias: true,
+    preserveDrawingBuffer: true,
+  });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -33,167 +52,183 @@ export function createSkyLabEngine({ mount, store }) {
   mount.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.3, 1200);
+  const camera = new THREE.PerspectiveCamera(
+    45,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    2_000_000,
+  );
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.06;
-  controls.maxDistance = 220;
-  controls.maxPolarAngle = Math.PI * 0.49;
-  controls.minDistance = 4;
+  controls.maxDistance = 120;
+  controls.minDistance = 1;
+  controls.maxPolarAngle = Math.PI - 0.02;
+  controls.minPolarAngle = 0.02;
 
-  // Existing deterministic terrain keeps the horizon and atmospheric color
-  // relationships readable without making vegetation or water part of this
-  // editor's ownership surface.
-  const terrain = createStylizedTerrain({
-    archetype: 'rollingPlains',
-    depth: 10,
-    detailTexture: false,
-    height: 28,
-    seed: 73,
-    segments: 96,
-    size: 180,
-    waterCoverage: 0.18,
-  });
-  terrain.root.position.set(-terrain.spawn.x, -terrain.spawn.y, -terrain.spawn.z);
-  scene.add(terrain.root);
-
-  const initialState = store.getState();
-  const sky = new StylizedSky({ ...initialState.settings, quality: initialState.view.quality });
-  scene.add(sky);
-
-  const sun = new THREE.DirectionalLight(0xffffff, initialState.view.sunIntensity);
-  sun.target.position.set(0, 0, 0);
-  scene.add(sun, sun.target);
-  const ambient = new THREE.HemisphereLight(0xffffff, 0x6b7280, initialState.view.ambientIntensity);
-  scene.add(ambient);
-
-  const baselineFog = new THREE.Fog(0xb5d6ee, 90, 390);
-  scene.fog = baselineFog;
-
+  const sun = new THREE.DirectionalLight(0xffffff, 1);
+  scene.add(sun);
   const sunRig = {
     light: sun,
     setState({ color, intensity } = {}) {
       if (color?.isColor) sun.color.copy(color);
-      else if (Array.isArray(color)) setSrgbColor(sun.color, color);
+      else if (Array.isArray(color)) setLinearColor(sun.color, color);
       if (Number.isFinite(intensity)) sun.intensity = intensity;
     },
   };
 
+  let contract = null;
+  let referenceSky = null;
+  let referenceClearColor = new THREE.Color(0, 0, 0);
   let weather = null;
-  let weatherRestartTimer = null;
   let disposed = false;
   let rendererReady = false;
   let started = false;
   let previousFrameTime = performance.now();
+  let cycleAccumulator = 0;
 
-  function resetCamera() {
-    camera.position.fromArray(CAMERA_VIEW.position);
-    controls.target.fromArray(CAMERA_VIEW.target);
+  function resetCamera(mode = store.getState().view.viewMode) {
+    if (!contract) return;
+    const view = cameraView(contract, mode);
+    camera.position.copy(view.position);
+    camera.up.fromArray(stagePoint(contract.camera.up).toArray());
+    if (mode === 'celestial' && referenceSky) {
+      controls.target.copy(camera.position).add(
+        referenceSky.getVisibleCelestialDirection().multiplyScalar(100),
+      );
+    } else {
+      controls.target.copy(view.target);
+    }
     camera.lookAt(controls.target);
     controls.update();
+    document.body.dataset.skyPreviewView = mode;
   }
 
-  function applyAuthoredScene() {
+  function applyAuthoredSky() {
+    if (!referenceSky) return;
     const state = store.getState();
-    const settings = state.settings;
-    sky.setQuality(state.view.quality);
-    sky.applySettings(settings);
+    applySkyShaderSettings(referenceSky, state.settings);
+    document.body.dataset.skyShaderProfile = state.presetId ?? 'custom';
+    document.body.dataset.skyShaderTarget = 'p18-authored-sky-dome';
+  }
 
-    const sunDirection = new THREE.Vector3(...settings.sunDirection);
-    if (sunDirection.lengthSq() < 1e-8) sunDirection.set(0.35, 0.8, 0.45);
-    sun.position.copy(sunDirection.normalize().multiplyScalar(120));
-    setSrgbColor(sun.color, settings.sunColor);
-    sun.intensity = state.view.sunIntensity;
+  function applyCloudContext() {
+    if (!referenceSky) return;
+    const cloudStyle = store.getState().view.cloudStyle;
+    referenceSky.setComponentStyles({
+      clouds: cloudStyle === 'neutral_review' ? 'neutral_review' : 'call_me_sensei',
+      sky: 'call_me_sensei',
+    });
+    referenceSky.setVisibility({
+      clouds: cloudStyle !== 'hidden',
+      sky: true,
+    });
+    document.body.dataset.skyPreviewCloudContext = cloudStyle;
+  }
 
-    setSrgbColor(ambient.color, settings.zenithColor);
-    setSrgbColor(ambient.groundColor, settings.groundColor);
-    ambient.intensity = state.view.ambientIntensity;
-
-    scene.fog = baselineFog;
-    setSrgbColor(baselineFog.color, settings.horizonColor);
-    baselineFog.near = 90;
-    baselineFog.far = 390;
+  function applyPreviewTime() {
+    if (!referenceSky) return;
+    const { hour } = store.getState().view;
+    const time = sampleP18ReferenceTime(hour);
+    referenceSky.setTime({
+      energy: time.skyEnergy,
+      hour,
+      tint: time.skyTint,
+    });
+    scene.background.copy(referenceClearColor)
+      .multiply(new THREE.Color(...time.skyTint))
+      .multiplyScalar(time.skyEnergy);
+    document.body.dataset.previewTimeOfDay =
+      `${String(Math.floor(hour)).padStart(2, '0')}:${
+        String(Math.round((hour % 1) * 60)).padStart(2, '0')
+      }`;
+    if (store.getState().view.viewMode === 'celestial') {
+      resetCamera('celestial');
+    }
   }
 
   function stopWeather() {
-    if (!weather) return;
-    weather.dispose();
+    weather?.dispose();
     weather = null;
+    scene.fog = null;
   }
 
-  function startWeather(preset) {
-    if (disposed || !rendererReady || preset === 'authored') return;
+  function startWeather() {
+    const state = store.getState();
+    if (!rendererReady || state.view.weather === 'authored') return;
     weather = new WeatherSystem({
       camera,
       precipitationFloorY: 0,
-      preset,
+      preset: state.view.weather,
       renderer,
       scene,
       seed: 73,
-      sky,
+      sky: null,
+      style: 'call_me_sensei',
       sunRig,
     });
+    weather.root.visible = state.view.particles;
   }
 
-  function restartWeather({ delay = 0 } = {}) {
-    if (weatherRestartTimer !== null) {
-      window.clearTimeout(weatherRestartTimer);
-      weatherRestartTimer = null;
-    }
+  function restartWeather() {
     stopWeather();
-    applyAuthoredScene();
-    const preset = store.getState().view.weather;
-    if (preset === 'authored') return;
-    if (delay <= 0) {
-      startWeather(preset);
-      return;
-    }
-    weatherRestartTimer = window.setTimeout(() => {
-      weatherRestartTimer = null;
-      if (disposed) return;
-      // Use the latest authored values after a slider editing burst.
-      applyAuthoredScene();
-      startWeather(store.getState().view.weather);
-    }, delay);
+    applyPreviewTime();
+    startWeather();
   }
 
-  let appliedDocRevision = initialState.docRevision;
-  let appliedWeather = initialState.view.weather;
-  let appliedSunIntensity = initialState.view.sunIntensity;
-  let appliedAmbientIntensity = initialState.view.ambientIntensity;
-  let appliedQuality = initialState.view.quality;
+  let appliedDocumentRevision = -1;
+  let appliedCloudStyle = null;
+  let appliedHour = null;
+  let appliedParticles = null;
+  let appliedViewMode = null;
+  let appliedWeather = null;
 
-  store.subscribe(() => {
+  const unsubscribe = store.subscribe(() => {
+    if (!referenceSky) return;
     const state = store.getState();
     const weatherChanged = state.view.weather !== appliedWeather;
-    const lightingChanged = state.view.sunIntensity !== appliedSunIntensity
-      || state.view.ambientIntensity !== appliedAmbientIntensity
-      || state.view.quality !== appliedQuality;
-    const documentChanged = state.docRevision !== appliedDocRevision;
-
+    if (state.docRevision !== appliedDocumentRevision) applyAuthoredSky();
     if (weatherChanged) restartWeather();
-    else if (documentChanged || lightingChanged) {
-      restartWeather({
-        delay: state.view.weather === 'authored' ? 0 : WEATHER_RESTART_DELAY_MS,
-      });
+    else if (state.view.hour !== appliedHour) {
+      applyPreviewTime();
+      weather?.refresh();
     }
-
-    appliedDocRevision = state.docRevision;
+    if (state.view.cloudStyle !== appliedCloudStyle) applyCloudContext();
+    if (state.view.particles !== appliedParticles && weather) {
+      weather.root.visible = state.view.particles;
+    }
+    if (state.view.viewMode !== appliedViewMode) {
+      resetCamera(state.view.viewMode);
+    }
+    appliedDocumentRevision = state.docRevision;
+    appliedCloudStyle = state.view.cloudStyle;
+    appliedHour = state.view.hour;
+    appliedParticles = state.view.particles;
+    appliedViewMode = state.view.viewMode;
     appliedWeather = state.view.weather;
-    appliedSunIntensity = state.view.sunIntensity;
-    appliedAmbientIntensity = state.view.ambientIntensity;
-    appliedQuality = state.view.quality;
   });
 
   function renderFrame(frameTime = performance.now()) {
     if (disposed) return;
-    const delta = Math.min(Math.max((frameTime - previousFrameTime) / 1000, 0), 0.1);
+    const delta = Math.min(
+      Math.max((frameTime - previousFrameTime) / 1000, 0),
+      0.1,
+    );
     previousFrameTime = frameTime;
+    const state = store.getState();
+    if (state.view.autoCycle) {
+      cycleAccumulator += delta;
+      if (cycleAccumulator >= 0.1) {
+        store.actions.setPreviewHour(state.view.hour + cycleAccumulator * 0.5);
+        cycleAccumulator = 0;
+      }
+    } else {
+      cycleAccumulator = 0;
+    }
     controls.update();
+    referenceSky?.update(delta);
     weather?.update(delta);
-    sky.update(delta, camera);
     renderer.render(scene, camera);
-
   }
 
   function handleResize() {
@@ -209,12 +244,11 @@ export function createSkyLabEngine({ mount, store }) {
     dispose() {
       if (disposed) return;
       disposed = true;
-      if (weatherRestartTimer !== null) window.clearTimeout(weatherRestartTimer);
+      unsubscribe();
       window.removeEventListener('resize', handleResize);
       renderer.setAnimationLoop(null);
       stopWeather();
-      terrain.dispose();
-      sky.dispose();
+      referenceSky?.dispose();
       controls.dispose();
       renderer.dispose();
       renderer.domElement.remove();
@@ -222,20 +256,55 @@ export function createSkyLabEngine({ mount, store }) {
     renderer,
     resetCamera,
     scene,
-    sky,
     async start() {
       if (started) return;
       started = true;
       await whenRendererReady(renderer);
       if (disposed) return;
       rendererReady = true;
+
+      contract = await loadP18ReferenceContract();
+      if (disposed) return;
+      referenceSky = await createP18PreviewReferenceSky(contract);
+      if (disposed) {
+        referenceSky?.dispose();
+        return;
+      }
+      if (!referenceSky?.skyRoot) {
+        throw new Error('The accepted P18 sky-dome source is unavailable.');
+      }
+
+      camera.fov = contract.camera.verticalFieldOfViewDegrees;
+      camera.near = contract.camera.near;
+      camera.far = contract.sky.toonlabCameraFarMeters ?? contract.camera.far;
+      camera.updateProjectionMatrix();
+      referenceClearColor = new THREE.Color(...contract.render.clearColor.slice(0, 3));
+      scene.background = referenceClearColor.clone();
+      scene.add(referenceSky.root);
+
+      const state = store.getState();
+      appliedDocumentRevision = state.docRevision;
+      appliedCloudStyle = state.view.cloudStyle;
+      appliedHour = state.view.hour;
+      appliedParticles = state.view.particles;
+      appliedViewMode = state.view.viewMode;
+      appliedWeather = state.view.weather;
+      applyAuthoredSky();
+      applyCloudContext();
+      applyPreviewTime();
       resetCamera();
-      restartWeather();
+      startWeather();
+
       previousFrameTime = performance.now();
       renderer.setAnimationLoop(renderFrame);
       document.body.dataset.modelReady = 'true';
       document.body.dataset.skyLabReady = 'true';
-      document.body.dataset.skyPresetType = SKY_PRESET_DOCUMENT_TYPE;
+      document.body.dataset.skyPreviewSource = 'p18';
+      document.body.dataset.skyPresetType = SKY_SHADER_DOCUMENT_TYPE;
+      store.actions.adoptEngineState({
+        engineReady: true,
+        status: 'P18 sky dome and comparison clouds ready.',
+      });
     },
   };
 }

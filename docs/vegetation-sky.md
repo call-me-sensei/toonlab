@@ -11,9 +11,10 @@ WebGPU by default, with `?renderer=webgl` for the WebGL2 fallback.
 Geometry systems follow the same settings pattern as the rest of the library:
 a `DEFAULT_*` settings object, a `create*Settings(options)` normalizer,
 `*_SETTING_GROUPS` + `*_SETTING_FIELD_SCHEMA` for UIs, and a runtime
-`applySettings(options)` method on the class. The IP-wide shading treatment
-is a separate `VegetationShaderProfile`; it must not absorb asset identity or
-the scene's current state.
+`applySettings(options)` method on the class. Reusable shading lives in
+independent Tree, Grass, and Flower profiles over one shared Vegetation
+renderer family; those profiles must not absorb asset identity or the scene's
+current state.
 
 Each system also has a preset registry (`register*Preset` /
 `get*PresetOptions`, resolved via `preset:` in `create*Settings` and the
@@ -23,90 +24,154 @@ community presets register alongside them. For placing vegetation across
 terrain (forests, meadows, slope/water masks), see the scatter helpers in
 [world-scale.md](world-scale.md#distribution-helpers).
 
-## One vegetation shader profile
+## Vegetation shader family
 
-Use one versioned `VegetationShaderProfile` for an IP, not unrelated grass,
-tree, and flower shader copies. The profile is dispatched by semantic material
-role (`grassBlade`, `foliageCard`, `flowerPetal`, `flowerCenter`,
-`woodySurface`, `herbaceousStem`), while mesh/cutout/billboard/procedural are
-only technical variants. This gives specialized controls without losing one
-coherent art direction.
+Use one shared Vegetation implementation with one shared treatment base and
+three independently versioned role profiles. The profiles dispatch by semantic material role
+(`grassBlade`, `foliageCard`, `flowerPetal`, `flowerCenter`, `woodySurface`,
+`herbaceousStem`); mesh/cutout/billboard/procedural remain technical variants.
 
-| Scope | Owns | Does not own |
+| Profile | Owns | Does not own |
 |---|---|---|
-| Vegetation shader profile | shared light treatment, thin-surface response, weather response curves, and role-specific grass/foliage/flower/bark/stem shading | albedo, textures, species, geometry, current weather |
-| Asset/material | purple/green/autumn albedo, texture maps, alpha cutoff, species palette | the IP's shared lighting rules |
-| Scene/world | current sun/sky, cloud field, wind, wetness, snow coverage | persistent shader response coefficients |
-| Instance/interaction | placement, seed, scale, bend target, local retention/response multipliers | the reusable shader definition |
+| Shared Vegetation Base | lighting, thin-surface response, and weather response used by every applicable vegetation role | species, geometry, per-profile palette, current weather amounts |
+| Tree Shader | foliage/card and bark/wood treatment resolved over the shared base | species, trunk/canopy geometry, scatter, LOD, current wind or season |
+| Grass Shader | blade gradient, dense-field, gust, bend, and interaction response resolved over the shared base | blade/clump geometry, density, placement, current wind or interaction position |
+| Flower Shader | petal, center, leaf/foliage, and herbaceous-stem treatment resolved over the shared base | species, petal count, plant geometry, placement, current wind |
+| Asset/material | albedo, textures, alpha cutoff, species palette, authored role labels | the selected reusable shader treatment |
+| Scene/world | current sun/sky, cloud field, wind, wetness, and snow coverage | persistent shader response coefficients |
 
-The same profile therefore works unchanged for purple grass or ten differently
-colored grass assets. Color remains material data; the shader defines how that
-color responds to the world.
+### Procedural asset compatibility contract
+
+Procedural trees use the same Tree Shader as imported trees. Compatibility
+depends on a clean hand-off between the asset recipe and the shader:
+
+- The recipe supplies sRGB canopy and bark colors once. Runtime normalization
+  converts those values once; material creation must not decode an already
+  linear `THREE.Color` as sRGB a second time.
+- The generator labels foliage cards as `foliageCard` and trunks, branches,
+  and visible roots as `woodySurface`. Moss, snow, attached grass, and other
+  secondary surfaces need their own semantic roles rather than inheriting the
+  nearest tree material.
+- Foliage cutouts are double-sided in both color and shadow passes. Their
+  light-facing billboard position and alpha mask must match the visible leaf
+  card; otherwise Three's reversed shadow-side culling removes the canopy
+  while leaving only the volumetric trunk and branches.
+- The asset derives lit, shadow, and crown tones from its botanical palette.
+  The Tree Shader owns how those tones are selected by light, shadow, canopy
+  occlusion, weather, and view response.
+- Sky fill, rim, and leaf transmission are albedo-relative reflected light.
+  Adding raw sky or sun color creates a white veil and destroys saturated
+  procedural palettes.
+- A retained reference scene may use different internal material math.
+  Matching its accepted output requires a calibrated canonical preset; do not
+  copy retained-scene coefficients blindly into a different shader graph.
+
+Shader Lab keeps the accepted P18 shadow-camera extent when the retained
+fixture is selected. A larger procedural preview may temporarily expand that
+coverage so its projected crown is not clipped; the expanded extent remains
+preview state and is restored to the P18 value when returning to the reference.
+
+This keeps species identity overridable per generated or imported asset while
+allowing one reusable style profile to produce a consistent rendering
+treatment. Shader Lab previews therefore switch recipes without serializing a
+recipe, palette, seed, geometry, time of day, or current weather into the Tree
+Shader document.
+
+Shared Lighting, Thin Surface, and Weather Response are one editable base by
+default. Editing any of those groups affects Tree foliage, Bark/wood,
+Grass/groundcover, and Flower petals, centers, attached leaves, and stems
+where the semantic role consumes that group. Every shader lab must show this
+impact before the controls.
+
+Scope documents embed a snapshot of the shared base so an exported JSON file
+remains portable. Loading the document normally resolves that snapshot into
+the project's shared base; it is not an implicit per-profile override. A
+future split mode may detach one profile, but that must be an explicit,
+named override with its own status and reset-to-shared action. Silent
+divergence between Tree, Grass, and Flower is not allowed.
 
 ```js
+import { StylizedGrassField } from '@call-me-sensei/toonlab/vegetation';
 import {
-  StylizedGrassField,
-  createVegetationShaderSettings,
-} from '@call-me-sensei/toonlab/vegetation';
+  createVegetationSharedShaderSettings,
+  createGrassShaderProfileSettings,
+  mergeVegetationSharedShaderSettings,
+} from '@call-me-sensei/toonlab/vegetation-shaders';
 
-const vegetationShader = createVegetationShaderSettings({
+const sharedVegetation = createVegetationSharedShaderSettings({
+  preset: 'call_me_sensei',
+  lighting: { shadowTintStrength: 0.42 },
+});
+const grassRole = createGrassShaderProfileSettings({
   preset: 'call_me_sensei',
   grass: { bandSoftness: 0.08 },
-  bark: { bandCount: 3 },
 });
+const grassShader = mergeVegetationSharedShaderSettings(
+  'grass',
+  grassRole,
+  sharedVegetation,
+);
 
 const purpleGrass = new StylizedGrassField({
   baseColor: [0.28, 0.12, 0.48],
   tipColor: [0.76, 0.38, 0.96],
   placements,
-  vegetationShader,
+  vegetationShader: grassShader,
 });
 
 // Host-owned current state; neither value changes the saved profile.
 purpleGrass.setWind({ strength: currentWind });
-purpleGrass.setSurfaceWeather({ wetness: currentWetness, snowCover: currentSnow });
+purpleGrass.setSurfaceWeather({
+  wetness: currentWetness,
+  snowCover: currentSnow,
+});
 ```
 
-Vegetation Shader Lab exports the same versioned profile document consumed by
-the npm runtime:
+Each shader lab exports its own versioned document consumed by the same npm
+runtime:
 
 ```js
 import {
-  createVegetationShaderPresetDocument,
-  parseVegetationShaderPresetDocument,
-  registerSerializedVegetationShaderPreset,
-  serializeVegetationShaderPreset,
+  createTreeShaderPresetDocument,
+  createGrassShaderProfilePresetDocument,
+  createFlowerShaderProfilePresetDocument,
+  parseTreeShaderPresetDocument,
 } from '@call-me-sensei/toonlab/vegetation-shaders';
 
-const document = createVegetationShaderPresetDocument('violet_world', {
-  label: 'Violet World',
-  settings: vegetationShader,
+const document = createTreeShaderPresetDocument('project_tree', {
+  label: 'Project Tree',
+  settings: { bark: { bandCount: 3 } },
 });
-const json = serializeVegetationShaderPreset(document);
-const parsed = parseVegetationShaderPresetDocument(json);
-if (parsed.ok) registerSerializedVegetationShaderPreset(json, { overwrite: true });
+const parsed = parseTreeShaderPresetDocument(document);
+if (!parsed.ok) throw new Error(parsed.errors.join(' '));
 ```
 
-Portable documents use `toonlab/vegetation-shader-preset`.
-`getVegetationShaderPresetOptions()` lists built-in and project-registered
-profiles; `validateVegetationShaderPresetDocument()` validates an already
-parsed object. The focused `vegetation-shaders` subpath and the main
+Portable document types are `toonlab/tree-shader-preset`,
+`toonlab/grass-shader-preset`, and `toonlab/flower-shader-preset`.
+`toonlab/vegetation-shader-preset` remains the compatibility aggregate for
+existing projects. The focused `vegetation-shaders` subpath and the main
 `vegetation` barrel expose the same bindings.
 
 `applyVegetationShader(root, profile)` updates only materials tagged with the
 semantic contract and returns coverage/unsupported-uniform diagnostics.
-`createStylizedWorld({ vegetationShader })` passes the profile into trees,
-grass, and flowers. `world.setVegetationShader(profile)` updates live near
-materials; the far forest derives its volumetric proxy colors at construction
-and reports that those proxies require a rebuild.
+`applyVegetationShaderScope(root, 'tree' | 'grass' | 'flower', profile)`
+additionally rejects roles owned by another profile.
+
+`createStylizedWorld({ vegetationShaders: { tree, grass, flower } })` routes
+the three role profiles independently after shared-base resolution.
+`world.setVegetationShaders(...)` updates them. Historical `vegetationShader` and
+`world.setVegetationShader(profile)` apply one aggregate to all three for
+compatibility. Far forest proxies still report when a tree-profile change
+requires a rebuild.
 
 The labs intentionally split by responsibility:
 
-- Grass Lab authors grass geometry, palette, planting, and grass material data.
-- Tree Lab authors trees/bushes and blossoms attached to their canopies.
-- Flower Lab authors standalone flower plants and fields.
-- Vegetation Shader Lab authors the one cross-asset IP shader profile,
-  including bark/trunk and herbaceous stems.
+- Tree, Grass, and Flower **Generation Labs** author geometry, species,
+  palettes, planting data, LOD, and export.
+- Tree, Grass, and Flower **Shader Labs** author the three reusable profiles.
+- The legacy Vegetation Shader Lab route remains only for aggregate-document
+  compatibility.
+- Terrain, soil, paths, and sand route to Ground Shader, not Vegetation.
 
 ## Construction-time vs. runtime settings
 
@@ -237,8 +302,113 @@ Curved trunk (`createTreeTrunkGeometry`, `TREE_TRUNK_STYLES`) + leaf-card
 canopy (`stylizedTreeFoliage.js`) in one `THREE.Group`. Settings are grouped
 (`DEFAULT_STYLIZED_TREE_SETTINGS`, `STYLIZED_TREE_SETTING_GROUPS`, 58
 fields). `STYLIZED_TREE_EXAMPLES` + `layoutTreeRow` power the Tree Lab
-(`/tree-lab/`), whose authoring scope is trees, bushes, and optional blossoms
-attached to a tree canopy.
+(`/tree-lab/`), whose Generation authoring scope is trees, bushes, and
+optional blossoms attached to a tree canopy. Reusable canopy/bark treatment
+belongs to Tree Shader Lab (`/tree-shader-lab/`).
+
+Tree Shader Lab uses the accepted P18 outdoor comparison composition as its
+default scene, including the retained pine, grass, flowers, ground,
+non-baked Spire 05, props, sky, clouds, camera, and lighting. The Call Me
+Sensei profile begins from the exact retained pine-leaf and pine-bark graph
+inputs. Tree Shader v2 deliberately does not write the retained material's
+`Main Color` or `Gradient Color`: those values remain authored on the P18
+pine asset, so the image is unchanged while the reusable shader preserves
+other species palettes. Inputs with a direct retained-material mapping are
+written back into that graph. The remaining Tree controls use a semantic
+style delta whose accepted Call Me Sensei value is zero, preserving the P18
+baseline while making every shader-owned Tree control adjustable in the same
+scene. Tree Lab must report all 51 Tree Shader v2 fields supported and zero
+unsupported on the retained fixture.
+
+### Tree Shader v2 ownership audit
+
+The fact that a GPU program reads a value does not mean the reusable shader
+profile owns that value. The authoritative Tree boundary is:
+
+| Owner | Values |
+|---|---|
+| Tree asset/species recipe | Primary and gradient foliage colors, canopy palette, bark base color/texture, leaf sprite, alpha cutoff, normalized card/height data, stable variation seed, geometry, branching, LOD, and collision |
+| Tree Shader profile | Shared Lighting, Thin Surface and Weather Response coefficients; foliage gradient transfer, hue treatment, highlight/surface response, toon bands, crown response, sprite/detail influence, transmission; bark tint/flattening, highlight response, toon bands, floors, fill, rim, and vertical shading |
+| Placed instance or condition | Optional instance tint/hue, variation seed, season, damage, wet/snow retention state, and similar per-tree data |
+| Scene/runtime | Current sun/sky, cloud field, wind field, wetness, snow amount, fog, time, and interaction positions |
+| Lab preview | Selected fixture/recipe, camera, visibility, comparison bundle, time, weather toggles, and debug view |
+
+The 51 portable Tree Shader v2 fields are grouped as follows:
+
+| Group | Count | What it owns |
+|---|---:|---|
+| Shared Lighting | 6 | shadow tint treatment, sun/sky influence, and rim response |
+| Thin Surface | 6 | diffuse wrap, transmission, normal bias, and two-sided response |
+| Weather Response | 6 | wet/snow response coefficients; never current accumulation |
+| Foliage | 20 | gradient shape over the asset palette, hue transform/variation amplitude, surface/highlight, transmission, bands, crest, occlusion, and sprite/card influence |
+| Bark / Woody Surface | 13 | multiplicative tint treatment, surface simplification/highlight, toon bands, shadow/fill/rim, and vertical grounding |
+
+`foliage.mainColor`, `foliage.gradientColor`, and
+`foliage.styleColorStrength` remain readable only through the version-1
+vegetation aggregate compatibility surface. Tree Shader v2 excludes them.
+Importing a v1 Tree Shader document that contains them produces migration
+warnings identifying the asset recipe fields that must receive those values;
+the parser does not silently keep species colors in the shader.
+
+The Tree Shader Lab's **Preview assets** modal starts with the immutable P18
+pine and also lists procedural tree/bush recipes from Tree Lab, including
+locally saved recipes. A developer can import another tree recipe JSON for the
+current preview. The same effective Tree Shader is reapplied to each fixture
+through `foliageCard` and `woodySurface` roles. The selected recipe and its
+palette never enter the exported Tree Shader or style-bundle slot.
+
+### Flower Shader v3 ownership audit
+
+Flower Shader is a reusable treatment over labeled botanical inputs. It is
+not a flower-species recipe and it is not a placed-flower instance.
+
+| Owner | Values |
+|---|---|
+| Flower asset/species recipe | Petal and center colors, attached-leaf palette, stem base color, flower/leaf textures, alpha cutoff, center/region mask, normalized petal data, stable variation seed, geometry, bloom count, LOD, and collision |
+| Flower Shader profile | Shared Lighting, Thin Surface, and Weather Response coefficients; attached-foliage gradient/hue transfer and surface response; flower roughness, highlight, emission, bands, subsurface/transmission, unlit-petal lift, petal-cup darkening, and center light/shadow response; herbaceous-stem surface, bands, shadow floor, transmission, fill, and rim |
+| Placed instance or condition | Optional instance color transform, growth stage, health, season, damage, wet/snow retention state, and other one-plant overrides |
+| Scene/runtime | Current sun/sky, cloud field, wind field, wetness, snow amount, fog, time, and interaction positions |
+| Lab preview | Selected flower recipe, camera, visibility, comparison bundle, time, weather toggles, and debug view |
+
+Shader-profile values are the shared rendering defaults for every compatible
+flower. Asset/species values are resolved first. An explicit instance or
+condition layer may transform the result later, but it must remain a separate
+named layer; it must not rewrite the Flower Shader profile or the source
+recipe.
+
+The 61 portable Flower Shader v3 fields are grouped as follows:
+
+| Group | Count | What it owns |
+|---|---:|---|
+| Shared Lighting | 6 | shadow tint treatment, sun/sky influence, and rim response |
+| Thin Surface | 6 | petal/leaf diffuse wrap, transmission, normal bias, and two-sided response |
+| Weather Response | 6 | wet/snow response coefficients; never current accumulation |
+| Attached Foliage | 20 | gradient shape over the asset palette, hue transform/variation amplitude, surface/highlight, transmission, bands, crest, occlusion, and sprite/card influence |
+| Flower Head | 14 | petal/center surface response, bands, transmission/subsurface, cup shading, and independent center light/shadow response |
+| Herbaceous Stem | 9 | stem surface/highlight, emission, bands, shadow floor, transmission, fill, and rim |
+
+The following fields remain readable only through the version-1 Vegetation
+compatibility aggregate and are excluded from Flower Shader v3:
+
+- `foliage.mainColor`, `foliage.gradientColor`, and
+  `foliage.styleColorStrength`;
+- `flower.textureTint` and `flower.tintStrength`;
+- `stem.color` and `stem.colorStrength`.
+
+Importing a Flower Shader v1/v2 document containing those fields emits a
+migration warning for each value and identifies the flower/plant recipe as
+the new owner. The parser does not silently preserve species colors inside a
+v3 shader profile.
+
+Flower Shader Lab's **Preview assets** modal starts with the immutable P18
+daisy field and adds built-in, locally saved, and imported procedural flower
+recipes. P18 remains the exact Call Me Sensei comparison and one-click
+fallback. Its retained daisy atlas uses one combined material, so it cannot
+prove independent petal, center, attached-leaf, and stem controls. A labeled
+procedural flower exposes `flowerPetal`, `flowerCenter`, `foliageCard`, and
+`herbaceousStem` consumers and is the required fixture for full control
+verification. Switching preview flowers never changes the exported shader
+profile.
 
 Trees are serializable: `treeRecipe.js` defines a versioned recipe document
 (`recipeFromSettings` / `settingsFromRecipe` /
@@ -248,7 +418,24 @@ Trees are serializable: `treeRecipe.js` defines a versioned recipe document
 library shaders. `StylizedBush` reuses the foliage system as a standalone
 bush. `StylizedFlower` uses the same versioned plant recipe contract while
 the Flower Lab (`/flower-lab/`) gives standalone flowers their own document
-storage, preset gallery, and bloom-focused workflow.
+storage, preset gallery, and bloom-focused Generation workflow. Reusable
+petal/center/leaf/stem treatment belongs to Flower Shader Lab
+(`/flower-shader-lab/`).
+
+Grass Shader Lab and Flower Shader Lab use the same P18 composition and
+preview controls. Their shared-base fields are editable and live in the P18
+scene. The retained grass has an independently addressable grass material.
+The retained daisy uses one material for petal, center, and stem, so it cannot
+prove independent semantic controls for all three. Remaining role-specific
+controls stay honestly marked unsupported for this fixture until a validation
+asset supplies material splits, geometry groups, or ID masks.
+
+Vegetation generators must preserve semantic modeled parts—root, trunk,
+branch, leaf or needle, blade, petal, center, leaf, and herbaceous stem—as
+well as the shader-facing material roles. The complete requirement, including
+LOD/export preservation and the distinction between rock surface coverage and
+actual vegetation geometry, is defined in
+[Generated asset labeling and shader routing](generated-asset-labeling.md).
 
 ## Sky
 

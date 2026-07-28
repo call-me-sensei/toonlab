@@ -24,8 +24,20 @@ import {
   validateSkyPresetDocument,
 } from '../src/sky/stylizedSky.js';
 import {
+  DEFAULT_SKY_SHADER_PRESET,
+  SKY_SHADER_DOCUMENT_TYPE,
+  SKY_SHADER_FIELD_COUNT,
+  SKY_SHADER_FIELD_SCHEMA,
+  SKY_SHADER_SETTING_GROUPS,
+  applySkyShaderSettings,
+  createSkyShaderPresetDocument,
+  createSkyShaderSettings,
+  parseSkyShaderPresetDocument,
+  serializeSkyShaderPreset,
+} from '../src/sky/skyShaderSettings.js';
+import {
   DEMOS_SHOWCASE,
-  WORLD_SYSTEMS_SHOWCASE,
+  LOOK_DEVELOPMENT_LABS_SHOWCASE,
 } from '../labs/home/labsShowcase.js';
 import { SKY_PRESET_STORAGE_KEY } from '../labs/sky-lab/skyPresetStore.js';
 import {
@@ -315,66 +327,134 @@ globalThis.window = {
   },
 };
 assert.equal(SKY_PRESET_STORAGE_KEY, 'toonlab.skyPresets.v1');
-assert.equal(SKY_LAB_DOCUMENT_STORAGE_KEY, 'toonlab.skyLab.document.v1');
-assert.equal(SKY_LAB_PRESET_QUERY_PARAM, 'skyPreset');
+assert.equal(SKY_LAB_DOCUMENT_STORAGE_KEY, 'toonlab.skyShaderLab.document.v2');
+assert.equal(SKY_LAB_PRESET_QUERY_PARAM, 'skyShader');
+assert.equal(DEFAULT_SKY_SHADER_PRESET, 'call_me_sensei');
+assert.equal(SKY_SHADER_DOCUMENT_TYPE, 'toonlab/sky-shader-preset');
+assert.equal(SKY_SHADER_FIELD_COUNT, 40);
+assert.deepEqual(
+  SKY_SHADER_SETTING_GROUPS.map((group) => group.id),
+  ['gradient', 'sun', 'moon', 'stars'],
+);
+assert.equal(
+  Object.values(SKY_SHADER_FIELD_SCHEMA)
+    .flatMap((fields) => Object.values(fields)).length,
+  SKY_SHADER_FIELD_COUNT,
+);
 
 const store = createSkyLabStore({ urlParams: new URLSearchParams() });
 assert.equal(store.getState().settings.radius, undefined);
+assert.equal(store.getState().settings.cloudCoverage, undefined);
+assert.equal(store.getState().settings.sunDirection, undefined);
 const initialRevision = store.getState().docRevision;
-assert.equal(store.getState().view.quality, 'high');
-store.actions.setView({ sunIntensity: 1.8, weather: 'rain' });
+assert.equal(store.getState().view.hour, 13);
+assert.equal(store.getState().view.cloudStyle, 'call_me_sensei');
+store.actions.setView({ cloudStyle: 'hidden', hour: 22, weather: 'rain' });
 assert.equal(store.getState().docRevision, initialRevision);
 assert.equal(store.getState().presetDirty, false);
-assert.equal(localValues.has(SKY_LAB_DOCUMENT_STORAGE_KEY), false);
-store.actions.setView({ quality: 'low' });
-assert.equal(store.getState().docRevision, initialRevision);
 
-store.actions.setSetting('cloudCoverage', 0.71);
+store.actions.setSetting('atlasBrightness', 1.4);
 const draft = JSON.parse(localValues.get(SKY_LAB_DOCUMENT_STORAGE_KEY));
 const exported = JSON.parse(store.actions.exportDocument());
 assert.equal(draft.settings.radius, undefined);
-assert.equal(exported.type, SKY_PRESET_DOCUMENT_TYPE);
+assert.equal(exported.type, SKY_SHADER_DOCUMENT_TYPE);
 assert.equal(exported.settings.radius, undefined);
-assert.equal(exported.settings.cloudCoverage, 0.71);
+assert.equal(exported.settings.cloudCoverage, undefined);
+assert.equal(exported.settings.sunDirection, undefined);
+assert.equal(exported.settings.atlasBrightness, 1.4);
+assert.equal(exported.hour, undefined);
+assert.equal(exported.cloudStyle, undefined);
+assert.equal(exported.weather, undefined);
 
 // Explicit launch links must win over a prior draft (the Pro hydration path).
 const linkedStore = createSkyLabStore({
-  urlParams: new URLSearchParams('skyPreset=moonlit'),
+  urlParams: new URLSearchParams('skyShader=default'),
 });
-assert.equal(linkedStore.getState().presetId, 'moonlit');
-assert.equal(linkedStore.getState().scenarioId, 'moonlit',
-  'Legacy single-look links must land on their aliased scenario.');
-assert.equal(linkedStore.getState().settings.starsStrength, 1.1);
+assert.equal(linkedStore.getState().presetId, 'default');
 
-// Style × scenario are independent axes in the lab.
-const scenarioStore = createSkyLabStore({
-  urlParams: new URLSearchParams('skyPreset=call_me_sensei&skyScenario=moonlit'),
+const skyShaderDocument = createSkyShaderPresetDocument('verification_sky', {
+  label: 'Verification Sky',
+  settings: {
+    atlasBrightness: 9,
+    starsDensity: 0.46,
+    sunColor: [0.6, 0.8, 1],
+  },
 });
-assert.equal(scenarioStore.getState().presetId, 'call_me_sensei');
-assert.equal(scenarioStore.getState().scenarioId, 'moonlit');
-assert.ok(scenarioStore.getState().settings.starsStrength > 1);
-scenarioStore.actions.setScenario('golden_hour');
-assert.equal(scenarioStore.getState().presetId, 'call_me_sensei',
-  'Changing scenario must keep the current style.');
-assert.equal(scenarioStore.getState().scenarioId, 'golden_hour');
-assert.ok(scenarioStore.getState().settings.sunDirection[1] < 0.3);
+assert.equal(skyShaderDocument.settings.atlasBrightness, 4);
+assert.equal(skyShaderDocument.settings.starsDensity, 0.46);
+assert.deepEqual(skyShaderDocument.settings.sunColor, [0.6, 0.8, 1]);
+const parsedSkyShader = parseSkyShaderPresetDocument(
+  serializeSkyShaderPreset(skyShaderDocument),
+);
+assert.equal(parsedSkyShader.ok, true, parsedSkyShader.errors.join(' '));
+assert.deepEqual(parsedSkyShader.value, skyShaderDocument);
+assert.equal(
+  Object.keys(createSkyShaderSettings()).length,
+  SKY_SHADER_FIELD_COUNT,
+);
+let appliedSkyShader = null;
+applySkyShaderSettings({
+  applySkyShaderSettings(settings) {
+    appliedSkyShader = settings;
+  },
+}, {
+  atlasBrightness: 1.7,
+  cloudCoverage: 0.9,
+  sunDirection: [1, 0, 0],
+});
+assert.equal(appliedSkyShader.atlasBrightness, 1.7);
+assert.equal(appliedSkyShader.cloudCoverage, undefined);
+assert.equal(appliedSkyShader.sunDirection, undefined);
+assert.equal(Object.keys(appliedSkyShader).length, SKY_SHADER_FIELD_COUNT);
+
+const referenceSkySource = readRepositoryFile('labs/shared/p18/referenceSky.js');
+for (const field of Object.values(SKY_SHADER_FIELD_SCHEMA)
+  .flatMap((fields) => Object.values(fields))) {
+  assert.match(
+    referenceSkySource,
+    new RegExp(`const ${field.key} = uniform`),
+    `${field.key} must have a live P18 renderer uniform.`,
+  );
+}
+assert.match(referenceSkySource, /applySkyShaderSettings\(settings = \{\}\)/);
+assert.match(referenceSkySource, /celestialDirection/);
+assert.match(referenceSkySource, /starsVisibility/);
 
 // Catalog and standalone-route wiring.
-const skyIndex = WORLD_SYSTEMS_SHOWCASE.findIndex((entry) => entry.id === 'sky');
-const waterIndex = WORLD_SYSTEMS_SHOWCASE.findIndex((entry) => entry.id === 'water');
-assert.ok(skyIndex >= 0 && skyIndex < waterIndex, 'Sky Lab should precede Water Lab under World Systems.');
-assert.equal(WORLD_SYSTEMS_SHOWCASE[skyIndex].href, '/sky-lab/');
-assert.equal(WORLD_SYSTEMS_SHOWCASE[skyIndex].i, '10');
-assert.equal(WORLD_SYSTEMS_SHOWCASE[waterIndex].i, '11');
-assert.equal(DEMOS_SHOWCASE[0].i, '12');
+const skyIndex = LOOK_DEVELOPMENT_LABS_SHOWCASE.findIndex((entry) => entry.id === 'sky');
+const waterIndex = LOOK_DEVELOPMENT_LABS_SHOWCASE.findIndex((entry) => entry.id === 'water');
+assert.ok(
+  waterIndex >= 0 && skyIndex > waterIndex,
+  'Water and Sky must be independent, ordered look-development owners.',
+);
+assert.equal(LOOK_DEVELOPMENT_LABS_SHOWCASE[skyIndex].href, '/sky-lab/');
+assert.equal(LOOK_DEVELOPMENT_LABS_SHOWCASE[skyIndex].i, 'L10a');
+assert.equal(LOOK_DEVELOPMENT_LABS_SHOWCASE[waterIndex].i, 'L09');
+assert.equal(DEMOS_SHOWCASE[0].i, 'V01');
 
 assert.match(readRepositoryFile('sky-lab/index.html'), /labs\/sky-lab\/ui\/main\.jsx/);
 assert.match(readRepositoryFile('vite.config.js'), /skyLab:\s*resolve\(__dirname, 'sky-lab\/index\.html'\)/);
 assert.match(readRepositoryFile('labs/shared/sceneHub.js'), /id:\s*'skyLab'[\s\S]*path:\s*'\/sky-lab\/'/);
-assert.match(readRepositoryFile('index.html'), /Eleven authoring labs and six playable demos/);
+assert.match(
+  readRepositoryFile('index.html'),
+  /visible roadmap of look development, asset creation, motion, VFX/,
+);
 assert.match(
   readRepositoryFile('labs/sky-lab/ui/App.jsx'),
-  /complete reusable sky-system preset/,
+  /Sky shader only\./,
 );
+assert.match(readRepositoryFile('labs/sky-lab/ui/App.jsx'), /sky-preview-cloud-style/);
+assert.match(readRepositoryFile('labs/sky-lab/ui/App.jsx'), /LabTimeOfDayControl/);
+assert.doesNotMatch(readRepositoryFile('labs/sky-lab/ui/App.jsx'), /scenario-select/);
+assert.doesNotMatch(readRepositoryFile('labs/sky-lab/ui/App.jsx'), /cloudCoverage/);
+const skyLabEngineSource = readRepositoryFile('labs/sky-lab/ui/engine.js');
+assert.match(skyLabEngineSource, /createP18PreviewReferenceSky/);
+assert.match(skyLabEngineSource, /loadP18ReferenceContract/);
+assert.match(skyLabEngineSource, /applySkyShaderSettings\(referenceSky/);
+assert.doesNotMatch(skyLabEngineSource, /createStylizedTerrain/);
+assert.doesNotMatch(skyLabEngineSource, /new StylizedSky/);
 
-console.log('Sky preset and Sky Lab verification passed.');
+console.log(
+  `Sky verified: legacy runtime compatibility plus ${SKY_SHADER_FIELD_COUNT} `
+  + 'P18 Sky Shader fields and a dedicated P18 Lab preview.',
+);

@@ -16,6 +16,7 @@ const only = process.argv.slice(2);
 const SLOW_IDS = new Set(['outdoor-world', 'playground', 'environment', 'water-playground', 'vfx-arena']);
 
 const entries = [...LABS_SHOWCASE, ...DEMOS_SHOWCASE]
+  .filter((entry) => Boolean(entry.href))
   .filter((entry) => only.length === 0 || only.includes(entry.id));
 
 await mkdir(OUT_DIR, { recursive: true });

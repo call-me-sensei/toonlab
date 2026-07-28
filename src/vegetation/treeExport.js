@@ -36,11 +36,112 @@ export function bakeFoliageGeometry(canopyGeometry, {
   sunDirection = [0.35, 0.72, 0.42],
   sunColor = [1.0, 0.96, 0.84],
   matrix = null,
+  cardRetention = 1,
+  cardScale = 1,
+  triangleBudget = Infinity,
 } = {}) {
   const positions = canopyGeometry.attributes.position;
   const shadeNormals = canopyGeometry.attributes.aShadeNormal;
   const infos = canopyGeometry.attributes.aInfo;
-  const cardCount = positions.count / 4;
+  const attachmentIds = canopyGeometry.attributes.aAttachment;
+  const sourceCardCount = Math.floor(positions.count / 4);
+  const requestedCardCount = Math.min(
+    sourceCardCount,
+    Math.max(0, Math.round(sourceCardCount * THREE.MathUtils.clamp(cardRetention, 0, 1))),
+  );
+  const trianglesForCards = (count) => {
+    if (mode === 'crossed') return count * 4;
+    if (mode === 'hybrid') return (count + Math.round(count * 0.3)) * 2;
+    return count * 2;
+  };
+  let budgetCardCount = requestedCardCount;
+  if (Number.isFinite(triangleBudget)) {
+    const budget = Math.max(0, Math.floor(triangleBudget));
+    while (budgetCardCount > 0 && trianglesForCards(budgetCardCount) > budget) {
+      budgetCardCount -= 1;
+    }
+  }
+
+  // Source cards are grouped by branch attachment. Sampling only the global
+  // array can empty short tufts, so reserve one representative from every
+  // authored attachment first. Every later choice uses a target-independent
+  // stable priority. This makes a smaller LOD's foliage a true subset of the
+  // preceding LOD instead of selecting a different crown and visibly popping.
+  const selectedCards = new Set();
+  const stablePriority = (card) => {
+    // Bit reversal produces a nested low-discrepancy order over the authored
+    // card stream: 0, midpoint, quarter points, eighth points... A prefix is
+    // therefore distributed across the complete crown instead of forming the
+    // random holes that a hash-ranked subset can leave in silhouette views.
+    let value = card >>> 0;
+    value = ((value >>> 1) & 0x55555555) | ((value & 0x55555555) << 1);
+    value = ((value >>> 2) & 0x33333333) | ((value & 0x33333333) << 2);
+    value = ((value >>> 4) & 0x0f0f0f0f) | ((value & 0x0f0f0f0f) << 4);
+    value = ((value >>> 8) & 0x00ff00ff) | ((value & 0x00ff00ff) << 8);
+    return (((value >>> 16) | (value << 16)) >>> 0);
+  };
+  const stableOrder = (indices) => [...indices].sort((left, right) =>
+    stablePriority(left) - stablePriority(right) || left - right);
+  const addUntilFull = (indices) => {
+    for (const card of indices) {
+      if (selectedCards.size >= budgetCardCount) break;
+      selectedCards.add(card);
+    }
+  };
+  if (budgetCardCount >= sourceCardCount) {
+    for (let card = 0; card < sourceCardCount; card += 1) selectedCards.add(card);
+  } else if (budgetCardCount > 0) {
+    const groups = new Map();
+    if (attachmentIds) {
+      for (let card = 0; card < sourceCardCount; card += 1) {
+        const attachment = Math.round(attachmentIds.getX(card * 4));
+        if (attachment < 0) continue;
+        const entries = groups.get(attachment) ?? [];
+        entries.push(card);
+        groups.set(attachment, entries);
+      }
+    }
+    const groupEntries = [...groups.entries()].sort((left, right) => left[0] - right[0]);
+    const groupRepresentatives = groupEntries.map(([, indices]) =>
+      indices[Math.floor(indices.length / 2)]);
+    addUntilFull(stableOrder(groupRepresentatives));
+
+    // Keep fixed directional extrema so front/side/top silhouettes do not
+    // shrink inward. The order is fixed, preserving the nested-subset rule
+    // even when an unusually small budget cannot retain every extreme.
+    const directions = [
+      [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+      [1, 1, 0], [-1, 1, 0], [0, 1, 1], [0, 1, -1],
+    ];
+    for (const direction of directions) {
+      if (selectedCards.size >= budgetCardCount) break;
+      let bestCard = 0;
+      let bestScore = -Infinity;
+      for (let card = 0; card < sourceCardCount; card += 1) {
+        const base = card * 4;
+        const score = positions.getX(base) * direction[0]
+          + positions.getY(base) * direction[1]
+          + positions.getZ(base) * direction[2]
+          + infos.getX(base) * 0.5;
+        if (score > bestScore) {
+          bestCard = card;
+          bestScore = score;
+        }
+      }
+      selectedCards.add(bestCard);
+    }
+
+    const allCards = Array.from({ length: sourceCardCount }, (_, card) => card);
+    addUntilFull(stableOrder(allCards));
+  }
+  const retainedCards = [...selectedCards].sort((left, right) => left - right)
+    .slice(0, budgetCardCount);
+  const cardCount = retainedCards.length;
+  const budgetScaleCompensation = cardCount > 0
+    ? Math.sqrt(Math.max(requestedCardCount, 1) / cardCount)
+    : 1;
+  const resolvedCardScale = Math.max(0.01, cardScale)
+    * Math.min(1.24, budgetScaleCompensation);
   const hybridCrossedCount = mode === 'hybrid' ? Math.round(cardCount * 0.3) : 0;
   const quadCount = mode === 'crossed'
     ? cardCount * 2
@@ -69,17 +170,19 @@ export function bakeFoliageGeometry(canopyGeometry, {
   const color = new THREE.Color();
 
   let quadIndex = 0;
-  for (let card = 0; card < cardCount; card += 1) {
+  for (let retainedCard = 0; retainedCard < cardCount; retainedCard += 1) {
+    const card = retainedCards[retainedCard];
     // Spread hybrid crossed cards over the full attachment order instead of
     // concentrating the view-robust pairs on the first few branches.
     const hybridCrossed = mode === 'hybrid'
-      && ((card * 17) % Math.max(cardCount, 1)) < hybridCrossedCount;
+      && Math.floor((retainedCard + 1) * hybridCrossedCount / Math.max(cardCount, 1))
+        > Math.floor(retainedCard * hybridCrossedCount / Math.max(cardCount, 1));
     const quadsPerCard = mode === 'crossed' || hybridCrossed ? 2 : 1;
     const base = card * 4;
     center.fromBufferAttribute(positions, base);
     if (matrix) center.applyMatrix4(matrix);
     normal.fromBufferAttribute(shadeNormals, base).normalize();
-    const size = infos.getX(base);
+    const size = infos.getX(base) * resolvedCardScale;
     const phase = infos.getY(base);
     const tint = infos.getZ(base);
     const heightT = infos.getW(base);
@@ -225,7 +328,12 @@ export function createBakedFoliageMaterial({ leafMap = null, alphaTest = 0.3 } =
 // Live plant (StylizedTree | StylizedBush | StylizedFlower) → export-ready group with plain
 // materials, world scale baked into the vertices (identity transforms), and
 // the recipe attached as userData.treeRecipe (→ glTF extras).
-export function prepareTreeForExport(plant, { foliageMode = 'crossed' } = {}) {
+export function prepareTreeForExport(plant, {
+  foliageMode = 'crossed',
+  foliageCardRetention = 1,
+  foliageCardScale = 1,
+  foliageTriangleBudget = Infinity,
+} = {}) {
   const group = new THREE.Group();
   group.name = plant.name || 'StylizedPlant';
   const size = plant.scale.x;
@@ -267,6 +375,9 @@ export function prepareTreeForExport(plant, { foliageMode = 'crossed' } = {}) {
     sunDirection: uniforms.uSunDirection.value.toArray(),
     sunColor: uniforms.uSunColor.value.toArray(),
     matrix: canopyMatrix,
+    cardRetention: foliageCardRetention,
+    cardScale: foliageCardScale,
+    triangleBudget: foliageTriangleBudget,
   });
   const foliage = new THREE.Mesh(foliageGeometry, createBakedFoliageMaterial({
     leafMap: uniforms.uLeafMap.value,

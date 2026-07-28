@@ -52,11 +52,15 @@ function useRendererBackend() {
   return backend;
 }
 
-export function RendererToggle() {
+export function RendererToggle({
+  supportedKinds = RENDERER_SWITCHER_KINDS,
+  unsupportedReason = 'This preview does not support that renderer.',
+} = {}) {
   const requested = resolveRendererKind();
   const requestedChoice = requested === 'webgpu-forced-gl' ? 'webgl' : requested;
   const backend = useRendererBackend();
   const matches = backend === EXPECTED_BACKEND[requested];
+  const supported = new Set(supportedKinds);
 
   return (
     <span className="tk-renderer" data-testid="renderer-toggle">
@@ -67,6 +71,8 @@ export function RendererToggle() {
             type="button"
             aria-pressed={kind === requestedChoice}
             data-renderer-choice={kind}
+            disabled={!supported.has(kind)}
+            title={supported.has(kind) ? undefined : unsupportedReason}
             onClick={() => {
               if (kind !== requestedChoice) window.location.assign(urlForKind(kind));
             }}

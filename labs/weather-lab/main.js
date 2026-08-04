@@ -14,6 +14,7 @@ import {
   getWeatherStyleOptions,
   mergeWeatherSettings,
   parseWeatherPresetDocument,
+  rebaseWeatherSettingsStyle,
   registerWeatherPresetDocument,
   resolveWeatherPreset,
   resolveWeatherStyleName,
@@ -83,6 +84,7 @@ function bootSelection(urlParams = new URLSearchParams(window.location.search)) 
 const boot = bootSelection();
 let activePreset = boot.condition;
 let activeStyle = boot.style;
+let sourceCondition = boot.condition;
 let activeGroup = 'atmosphere';
 let draft = resolveWeatherPreset(activePreset, { style: activeStyle }).settings;
 let world = null;
@@ -171,6 +173,7 @@ function renderConditions() {
       button.innerHTML = `<span class="wl-condition-icon">${ICONS[id] ?? '☁️'}</span><span class="wl-condition-copy"><strong>${option.label}</strong><small>${option.description}</small></span>`;
       button.addEventListener('click', () => {
         activePreset = id;
+        sourceCondition = id;
         draft = resolveWeatherPreset(id, { style: activeStyle }).settings;
         elements.weatherName.value = option.label;
         world?.weather?.transitionTo(id, { duration: Number(elements.transitionDuration.value) || 0 });
@@ -431,9 +434,15 @@ elements.transitionDuration.addEventListener('input', () => {
   elements.transitionValue.textContent = `${Number(elements.transitionDuration.value).toFixed(1)}s`;
 });
 elements.weatherStyle.addEventListener('change', () => {
-  activeStyle = elements.weatherStyle.value;
-  if (activePreset) draft = resolveWeatherPreset(activePreset, { style: activeStyle }).settings;
+  const nextStyle = elements.weatherStyle.value;
+  draft = rebaseWeatherSettingsStyle(draft, {
+    condition: sourceCondition,
+    fromStyle: activeStyle,
+    toStyle: nextStyle,
+  });
+  activeStyle = nextStyle;
   world?.weather?.setStyle(activeStyle);
+  world?.weather?.applySettings(draft);
   updateSelectionUrl();
   renderConditions();
   renderFields();
@@ -455,6 +464,7 @@ elements.weatherFile.addEventListener('change', async () => {
   }
   registerWeatherPresetDocument(result.value, { overwrite: true });
   activePreset = result.value.id;
+  sourceCondition = result.value.id;
   draft = result.value.settings;
   elements.weatherName.value = result.value.label;
   world?.weather?.transitionTo(draft, { duration: Number(elements.transitionDuration.value) || 0 });
@@ -471,6 +481,7 @@ elements.saveWeather.addEventListener('click', () => {
   saveLocalWeatherDocuments(saved);
   registerWeatherPresetDocument(document, { overwrite: true });
   activePreset = id;
+  sourceCondition = id;
   updateSelectionUrl();
   renderConditions();
   elements.weatherStatus.textContent = `Saved ${document.label} locally`;

@@ -7,7 +7,10 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createWalkPreviewActions, installWalkPreviewController } from '../../shared/walkPreview.js';
-import { StylizedGrassField } from '../../../src/vegetation/index.js';
+import {
+  StylizedGrassField,
+  resolveVegetationShaderPreset,
+} from '../../../src/vegetation/index.js';
 import { installGroundSurface } from './groundSurface.js';
 
 export function createSceneDressing({ engine, store }) {
@@ -61,7 +64,7 @@ export function createSceneDressing({ engine, store }) {
       groundAdoptStrength: 0.35,
       groundField: true,
       placements,
-      vegetationShader: store.getState().settings.plant.stylePreset,
+      vegetationShader: resolveVegetationShaderPreset(store.getState().styleId),
     });
     // Fade the blades out before the meadow edge — never a hard rim.
     grass.material.uniforms.uFadeStart.value = MEADOW_RADIUS * 0.8;
@@ -108,9 +111,13 @@ export function createSceneDressing({ engine, store }) {
   });
 
   store.subscribe(() => {
-    const { mannequin: wanted, walkPreview } = store.getState();
+    const { mannequin: wanted, styleId, walkPreview } = store.getState();
     if ((wanted || walkPreview) && !mannequin) loadMannequin();
     if (mannequin) mannequin.visible = Boolean(wanted || walkPreview);
+    if (grass && grass.userData.previewStyleId !== styleId) {
+      grass.userData.previewStyleId = styleId;
+      grass.setVegetationShader(resolveVegetationShaderPreset(styleId));
+    }
   });
 
   function moveWithTreeCollision(delta) {

@@ -15,6 +15,13 @@ import * as vegetation from '@call-me-sensei/toonlab/vegetation';
 import * as vegetationShaders from '@call-me-sensei/toonlab/vegetation-shaders';
 import * as water from '@call-me-sensei/toonlab/water';
 
+import { createDebrisStore } from '../labs/debris-lab/store/debrisStore.js';
+import {
+  createEnvironmentLabStore,
+  ENVIRONMENT_LAB_PRESET_QUERY_PARAM,
+  ENVIRONMENT_LAB_SCENARIO_QUERY_PARAM,
+  ENVIRONMENT_LAB_STYLE_QUERY_PARAM,
+} from '../labs/environment-lab/ui/store.js';
 import * as grassLabStore from '../labs/grass-lab/grassPresetStore.js';
 
 let checks = 0;
@@ -619,6 +626,67 @@ check('style bundles keep IP-wide styles separate from asset presets', () => {
       style: 'default',
     },
   );
+});
+
+check('Debris Lab style changes preserve the asset recipe and edits', () => {
+  const store = createDebrisStore({
+    urlParams: new URLSearchParams('debrisPreset=bleached-driftwood&debrisStyle=default'),
+  });
+  const originalRoughness = store.getState().settings.surface.roughness;
+  const editedLength = store.getState().settings.shape.length + 0.37;
+  store.actions.setField('shape', 'length', editedLength);
+  store.actions.setStyle('call_me_sensei');
+  assert.equal(store.getState().settings.shape.length, editedLength);
+  assert.notEqual(store.getState().settings.surface.roughness, originalRoughness);
+  store.actions.setStyle('default');
+  assert.equal(store.getState().settings.shape.length, editedLength);
+  assert.equal(store.getState().settings.surface.roughness, originalRoughness);
+  assert.equal(store.actions.getRecipeDocument().settings.shape.length, editedLength);
+});
+
+check('Environment Lab exposes canonical Style × Scenario links with legacy compatibility', () => {
+  assert.equal(ENVIRONMENT_LAB_STYLE_QUERY_PARAM, 'envStyle');
+  assert.equal(ENVIRONMENT_LAB_PRESET_QUERY_PARAM, 'envPreset');
+  assert.equal(ENVIRONMENT_LAB_SCENARIO_QUERY_PARAM, 'envScenario');
+
+  const previousWindow = globalThis.window;
+  const values = new Map();
+  globalThis.window = {
+    location: { search: '' },
+    localStorage: {
+      getItem: (key) => values.get(key) ?? null,
+      removeItem: (key) => values.delete(key),
+      setItem: (key, value) => values.set(key, String(value)),
+    },
+  };
+  try {
+    values.set('toonlab.environmentLab.document.v1', JSON.stringify({
+      name: 'Unrelated draft',
+      presetId: 'default',
+      scenarioId: 'exteriorDay',
+      settings: root.createEnvironmentSettings(),
+    }));
+    const linked = createEnvironmentLabStore({
+      urlParams: new URLSearchParams(
+        'envStyle=call_me_sensei&envPreset=default&envScenario=interiorNight',
+      ),
+    });
+    assert.equal(linked.getState().bootSource, 'url');
+    assert.equal(linked.getState().presetId, 'call_me_sensei');
+    assert.equal(linked.getState().scenarioId, 'interiorNight');
+    linked.actions.setScenario('exteriorDay');
+    assert.equal(linked.getState().presetId, 'call_me_sensei');
+    assert.equal(linked.getState().scenarioId, 'exteriorDay');
+
+    const legacy = createEnvironmentLabStore({
+      urlParams: new URLSearchParams('envPreset=interiorDay'),
+    });
+    assert.equal(legacy.getState().presetId, 'default');
+    assert.equal(legacy.getState().scenarioId, 'interiorDay');
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
 });
 
 check('water exports the complete portable runtime surface', () => {

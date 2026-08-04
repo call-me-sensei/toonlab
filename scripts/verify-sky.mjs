@@ -44,6 +44,7 @@ import {
   createSkyLabStore,
   SKY_LAB_DOCUMENT_STORAGE_KEY,
   SKY_LAB_PRESET_QUERY_PARAM,
+  SKY_LAB_STYLE_QUERY_PARAM,
 } from '../labs/sky-lab/ui/store.js';
 
 const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -329,6 +330,7 @@ globalThis.window = {
 assert.equal(SKY_PRESET_STORAGE_KEY, 'toonlab.skyPresets.v1');
 assert.equal(SKY_LAB_DOCUMENT_STORAGE_KEY, 'toonlab.skyShaderLab.document.v2');
 assert.equal(SKY_LAB_PRESET_QUERY_PARAM, 'skyShader');
+assert.equal(SKY_LAB_STYLE_QUERY_PARAM, 'skyStyle');
 assert.equal(DEFAULT_SKY_SHADER_PRESET, 'call_me_sensei');
 assert.equal(SKY_SHADER_DOCUMENT_TYPE, 'toonlab/sky-shader-preset');
 assert.equal(SKY_SHADER_FIELD_COUNT, 40);
@@ -371,6 +373,16 @@ const linkedStore = createSkyLabStore({
   urlParams: new URLSearchParams('skyShader=default'),
 });
 assert.equal(linkedStore.getState().presetId, 'default');
+
+const compatibleStyleStore = createSkyLabStore({
+  urlParams: new URLSearchParams('skyStyle=default'),
+});
+assert.equal(compatibleStyleStore.getState().presetId, 'default');
+
+const preferredShaderStore = createSkyLabStore({
+  urlParams: new URLSearchParams('skyShader=default&skyStyle=call_me_sensei'),
+});
+assert.equal(preferredShaderStore.getState().presetId, 'default');
 
 const skyShaderDocument = createSkyShaderPresetDocument('verification_sky', {
   label: 'Verification Sky',

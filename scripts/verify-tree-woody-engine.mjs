@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   createPlantGraph,
   validatePlantGraph,
-} from '../src/vegetation/index.js';
+} from '../src/vegetation/experimental.js';
 
 const REPRESENTATIVE_ARCHITECTURES = Object.freeze([
   { id: 'broadleaf-decurrent', speciesProfileId: 'quercus-robur' },

@@ -18,6 +18,8 @@ export const SKY_LAB_DOCUMENT_STORAGE_KEY =
 export const SKY_LAB_PRESETS_STORAGE_KEY =
   'toonlab.skyShaderLab.presets.v2';
 export const SKY_LAB_PRESET_QUERY_PARAM = 'skyShader';
+export const SKY_LAB_STYLE_QUERY_PARAM = 'skyStyle';
+const SKY_LAB_LEGACY_PRESET_QUERY_PARAM = 'skyPreset';
 
 const UNDO_LIMIT = 50;
 const HISTORY_COALESCE_MS = 500;
@@ -117,7 +119,9 @@ function linkedPreview(urlParams, fallback = {}) {
 }
 
 function bootDocument(urlParams) {
-  const linkedPreset = urlParams.get(SKY_LAB_PRESET_QUERY_PARAM);
+  const linkedPreset = urlParams.get(SKY_LAB_PRESET_QUERY_PARAM)
+    || urlParams.get(SKY_LAB_STYLE_QUERY_PARAM)
+    || urlParams.get(SKY_LAB_LEGACY_PRESET_QUERY_PARAM);
   if (linkedPreset) {
     return {
       bootSource: 'preset',

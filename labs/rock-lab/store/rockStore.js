@@ -8,7 +8,7 @@
 // Undo/redo are JSON snapshots of the document (the same model the old
 // history.js used), coalesced per burst of slider edits.
 
-import { createStore } from '../../shared/ui/index.js';
+import { createStore } from '../../shared/ui/createStore.js';
 import {
   addPieceToDocument,
   applySculptEdit,

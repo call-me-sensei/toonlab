@@ -181,8 +181,9 @@ Default style's variant). The historical single-moment ids (`interiorDay`,
 byte-identical to the presets they replaced. The `rig` hints (`sun`,
 `spotShadows`, `probe`, `planarReflection`, `dustMotes`, `bakeVertexAo`,
 `lampIntensity`, `timeOfDayHour`) tell the host app which rigs to
-construct — the labs consume them automatically via `?envPreset=` (and
-`?envScenario=`).
+construct — the labs consume them automatically via `?envStyle=` and
+`?envScenario=`. The older `?envPreset=` identity key remains readable for
+existing bookmarks.
 
 Register your own, either in code or as a shareable JSON document
 (`toonlab/environment-preset`, versioned and validated like toon presets):

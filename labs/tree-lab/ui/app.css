@@ -397,7 +397,17 @@ body[data-capture-view] #app {
 }
 
 .td-sublab { margin-left: var(--space-2); }
-.td-previewbar-select { width: 150px; }
+.td-root ~ .tk-previewbar { gap: var(--space-1); }
+.td-root ~ .tk-previewbar .tk-previewbar-slider .tk-slider { width: 72px; }
+.td-previewbar-select { width: 130px; }
+.td-previewbar-style {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--preview-300);
+  font: var(--type-caption);
+}
+.td-previewbar-style .tk-select { width: 132px; }
 .td-lod-preview {
   display: inline-flex;
   align-items: center;

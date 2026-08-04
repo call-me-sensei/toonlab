@@ -239,6 +239,50 @@ function mergeStyleUnderCondition(styleSettings, conditionSettings) {
   return result;
 }
 
+function weatherValuesEqual(left, right) {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right)
+      && left.length === right.length
+      && left.every((value, index) => weatherValuesEqual(value, right[index]));
+  }
+  if (left && right && typeof left === 'object' && typeof right === 'object') {
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    return leftKeys.length === rightKeys.length
+      && leftKeys.every((key) => Object.hasOwn(right, key)
+        && weatherValuesEqual(left[key], right[key]));
+  }
+  return false;
+}
+
+function weatherDifference(current, baseline) {
+  if (weatherValuesEqual(current, baseline)) return undefined;
+  if (Array.isArray(current) || !current || typeof current !== 'object') {
+    return structuredClone(current);
+  }
+  const entries = Object.entries(current)
+    .map(([key, value]) => [key, weatherDifference(value, baseline?.[key])])
+    .filter(([, value]) => value !== undefined);
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function rebaseWeatherValue(current, oldBase, newBase) {
+  if (weatherValuesEqual(current, oldBase)) return structuredClone(newBase);
+  if (Array.isArray(current)) return structuredClone(current);
+  if (current && typeof current === 'object'
+    && oldBase && typeof oldBase === 'object'
+    && newBase && typeof newBase === 'object') {
+    return Object.fromEntries(Object.keys(current).map((key) => [
+      key,
+      Object.hasOwn(oldBase, key) && Object.hasOwn(newBase, key)
+        ? rebaseWeatherValue(current[key], oldBase[key], newBase[key])
+        : structuredClone(current[key]),
+    ]));
+  }
+  return structuredClone(current);
+}
+
 /**
  * Resolves a CONDITION rendered through a STYLE. `name` is a condition id
  * (clear…blizzard); `style` picks the identity (default when omitted).
@@ -272,10 +316,17 @@ export function registerWeatherPreset(name, definition = {}, { overwrite = false
   if (!overwrite && DEFINITIONS.has(id)) throw new Error(`Weather preset "${id}" already exists.`);
   const source = definition && typeof definition === 'object' ? definition : {};
   const settings = source.settings ?? source;
+  // Portable documents contain a complete normalized object. Store only its
+  // authored difference from the neutral condition so the independent style
+  // layer can still fill every value the custom condition did not change.
+  const conditionSettings = weatherDifference(
+    createWeatherSettings(settings),
+    createWeatherSettings(),
+  ) ?? {};
   DEFINITIONS.set(id, Object.freeze({
     description: String(source.description ?? ''),
     label: String(source.label ?? id),
-    settings: createWeatherSettings(settings),
+    settings: conditionSettings,
   }));
   return { description: String(source.description ?? ''), id, label: String(source.label ?? id) };
 }
@@ -330,4 +381,16 @@ export function registerWeatherPresetDocument(input, { overwrite = false } = {})
 /** Resolves a condition (through an optional style) and merges developer overrides over it. */
 export function resolveWeatherSettings(preset = 'call_me_sensei', overrides = {}, { style } = {}) {
   return mergeWeatherSettings(resolveWeatherPreset(preset, { style }).settings, overrides);
+}
+
+/** Re-style an edited condition while preserving its authored overrides. */
+export function rebaseWeatherSettingsStyle(settings, {
+  condition = 'clear',
+  fromStyle = 'default',
+  toStyle = 'default',
+} = {}) {
+  const current = createWeatherSettings(settings);
+  const oldBase = resolveWeatherSettings(condition, {}, { style: fromStyle });
+  const newBase = resolveWeatherSettings(condition, {}, { style: toStyle });
+  return createWeatherSettings(rebaseWeatherValue(current, oldBase, newBase));
 }

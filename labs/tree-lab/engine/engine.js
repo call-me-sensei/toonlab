@@ -14,6 +14,7 @@ import {
   disposeExportGroup,
   prepareTreeForExport,
   recipeFromSettings,
+  resolveVegetationShaderPreset,
   resolveCanopyColor,
   windOptionsFromSettings,
 } from '../../../src/vegetation/experimental.js';
@@ -243,6 +244,12 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
     });
   }
 
+  function applyLiveStyle() {
+    const { styleId } = store.getState();
+    plant?.setVegetationShader(resolveVegetationShaderPreset(styleId));
+    document.body.dataset.vegetationStyle = styleId;
+  }
+
   function disposePlantRoot(root) {
     root?.dispose?.();
     const retired = root?.userData?.toonlabRetiredBarkMaterials;
@@ -335,6 +342,7 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
     document.body.dataset.treeRuntime = plant?.plantGraph?.growthModel
       ?? (settings.plant.speciesProfileId ? 'threejs-plant-graph' : 'legacy-woody');
     plant.setSun?.({ direction: sunDirection, color: [1.0, 0.96, 0.86], sky: [0.72, 0.87, 1.0] });
+    applyLiveStyle();
     applyLiveWind();
     scene.add(plant);
     // The editor can keep a stable wind shadow between geometry edits. Render
@@ -454,6 +462,7 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
   let lastLiveColor = store.getState().settings.color;
   let lastLiveWind = store.getState().settings.wind;
   let lastPreviewLod = store.getState().previewLod;
+  let lastStyle = store.getState().styleId;
   store.subscribe(() => {
     const state = store.getState();
     if (state.docRevision !== lastDoc) {
@@ -483,6 +492,10 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
     if (state.previewLod !== lastPreviewLod) {
       lastPreviewLod = state.previewLod;
       refreshLodPreview();
+    }
+    if (state.styleId !== lastStyle) {
+      lastStyle = state.styleId;
+      applyLiveStyle();
     }
   });
 

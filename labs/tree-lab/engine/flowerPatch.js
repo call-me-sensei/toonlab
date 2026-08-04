@@ -5,7 +5,11 @@
 // from the same traceLeafShapePath silhouettes as leaves.
 
 import * as THREE from 'three';
-import { createFlowerHeadTexture, FLOWER_SPECIES } from '../../../src/vegetation/experimental.js';
+import {
+  createFlowerHeadTexture,
+  FLOWER_SPECIES,
+  resolveVegetationShaderPreset,
+} from '../../../src/vegetation/experimental.js';
 import { createFlowerHeadNodeMaterial } from '../../../src/shaders-tsl/flower.js';
 
 // Sakura/magnolia-style blossoms attach to canopy cards. Density is the only
@@ -94,6 +98,7 @@ export function createFlowerPatch({ engine, store }) {
     const headGeometry = new THREE.PlaneGeometry(blossomSize, blossomSize);
     const headMaterial = createFlowerHeadNodeMaterial({
       map: createFlowerHeadTexture(flowers),
+      vegetationShader: resolveVegetationShaderPreset(store.getState().styleId),
       windSpeed: 1.1,
       windStrength: blossomSize * 0.1,
     });
@@ -115,8 +120,8 @@ export function createFlowerPatch({ engine, store }) {
   engine.onRebuilt(() => rebuild());
 
   store.subscribe(() => {
-    const { flowers, settings } = store.getState();
-    const key = JSON.stringify([flowers, settings.plant.seed, settings.plant.size]);
+    const { flowers, settings, styleId } = store.getState();
+    const key = JSON.stringify([flowers, settings.plant.seed, settings.plant.size, styleId]);
     if (key !== lastKey) {
       lastKey = key;
       rebuild();

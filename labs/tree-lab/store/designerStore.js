@@ -18,6 +18,7 @@ import {
   TREE_TRUNK_STYLES,
   cloneTreeSettings,
   createTreeSpeciesRecipe,
+  getVegetationShaderPresetOptions,
   matchTrunkStyle,
   settingsFromRecipe,
   validateTreeRecipeDocument,
@@ -32,9 +33,17 @@ import {
 const UNDO_CAP = 50;
 const TRUNK_VALUE_KEYS = ['height', 'radiusBottom', 'bend', 'lean', 'twist', 'gnarl'];
 const SEED_RANGE = TREE_SETTING_FIELD_SCHEMA.plant.seed.range;
+const DEFAULT_VEGETATION_STYLE_ID = 'call_me_sensei';
 export const FLOWER_STATE_STORAGE_KEY = 'toonlab.flowerDesigner.state.v1';
 
 const round4 = (value) => Math.round(value * 10000) / 10000;
+
+function normalizeVegetationStyleId(value) {
+  const id = String(value ?? '').trim();
+  return getVegetationShaderPresetOptions().some((entry) => entry.id === id)
+    ? id
+    : DEFAULT_VEGETATION_STYLE_ID;
+}
 
 export function createDesignerStore({
   labKind = 'tree',
@@ -43,6 +52,9 @@ export function createDesignerStore({
 } = {}) {
   const isFlowerLab = labKind === 'flower';
   const presetParam = isFlowerLab ? 'flowerPreset' : 'treePreset';
+  const styleId = normalizeVegetationStyleId(
+    urlParams.get('vegetationStyle') ?? urlParams.get('style'),
+  );
   let boot = bootState(urlParams, { presetParam, storageKey });
   // Each lab owns one authoring scope. A stale/cross-lab document must not
   // silently turn the Flower Lab back into the Tree Lab (or vice versa).
@@ -93,6 +105,9 @@ export function createDesignerStore({
     moveMode: 'rotate', // 'pan' | 'rotate' | 'zoom' — what LEFT-drag does in Move
     previewLod: null, // null = editable live tree; 0..3 = compiled export LOD inspection
     sky: { hour: 12, weather: 'clear' }, // environment presentation (session)
+    // IP-wide rendition used by the preview. It deliberately stays outside
+    // the tree/flower recipe, persistence, history, and dirty-state contract.
+    styleId,
     walkPreview: false, // Keyboard-walk the mannequin around the tree.
     presetDirty: false,
     selection: null, // { branchIndex, screen: {x, y} }
@@ -619,6 +634,19 @@ export function createDesignerStore({
     },
     setSky(partial) {
       store.setState({ sky: { ...state().sky, ...partial } });
+    },
+    setStyleId(value) {
+      const next = normalizeVegetationStyleId(value);
+      if (next === state().styleId) return;
+      const label = getVegetationShaderPresetOptions()
+        .find((entry) => entry.id === next)?.label ?? next;
+      store.setState({
+        status: `Previewing every plant preset through ${label}.`,
+        styleId: next,
+      });
+      const url = new URL(window.location.href);
+      url.searchParams.set('vegetationStyle', next);
+      window.history.replaceState(null, '', url);
     },
     setWalkPreview(walkPreview) {
       store.setState({ walkPreview });

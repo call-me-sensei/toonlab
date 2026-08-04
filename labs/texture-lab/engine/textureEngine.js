@@ -1,8 +1,8 @@
 // Three.js half of Texture Lab: bakes the current recipe into PBR maps
 // (src/texgen), shows them on a preview mesh (3D) or as a tiled flat sheet
-// (2D), and re-bakes on store revisions with cancellation. No shadows, no
-// environment shader — the point here is to inspect the maps on a plain
-// standard material under stable studio lighting.
+// (2D), and re-bakes on store revisions with cancellation. Neutral PBR is
+// the exact-map reference; optional environment styles re-render those same
+// maps for lookdev without changing the texture document or exports.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -11,7 +11,12 @@ import {
   evaluateTextureMaps,
   syncTextureMapTextures,
 } from '../../../src/texgen/index.js';
+import {
+  applyEnvironmentShader,
+  resolveEnvironmentPreset,
+} from '../../../src/environment/index.js';
 import { createLabRenderer, whenRendererReady } from '../../shared/rendererFactory.js';
+import { NEUTRAL_TEXTURE_PREVIEW_STYLE } from '../previewStyles.js';
 
 const REBAKE_DEBOUNCE_MS = 110;
 
@@ -127,7 +132,7 @@ export function createTextureEngine({ mount, store }) {
   rim.position.set(-2.6, 1.2, -2.4);
   scene.add(rim);
 
-  const material = new THREE.MeshStandardMaterial({
+  const neutralMaterial = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     emissive: 0x000000,
     metalness: 1,
@@ -138,7 +143,7 @@ export function createTextureEngine({ mount, store }) {
   const meshes = {};
   const meshGroup = new THREE.Group();
   for (const spec of TEXTURE_PREVIEW_MESHES) {
-    const mesh = new THREE.Mesh(geometries[spec.id], material);
+    const mesh = new THREE.Mesh(geometries[spec.id], neutralMaterial);
     mesh.visible = spec.id === 'sphere';
     if (spec.id === 'plane') mesh.rotation.x = -Math.PI * 0.42;
     meshes[spec.id] = mesh;
@@ -162,7 +167,75 @@ export function createTextureEngine({ mount, store }) {
   let rebakeTimer = 0;
   let lastRevision = store.getState().docRevision;
   let lastView = null;
+  let previewStyleToken = 0;
+  const styledMaterials = new Map();
   const rebuiltListeners = new Set();
+
+  function setPreviewMaterial(material) {
+    for (const mesh of Object.values(meshes)) mesh.material = material;
+  }
+
+  function clearStyledMaterials() {
+    setPreviewMaterial(neutralMaterial);
+    previewStyleToken += 1;
+    for (const material of styledMaterials.values()) material.dispose();
+    styledMaterials.clear();
+  }
+
+  async function buildStyledMaterial(styleId) {
+    const source = neutralMaterial.clone();
+    const geometry = new THREE.PlaneGeometry(1, 1);
+    const subject = new THREE.Mesh(geometry, source);
+    const root = new THREE.Group();
+    root.add(subject);
+    const preset = resolveEnvironmentPreset(styleId);
+    try {
+      await applyEnvironmentShader(root, {
+        bakeVertexAo: false,
+        features: preset.features,
+        hasSun: false,
+        parameters: preset.parameters,
+        scanStylize: false,
+      });
+      const styled = subject.material;
+      styled.name = `TexturePreview:${styleId}`;
+      return styled;
+    } finally {
+      source.dispose();
+      geometry.dispose();
+    }
+  }
+
+  async function applyPreviewStyle() {
+    const styleId = store.getState().view.previewStyle;
+    const token = ++previewStyleToken;
+    if (styleId === NEUTRAL_TEXTURE_PREVIEW_STYLE) {
+      setPreviewMaterial(neutralMaterial);
+      document.body.dataset.texturePreviewStyle = styleId;
+      return;
+    }
+    let styled = styledMaterials.get(styleId);
+    if (!styled) {
+      styled = await buildStyledMaterial(styleId);
+      if (token !== previewStyleToken) {
+        styled.dispose();
+        return;
+      }
+      styledMaterials.set(styleId, styled);
+    }
+    if (token !== previewStyleToken) return;
+    setPreviewMaterial(styled);
+    document.body.dataset.texturePreviewStyle = styleId;
+  }
+
+  function requestPreviewStyle() {
+    return applyPreviewStyle().catch((error) => {
+      console.warn('Texture preview style failed:', error);
+      setPreviewMaterial(neutralMaterial);
+      document.body.dataset.texturePreviewStyle = NEUTRAL_TEXTURE_PREVIEW_STYLE;
+      store.actions.setStatus('That preview style could not render; showing Neutral PBR.');
+    });
+  }
 
   // Decoded image-base cache (texgen stays DOM-free; decoding lives here).
   let imageCache = { dataUrl: null, pixels: null };
@@ -200,7 +273,7 @@ export function createTextureEngine({ mount, store }) {
   function applyView() {
     const state = store.getState();
     const view = state.view;
-    const viewKey = `${view.mesh}|${view.map}|${view.mode}|${view.tiling}|${state.settings.surface.heightScale}`;
+    const viewKey = `${view.mesh}|${view.map}|${view.mode}|${view.tiling}|${view.previewStyle}|${state.settings.surface.heightScale}`;
     if (viewKey === lastView) return;
     lastView = viewKey;
 
@@ -208,7 +281,7 @@ export function createTextureEngine({ mount, store }) {
       meshes[spec.id].visible = spec.id === view.mesh && view.mode === '3d';
     }
     const meshSpec = TEXTURE_PREVIEW_MESHES.find((spec) => spec.id === view.mesh) ?? TEXTURE_PREVIEW_MESHES[0];
-    material.displacementScale = meshSpec.displacement * state.settings.surface.heightScale;
+    neutralMaterial.displacementScale = meshSpec.displacement * state.settings.surface.heightScale;
     applyRepeat(view.tiling);
     if (textures) {
       const mapId = view.map === 'final' ? 'albedo' : view.map;
@@ -255,23 +328,25 @@ export function createTextureEngine({ mount, store }) {
     const synced = syncTextureMapTextures(maps, textures);
     textures = synced.textures;
     if (synced.recreated) {
-      material.map = textures.albedo;
-      material.normalMap = textures.normal;
-      material.roughnessMap = textures.roughness;
-      material.metalnessMap = textures.metalness;
-      material.aoMap = textures.ao;
-      material.displacementMap = textures.heightBytes;
-      material.emissiveMap = textures.emissive;
-      material.needsUpdate = true;
+      neutralMaterial.map = textures.albedo;
+      neutralMaterial.normalMap = textures.normal;
+      neutralMaterial.roughnessMap = textures.roughness;
+      neutralMaterial.metalnessMap = textures.metalness;
+      neutralMaterial.aoMap = textures.ao;
+      neutralMaterial.displacementMap = textures.heightBytes;
+      neutralMaterial.emissiveMap = textures.emissive;
+      neutralMaterial.needsUpdate = true;
+      clearStyledMaterials();
       lastView = null; // re-apply repeat + 2D map bindings
     }
-    material.emissive.setScalar(maps.emissiveEnabled ? 1 : 0);
-    material.emissiveIntensity = maps.emissiveEnabled ? maps.emissiveIntensity : 1;
+    neutralMaterial.emissive.setScalar(maps.emissiveEnabled ? 1 : 0);
+    neutralMaterial.emissiveIntensity = maps.emissiveEnabled ? maps.emissiveIntensity : 1;
 
     store.actions.setGen({ busy: false, ms: maps.ms, progress: 1, size });
     document.body.dataset.textureBakeMs = String(Math.round(maps.ms));
     document.body.dataset.textureBakeSize = String(size);
     applyView();
+    if (synced.recreated) await requestPreviewStyle();
     for (const listener of rebuiltListeners) listener();
   }
 
@@ -281,6 +356,7 @@ export function createTextureEngine({ mount, store }) {
   }
 
   let lastHq = store.getState().view.hq;
+  let lastPreviewStyle = store.getState().view.previewStyle;
   store.subscribe(() => {
     const state = store.getState();
     if (state.docRevision !== lastRevision) {
@@ -291,6 +367,10 @@ export function createTextureEngine({ mount, store }) {
     if (state.view.hq !== lastHq) {
       lastHq = state.view.hq;
       bake({ immediate: true });
+    }
+    if (state.view.previewStyle !== lastPreviewStyle) {
+      lastPreviewStyle = state.view.previewStyle;
+      requestPreviewStyle();
     }
     applyView();
   });
@@ -334,6 +414,7 @@ export function createTextureEngine({ mount, store }) {
     ensureImagePixels,
     /** Latest baked maps (preview resolution) — reused by quick exports. */
     getMaps: () => lastMaps,
+    getPreviewMaterial: () => meshes[store.getState().view.mesh]?.material ?? neutralMaterial,
     onRebuilt(listener) {
       rebuiltListeners.add(listener);
       return () => rebuiltListeners.delete(listener);

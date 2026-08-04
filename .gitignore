@@ -19,6 +19,10 @@ build/
 # docs/characters.md). Back this folder up — it is not in git.
 assets-local/
 .local-reference/
+
+# Generated/private research artifacts — keep local; source documentation
+# remains under docs/research/.
+artifacts/research/
 artifacts/woody-baseline/
 
 # Licensed reference texture — supply your own painted stone tile; the

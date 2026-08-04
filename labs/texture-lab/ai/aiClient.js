@@ -97,20 +97,30 @@ export async function runTexturePrompt({ prompt, mode = 'new', settings = null, 
     return keywordTextureRecipe(clean, { currentSettings: settings, mode });
   }
 
-  const apiKey = config.keys[config.provider]?.trim();
   const model = config.models[config.provider]?.trim();
-  if (!apiKey) throw new Error(`Add your ${config.provider === 'gemini' ? 'Gemini' : 'OpenAI'} API key first (stored only in this browser).`);
   if (!model) throw new Error('Set a model id first.');
 
   const { system, user } = buildTextureAiPrompt({ mode, prompt: clean, settings });
   let text;
   try {
-    text = config.provider === 'gemini'
-      ? await callGemini({ apiKey, model, system, user })
-      : await callOpenAi({ apiKey, model, system, user });
+    const response = await fetch('/api/toonlab/generate', {
+      body: JSON.stringify({
+        kind: 'texture-recipe',
+        provider: config.provider,
+        request: { model, system, user },
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      throw new Error(body?.error ?? `${config.provider}: local provider request failed (${response.status})`);
+    }
+    text = body?.job?.result?.text ?? '';
+    if (!text) throw new Error(`${config.provider} returned no text.`);
   } catch (error) {
     if (error instanceof TypeError) {
-      throw new Error(`${config.provider === 'gemini' ? 'Gemini' : 'OpenAI'}: network error — check your connection (and any content blockers).`);
+      throw new Error(`${config.provider}: local server unavailable — run ToonLab with npm run dev.`);
     }
     throw error;
   }

@@ -2,10 +2,10 @@
 //
 // This profile owns cloud rendering only. The sky gradient, sun/moon, time,
 // weather, fog, precipitation, cloud source meshes, source textures, and color
-// atlases are host inputs. Defaults reproduce the accepted P18 cloud graph.
+// atlases are host inputs. Defaults provide a neutral authored cloud graph.
 
 export const CLOUD_SHADER_DOCUMENT_TYPE = 'toonlab/cloud-shader-preset';
-export const CLOUD_SHADER_SCHEMA_VERSION = 1;
+export const CLOUD_SHADER_SCHEMA_VERSION = 2;
 export const DEFAULT_CLOUD_SHADER_PRESET = 'call_me_sensei';
 
 const DEFINITIONS = Object.freeze({
@@ -15,7 +15,7 @@ const DEFINITIONS = Object.freeze({
     label: 'Background Strength',
     range: Object.freeze({ max: 1, min: 0, step: 0.01 }),
     type: 'number',
-    value: 0.30000001192092896,
+    value: 0.28,
   }),
   backgroundCloudOpacity: Object.freeze({
     description: 'Opacity of the distant cloud texture before it is screen-blended into the sky.',
@@ -87,7 +87,7 @@ const DEFINITIONS = Object.freeze({
     label: 'Cloud Vertical Offset',
     range: Object.freeze({ max: 1, min: -1, step: 0.001 }),
     type: 'number',
-    value: -0.07199999690055847,
+    value: -0.06,
   }),
   cloudShellVerticalStretch: Object.freeze({
     description: 'Vertical texture scale around the foreground cloud-shell UV center.',
@@ -95,7 +95,7 @@ const DEFINITIONS = Object.freeze({
     label: 'Cloud Vertical Stretch',
     range: Object.freeze({ max: 4, min: 0.1, step: 0.001 }),
     type: 'number',
-    value: 0.42399999499320984,
+    value: 0.46,
   }),
   cloudShellEdgeContrast: Object.freeze({
     description: 'Power applied to the authored alpha mask. 1 preserves the accepted source edge; higher values tighten it.',
@@ -110,7 +110,7 @@ const DEFINITIONS = Object.freeze({
     group: 'lighting',
     label: 'Background Tint',
     type: 'color',
-    value: Object.freeze([0.5289999842643738, 0.7479659914970398, 1]),
+    value: Object.freeze([0.54, 0.74, 1]),
   }),
   cloudShellTint: Object.freeze({
     description: 'Tint multiplied into the foreground cloud color-curve result.',
@@ -125,12 +125,129 @@ const DEFINITIONS = Object.freeze({
     label: 'Rotation Speed',
     range: Object.freeze({ max: 0.02, min: -0.02, step: 0.0001 }),
     type: 'number',
-    value: -0.0005000000237487257,
+    value: -0.0006,
   }),
   cloudShellMotionScale: Object.freeze({
     description: 'Preview/runtime multiplier for authored cloud drift. 0 freezes the cloud composition.',
     group: 'motion',
     label: 'Motion Scale',
+    range: Object.freeze({ max: 4, min: 0, step: 0.01 }),
+    type: 'number',
+    value: 1,
+  }),
+  opacity: Object.freeze({
+    description: 'Master opacity of reusable 2.5D cloud cards.',
+    group: 'composition',
+    label: 'Card Opacity',
+    range: Object.freeze({ max: 1, min: 0, step: 0.01 }),
+    type: 'number',
+    value: 1,
+  }),
+  worldShadowStrength: Object.freeze({
+    description: 'Strength of the separate world-space cloud shadow projection.',
+    group: 'composition',
+    label: 'World Shadow',
+    range: Object.freeze({ max: 1, min: 0, step: 0.01 }),
+    type: 'number',
+    value: 0.42,
+  }),
+  worldShadowSoftness: Object.freeze({
+    description: 'Softness of the world-space cloud shadow field.',
+    group: 'composition',
+    label: 'World Shadow Softness',
+    range: Object.freeze({ max: 1, min: 0, step: 0.01 }),
+    type: 'number',
+    value: 0.62,
+  }),
+  edgeSoftness: Object.freeze({
+    description: 'Additional feathering applied to generated cloud coverage.',
+    group: 'shape',
+    label: 'Card Edge Softness',
+    range: Object.freeze({ max: 1, min: 0, step: 0.01 }),
+    type: 'number',
+    value: 0.12,
+  }),
+  erosion: Object.freeze({
+    description: 'Live breakup driven by the source erosion/detail channel.',
+    group: 'shape',
+    label: 'Live Erosion',
+    range: Object.freeze({ max: 1, min: 0, step: 0.01 }),
+    type: 'number',
+    value: 0.08,
+  }),
+  litColor: Object.freeze({
+    description: 'Sun-facing color of generated 2.5D cloud cards.',
+    group: 'lighting',
+    label: 'Lit Color',
+    type: 'color',
+    value: Object.freeze([1, 0.99, 0.96]),
+  }),
+  shadeColor: Object.freeze({
+    description: 'Cool albedo-relative color used for cloud form shadow.',
+    group: 'lighting',
+    label: 'Shade Color',
+    type: 'color',
+    value: Object.freeze([0.56, 0.7, 0.92]),
+  }),
+  shadowStrength: Object.freeze({
+    description: 'Strength of normal, thickness, and ambient-occlusion form shadow.',
+    group: 'lighting',
+    label: 'Form Shadow',
+    range: Object.freeze({ max: 1, min: 0, step: 0.01 }),
+    type: 'number',
+    value: 0.72,
+  }),
+  normalStrength: Object.freeze({
+    description: 'Contribution of the generated normal map to sun-facing lighting.',
+    group: 'lighting',
+    label: 'Normal Strength',
+    range: Object.freeze({ max: 4, min: 0, step: 0.01 }),
+    type: 'number',
+    value: 1.35,
+  }),
+  depthStrength: Object.freeze({
+    description: 'Contribution of generated thickness to lower-mass cloud shading.',
+    group: 'lighting',
+    label: 'Depth Strength',
+    range: Object.freeze({ max: 2, min: 0, step: 0.01 }),
+    type: 'number',
+    value: 0.72,
+  }),
+  translucencyStrength: Object.freeze({
+    description: 'Forward-scattered light through thin cloud regions toward the sun.',
+    group: 'lighting',
+    label: 'Translucency',
+    range: Object.freeze({ max: 2, min: 0, step: 0.01 }),
+    type: 'number',
+    value: 0.38,
+  }),
+  rimColor: Object.freeze({
+    description: 'Color of the generated edge/silver-lining response.',
+    group: 'lighting',
+    label: 'Rim Color',
+    type: 'color',
+    value: Object.freeze([1, 0.94, 0.78]),
+  }),
+  rimStrength: Object.freeze({
+    description: 'Strength of the generated edge mask under sunward lighting.',
+    group: 'lighting',
+    label: 'Rim Strength',
+    range: Object.freeze({ max: 3, min: 0, step: 0.01 }),
+    type: 'number',
+    value: 0.46,
+  }),
+  rimPower: Object.freeze({
+    description: 'Focus of the sunward silver lining.',
+    group: 'lighting',
+    label: 'Rim Focus',
+    range: Object.freeze({ max: 16, min: 1, step: 0.1 }),
+    type: 'number',
+    value: 5,
+  }),
+  windResponse: Object.freeze({
+    description: 'Multiplier applied to composition-layer wind and parallax.',
+    group: 'motion',
+    label: 'Wind Response',
     range: Object.freeze({ max: 4, min: 0, step: 0.01 }),
     type: 'number',
     value: 1,
@@ -144,6 +261,9 @@ const GROUP_KEYS = Object.freeze({
     'cloudShellStrength',
     'cloudShellOpacity',
     'cloudShellCoverage',
+    'opacity',
+    'worldShadowStrength',
+    'worldShadowSoftness',
   ]),
   shape: Object.freeze([
     'backgroundCloudVerticalOffset',
@@ -153,14 +273,26 @@ const GROUP_KEYS = Object.freeze({
     'cloudShellVerticalOffset',
     'cloudShellVerticalStretch',
     'cloudShellEdgeContrast',
+    'edgeSoftness',
+    'erosion',
   ]),
   lighting: Object.freeze([
     'backgroundCloudTint',
     'cloudShellTint',
+    'litColor',
+    'shadeColor',
+    'shadowStrength',
+    'normalStrength',
+    'depthStrength',
+    'translucencyStrength',
+    'rimColor',
+    'rimStrength',
+    'rimPower',
   ]),
   motion: Object.freeze([
     'cloudShellRotationSpeed',
     'cloudShellMotionScale',
+    'windResponse',
   ]),
 });
 
@@ -233,8 +365,10 @@ function normalizeField(key, value, fallback) {
       || !value.slice(0, 3).every((channel) => Number.isFinite(Number(channel)))) {
       return clone(fallback);
     }
+    // Cloud lighting is authored in linear HDR space. Values above one are
+    // intentional headroom for ACES/tone-mapped sunlit tops.
     return value.slice(0, 3).map((channel) =>
-      Math.min(Math.max(Number(channel), 0), 1));
+      Math.min(Math.max(Number(channel), 0), 4));
   }
   const number = Number(value);
   if (!Number.isFinite(number)) return clone(fallback);
@@ -258,6 +392,28 @@ export const DEFAULT_CLOUD_SHADER_SETTINGS = Object.freeze(Object.fromEntries(
       : DEFINITIONS[key].value,
   ]),
 ));
+
+export const CALL_ME_SENSEI_CLOUD_SHADER_SETTINGS = Object.freeze({
+  ...DEFAULT_CLOUD_SHADER_SETTINGS,
+  backgroundCloudStrength: 0.34,
+  backgroundCloudTint: Object.freeze([0.5, 0.72, 1]),
+  cloudShellEdgeContrast: 1.18,
+  cloudShellStrength: 1.85,
+  cloudShellTint: Object.freeze([1, 0.98, 0.94]),
+  cloudShellVerticalStretch: 0.5,
+  depthStrength: 0.52,
+  edgeSoftness: 0.08,
+  erosion: 0.035,
+  litColor: Object.freeze([1, 1, 1]),
+  normalStrength: 1.75,
+  opacity: 0.98,
+  rimColor: Object.freeze([1, 0.96, 0.82]),
+  rimPower: 3.8,
+  rimStrength: 0.38,
+  shadeColor: Object.freeze([0.12, 0.3, 0.62]),
+  shadowStrength: 0.72,
+  translucencyStrength: 0.46,
+});
 
 export function createCloudShaderSettings(options = {}) {
   const source = typeof options === 'string'
@@ -320,6 +476,11 @@ export function validateCloudShaderPresetDocument(input) {
   else if (version > CLOUD_SHADER_SCHEMA_VERSION) {
     errors.push(
       `Cloud Shader version ${version} is newer than supported version ${CLOUD_SHADER_SCHEMA_VERSION}.`,
+    );
+  }
+  if (version < CLOUD_SHADER_SCHEMA_VERSION) {
+    warnings.push(
+      `Cloud Shader version ${version} was migrated to version ${CLOUD_SHADER_SCHEMA_VERSION} with generated-card lighting defaults.`,
     );
   }
   if (!normalizeId(source.id)) errors.push('Cloud Shader preset id is required.');
@@ -402,13 +563,13 @@ export function applyCloudShaderSettings(target, options = {}) {
 }
 
 registerCloudShaderPreset('default', {
-  description: 'Accepted authored sky-dome cloud graph defaults.',
-  label: 'Source Reference',
+  description: 'Neutral authored sky-dome cloud treatment.',
+  label: 'Default',
   settings: DEFAULT_CLOUD_SHADER_SETTINGS,
 });
 
 registerCloudShaderPreset('call_me_sensei', {
-  description: 'Call Me Sensei cloud treatment, initialized from the accepted P18 comparison.',
+  description: 'Call Me Sensei two-layer anime cloud treatment with cool depth and warm lit tops.',
   label: 'Call Me Sensei',
-  settings: DEFAULT_CLOUD_SHADER_SETTINGS,
+  settings: CALL_ME_SENSEI_CLOUD_SHADER_SETTINGS,
 });

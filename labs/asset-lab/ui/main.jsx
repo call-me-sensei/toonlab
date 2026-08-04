@@ -97,7 +97,7 @@ if (!window.__assetLabBooted) {
         ? await searchAmbientcg({ apiUrl: AMBIENTCG_PROXY_API, id: boot.asset })
         : boot.source === 'polypizza'
           ? [await fetchPolyPizzaModel(boot.asset, {
-            apiKey: localStorage.getItem('toonlab.asset-lab.polypizza-key.v1'),
+            apiKey: null,
             apiUrl: POLYPIZZA_PROXY_API,
           })].filter(Boolean)
           : boot.source === 'kaykit'

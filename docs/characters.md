@@ -83,10 +83,12 @@ conventions (`NATIVE_LOCOMOTION_CLIP_NAMES` in
 | swim | `Swim_Fwd_Loop`, `Swimming`, `Swim` |
 | tread | `Swim_Idle_Loop`, `Treading_Water`, `TreadingWater` |
 
-The bundled CC0 mannequin (Quaternius Universal Animation Library, 45
-embedded clips) qualifies out of the box — that is why a fresh clone
-animates with zero downloads. Author your own GLBs to these names and they
-play natively too.
+The repository's CC0 mannequin fixture (Quaternius Universal Animation
+Library, 46 embedded clips) qualifies out of the box — that is why a fresh
+source clone animates with zero downloads. It is excluded from the npm
+tarball; package consumers can use `TOONLAB_MANNEQUIN_ASSET.url` to download
+the immutable public-R2 copy or provide their own model. Author your own GLBs
+to these names and they play natively too.
 
 ## Mixamo retarget pipeline
 

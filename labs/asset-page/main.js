@@ -25,15 +25,19 @@ import {
 const params = new URLSearchParams(window.location.search);
 const assetId = (params.get('id') ?? '').replace(/[^a-z0-9_-]/gi, '');
 const requestedSource = params.get('src');
-const assetSource = ['plateau', 'smithsonian'].includes(requestedSource)
+const assetSource = ['official', 'plateau', 'smithsonian'].includes(requestedSource)
   ? requestedSource
   : 'polyhaven';
-let sourceLabel = assetSource === 'smithsonian'
+let sourceLabel = assetSource === 'official'
+  ? 'ToonLab Official Catalog'
+  : assetSource === 'smithsonian'
   ? 'Smithsonian 3D Open Access'
   : assetSource === 'plateau'
     ? 'Project PLATEAU'
     : 'Poly Haven';
-let sourcePage = assetSource === 'smithsonian'
+let sourcePage = assetSource === 'official'
+  ? '/gallery/?src=official'
+  : assetSource === 'smithsonian'
   ? 'https://3d.si.edu'
   : assetSource === 'plateau'
     ? 'https://www.mlit.go.jp/plateau/opendata/'
@@ -90,6 +94,10 @@ if (!assetId) {
 }
 
 async function boot() {
+  if (assetSource === 'official') {
+    await bootOfficial();
+    return;
+  }
   if (assetSource === 'plateau') {
     await bootPlateau();
     return;
@@ -151,6 +159,114 @@ async function boot() {
       tags: info.tags,
     }),
   });
+}
+
+function humanBytes(value) {
+  const bytes = Number(value) || 0;
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+}
+
+function browserCompatibleSkyFile(file) {
+  const path = file.relative_path.toLowerCase();
+  return file.compatibility?.skyCloudLab === true
+    || /\.(png|jpe?g|webp|hdr|exr)$/i.test(path);
+}
+
+async function bootOfficial() {
+  const response = await fetch(`/api/toonlab/catalog/${encodeURIComponent(assetId)}`);
+  if (!response.ok) {
+    fail('Catalog asset not found', `The official catalog has no asset “${assetId}”.`);
+    return;
+  }
+  const { asset } = await response.json();
+  sourcePage = asset.source_url || '/gallery/?src=official';
+  document.title = `${asset.name} — ToonLab`;
+  els.crumbSource.textContent = sourceLabel;
+  els.name.textContent = asset.name;
+  if (asset.thumbnail_url) {
+    els.stage.style.backgroundImage = `url("${asset.thumbnail_url.replace(/"/g, '%22')}")`;
+  }
+  els.stage.classList.add('asset-stage--pack');
+  const sourceLink = el('a', null, `${asset.source || 'Upstream source'} ↗`);
+  sourceLink.href = sourcePage;
+  sourceLink.target = '_blank';
+  sourceLink.rel = 'noreferrer';
+  const licenseLink = el('a', null, `${asset.license} ↗`);
+  licenseLink.href = asset.license_url || sourcePage;
+  licenseLink.target = '_blank';
+  licenseLink.rel = 'noreferrer';
+  els.stats.append(
+    stat('Source', sourceLink),
+    stat('License', licenseLink),
+    stat('Type', asset.kind),
+    stat('Release', asset.release),
+    stat('Original archive', humanBytes(asset.byte_size)),
+    stat('Formats', [...new Set((asset.files ?? []).map((file) => file.relative_path.split('.').pop()?.toUpperCase()).filter(Boolean))].join(' · ') || asset.content_type),
+    stat('Availability', asset.availability_status),
+  );
+  if (asset.attribution_required) {
+    els.stats.append(stat('Credit', 'Required'));
+  }
+  els.desc.textContent = [asset.description, asset.attribution].filter(Boolean).join(' ');
+  for (const tag of asset.tags ?? []) {
+    const link = el('a', null, tag);
+    link.href = `/gallery/?src=official&q=${encodeURIComponent(tag)}`;
+    els.tags.appendChild(link);
+  }
+
+  if (asset.availability_status === 'active' && asset.download_url) {
+    els.download.textContent = 'Download original ZIP ↓';
+    els.download.href = asset.download_url;
+    els.download.download = '';
+    els.download.hidden = false;
+  } else {
+    const warning = el('p', 'asset-pack-warning',
+      `Downloads withdrawn${asset.withdrawal_reason ? `: ${asset.withdrawal_reason}` : '.'}`);
+    els.actions.appendChild(warning);
+  }
+
+  const compatibleFiles = (asset.files ?? []).filter(browserCompatibleSkyFile);
+  if (asset.kind === 'skybox' && compatibleFiles.length > 0 && asset.availability_status === 'active') {
+    const openLab = el('a', 'pill', 'Open in Sky & Cloud Lab');
+    openLab.href = `/sky-cloud-lab/?tab=assets&asset=${encodeURIComponent(asset.id)}`;
+    els.actions.appendChild(openLab);
+  }
+
+  const pack = el('section', 'asset-pack-files');
+  const heading = el('div', 'asset-pack-files__heading');
+  heading.append(el('strong', null, 'Files in this pack'), el('span', null, `${asset.files?.length ?? 0} files`));
+  const search = el('input', 'asset-pack-files__search');
+  search.type = 'search';
+  search.placeholder = 'Search paths and formats…';
+  const list = el('div', 'asset-pack-files__list');
+  const renderFiles = () => {
+    const query = search.value.trim().toLowerCase();
+    const files = (asset.files ?? []).filter((file) =>
+      `${file.relative_path} ${file.content_type}`.toLowerCase().includes(query));
+    list.replaceChildren(...files.map((file) => {
+      const row = el('div', 'asset-pack-file');
+      const name = el('span', 'asset-pack-file__name', file.relative_path);
+      const meta = el('span', 'asset-pack-file__meta', `${file.content_type} · ${humanBytes(file.byte_size)}`);
+      const action = file.download_url && asset.availability_status === 'active'
+        ? el('a', 'asset-pack-file__download', 'Download')
+        : el('span', 'asset-pack-file__unavailable', 'Unavailable');
+      if (action.tagName === 'A') {
+        action.href = file.download_url;
+        action.download = '';
+      }
+      if (!browserCompatibleSkyFile(file)) action.title = 'Discoverable download; browser import is not claimed for this format.';
+      row.append(name, meta, action);
+      return row;
+    }));
+  };
+  search.addEventListener('input', renderFiles);
+  renderFiles();
+  pack.append(heading, search, list);
+  els.actions.appendChild(pack);
+  document.body.dataset.officialAssetReady = 'true';
 }
 
 async function bootSmithsonian() {

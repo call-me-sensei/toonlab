@@ -32,6 +32,15 @@ function passesMask(mask, x, z) {
   return typeof mask === 'function' ? Boolean(mask(x, z)) : true;
 }
 
+function spatialHash01(x, z, seed) {
+  let hash = Math.imul(Math.floor(Number(x) * 4096), 0x1f123bb5)
+    ^ Math.imul(Math.floor(Number(z) * 4096), 0x5f356495)
+    ^ Math.imul(Math.trunc(seed) || 1, 0x6c8e9cf5);
+  hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b);
+  hash = Math.imul(hash ^ (hash >>> 16), 0x45d9f3b);
+  return ((hash ^ (hash >>> 16)) >>> 0) / 4294967296;
+}
+
 /**
  * Mask factory: rejects points where the terrain slope exceeds `maxSlope`
  * (rise over run, so 0.6 ≈ 31°). Slope is estimated from `heightAt` with
@@ -71,6 +80,25 @@ export function createSurfaceWeightMask({
   return (x, z) => {
     const weight = Number(weightAt(x, z));
     return Number.isFinite(weight) && weight > minimum;
+  };
+}
+
+/**
+ * Converts a continuous authored 0..1 coverage field into a deterministic
+ * keep/reject mask. Unlike thresholding a surface weight, this preserves a
+ * soft ecological transition: coverage thins probabilistically toward paths,
+ * cliff lips, rock fields, beaches, and biome boundaries without drawing a
+ * visible line through the placement field.
+ *
+ * @returns {(x: number, z: number) => boolean}
+ */
+export function createDensityWeightMask({ weightAt, seed = 1 } = {}) {
+  if (typeof weightAt !== 'function') return () => true;
+  return (x, z) => {
+    const raw = Number(weightAt(x, z));
+    if (!Number.isFinite(raw) || raw <= 0) return false;
+    if (raw >= 1) return true;
+    return spatialHash01(x, z, seed) < raw;
   };
 }
 
@@ -321,4 +349,263 @@ export function createNoisePatchMask({ seed = 1, scale = 0.004, threshold = 0.55
     }
     return sum / norm > limit;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Placement on arbitrary surfaces (cliff caps, ledges, shelves, platforms).
+//
+// Everything above scatters across the ground heightfield: `(x, z)` in, `y`
+// sampled from `heightAt`. That cannot express "grass on top of that tower" or
+// "shrubs along this ledge", because those surfaces are not single-valued in
+// `y` — a cliff cap has terrain both above and below it.
+//
+// `scatterOnSurface` takes explicit surface records instead, of the shape a
+// rock/cliff module already publishes for its caps and ledges, and returns the
+// same placement records the rest of this module produces plus the orientation
+// data an aligned field needs (`normal`, `forward`, `yaw`). Callers previously
+// had to derive those by hand for every placement.
+// ---------------------------------------------------------------------------
+
+function vec3(source, fallback) {
+  if (Array.isArray(source) && source.length >= 3) {
+    return [Number(source[0]) || 0, Number(source[1]) || 0, Number(source[2]) || 0];
+  }
+  if (source && typeof source === 'object') {
+    return [Number(source.x) || 0, Number(source.y) || 0, Number(source.z) || 0];
+  }
+  return fallback.slice();
+}
+
+function normalize3(v) {
+  const length = Math.hypot(v[0], v[1], v[2]);
+  if (!(length > 1e-6)) return [0, 1, 0];
+  return [v[0] / length, v[1] / length, v[2] / length];
+}
+
+/**
+ * Right-handed tangent basis for a plane. The reference axis switches away
+ * from world up when the surface is near-horizontal, so a flat cap and a
+ * vertical ledge both get a stable, continuous basis instead of degenerating.
+ */
+function tangentBasis(normal) {
+  const reference = Math.abs(normal[1]) > 0.95 ? [1, 0, 0] : [0, 1, 0];
+  const tangent = normalize3([
+    reference[1] * normal[2] - reference[2] * normal[1],
+    reference[2] * normal[0] - reference[0] * normal[2],
+    reference[0] * normal[1] - reference[1] * normal[0],
+  ]);
+  const bitangent = [
+    normal[1] * tangent[2] - normal[2] * tangent[1],
+    normal[2] * tangent[0] - normal[0] * tangent[2],
+    normal[0] * tangent[1] - normal[1] * tangent[0],
+  ];
+  return [tangent, bitangent];
+}
+
+/**
+ * Radial weight for a cap or ledge, in normalized disc space.
+ *
+ * A grass cap that is uniformly dense to its rim reads as a flat green disc
+ * stuck onto the rock. Real soil caps thin toward a broken, slightly
+ * overhanging edge. `rimBias` above 0 pushes coverage outward; keep it near
+ * zero for a soil cap so it does not form a dense annulus. `falloff` controls
+ * how fast coverage dies at the very edge.
+ *
+ * @param {Object} [options]
+ * @param {number} [options.rimBias] 0 = centre-weighted, 1 = rim-weighted.
+ * @param {number} [options.falloff] Width of the fade at the rim, 0..1.
+ * @param {number} [options.break] Amount of per-point break-up at the rim, 0..1.
+ * @param {number} [options.seed]
+ * @returns {(r01: number, angle: number) => number} weight in 0..1
+ */
+export function createCapEdgeWeight({
+  rimBias = 0.05,
+  falloff = 0.22,
+  break: breakUp = 0.45,
+  seed = 1,
+} = {}) {
+  const bias = Math.min(Math.max(Number(rimBias) || 0, 0), 1);
+  const fade = Math.min(Math.max(Number(falloff) || 0, 1e-3), 1);
+  const chaos = Math.min(Math.max(Number(breakUp) || 0, 0), 1);
+  return (r01, angle = 0) => {
+    const r = Math.min(Math.max(Number(r01) || 0, 0), 1);
+    // Ragged rim: the effective edge wanders with angle, so the cap never ends
+    // on a clean circle.
+    const wobble = chaos * 0.5 * (spatialHash01(Math.cos(angle) * 8, Math.sin(angle) * 8, seed) - 0.5);
+    const edge = 1 - fade + wobble;
+    const rim = r <= edge ? 1 : Math.max(0, 1 - (r - edge) / fade);
+    const radial = bias > 0 ? (1 - bias) + bias * r : 1;
+    return Math.min(Math.max(rim * radial, 0), 1);
+  };
+}
+
+/**
+ * Scatter placements across explicit surfaces rather than across the ground.
+ *
+ * Each surface is a disc in world space — the contract a cliff/rock module
+ * already publishes for a tower cap or a ledge:
+ *
+ *   { center: {x, y, z}, radius: number, normal?: {x, y, z}, seed?: number }
+ *
+ * Spacing is measured in 3D, so two caps stacked above one another do not
+ * reject each other's points the way an `(x, z)` grid would.
+ *
+ * Each surface gets its own deterministic stream, derived from `seed` and the
+ * surface's own `seed` (or its index). Adding or removing one surface
+ * therefore does not reshuffle the others.
+ *
+ *   const caps = cliffs.parts.towers.caps;   // [{ center, radius, normal }]
+ *   const placements = scatterOnSurface({
+ *     surfaces: caps,
+ *     density: 6,
+ *     minSpacing: 0.35,
+ *     weightAt: createCapEdgeWeight({ rimBias: 0.05 }),
+ *   });
+ *
+ * @param {Object} options
+ * @param {Array<Object>} options.surfaces Surface records (see above).
+ * @param {number} [options.density] Placements per square meter of surface.
+ * @param {number} [options.count] Total placements; overrides `density`.
+ * @param {number} [options.seed] Deterministic seed.
+ * @param {number} [options.minSpacing] Reject points closer than this (m, 3D).
+ * @param {Function} [options.mask] `(x, z) => boolean` keep filter, so the
+ *   existing mask factories and `combineMasks` compose unchanged.
+ * @param {Function} [options.weightAt] `(r01, angle) => 0..1` radial weight.
+ * @param {number} [options.maxCount] Safety cap.
+ * @param {number} [options.normalBlend] 0 keeps the surface normal, 1 forces
+ *   world up. Grass on a tilted ledge usually wants a partial blend so blades
+ *   do not lie flat against the slope.
+ * @returns {Array<{x, y, z, normal, forward, yaw, seed, surfaceIndex}>}
+ */
+export function scatterOnSurface({
+  surfaces = [],
+  density = 4,
+  count = 0,
+  seed = 1,
+  minSpacing = 0,
+  mask = null,
+  weightAt = null,
+  maxCount = 20000,
+  normalBlend = 0,
+} = {}) {
+  const list = Array.isArray(surfaces) ? surfaces : [];
+  const spacing = Math.max(Number(minSpacing) || 0, 0);
+  const spacingSq = spacing * spacing;
+  const cell = spacing > 0 ? spacing : Infinity;
+  const cap = Math.max(Math.trunc(maxCount) || 0, 0);
+  const blend = Math.min(Math.max(Number(normalBlend) || 0, 0), 1);
+  const occupied = new Map();
+  const placements = [];
+
+  // 3D spacing: two caps at the same (x, z) but different heights must not
+  // reject each other, which an (x, z) grid would do.
+  const isFree = (x, y, z) => {
+    if (spacing <= 0) return true;
+    const cx = Math.floor(x / cell);
+    const cy = Math.floor(y / cell);
+    const cz = Math.floor(z / cell);
+    for (let ix = cx - 1; ix <= cx + 1; ix += 1) {
+      for (let iy = cy - 1; iy <= cy + 1; iy += 1) {
+        for (let iz = cz - 1; iz <= cz + 1; iz += 1) {
+          const bucket = occupied.get(`${ix},${iy},${iz}`);
+          if (!bucket) continue;
+          for (const p of bucket) {
+            const dx = p.x - x;
+            const dy = p.y - y;
+            const dz = p.z - z;
+            if (dx * dx + dy * dy + dz * dz < spacingSq) return false;
+          }
+        }
+      }
+    }
+    return true;
+  };
+
+  const totalArea = list.reduce((sum, s) => {
+    const r = Math.max(Number(s?.radius) || 0, 0);
+    return sum + Math.PI * r * r;
+  }, 0);
+  const requested = Math.trunc(count) || 0;
+
+  for (let index = 0; index < list.length; index += 1) {
+    const surface = list[index];
+    const radius = Math.max(Number(surface?.radius) || 0, 0);
+    if (radius <= 0) continue;
+
+    const center = vec3(surface?.center ?? surface?.position, [0, 0, 0]);
+    const normal = normalize3(vec3(surface?.normal, [0, 1, 0]));
+    const oriented = blend > 0
+      ? normalize3([
+        normal[0] * (1 - blend),
+        normal[1] * (1 - blend) + blend,
+        normal[2] * (1 - blend),
+      ])
+      : normal;
+    const [tangent, bitangent] = tangentBasis(normal);
+
+    const area = Math.PI * radius * radius;
+    const share = requested > 0
+      ? Math.round(requested * (totalArea > 0 ? area / totalArea : 1 / list.length))
+      : Math.round(area * (Number(density) || 0));
+    const want = Math.max(share, 0);
+    if (want <= 0) continue;
+
+    // Per-surface stream: adding a surface does not reshuffle its neighbours.
+    const surfaceSeed = Number.isFinite(Number(surface?.seed))
+      ? Number(surface.seed)
+      : (Math.trunc(seed) || 1) + index * 0x9e3779b1;
+    const random = mulberry32(surfaceSeed);
+    const attempts = want * (spacing > 0 ? 8 : 2);
+    let made = 0;
+
+    for (let i = 0; i < attempts && made < want && placements.length < cap; i += 1) {
+      // Uniform over the disc: sqrt keeps density even rather than centre-heavy.
+      const r01 = Math.sqrt(random());
+      const angle = random() * Math.PI * 2;
+      if (typeof weightAt === 'function' && random() > weightAt(r01, angle)) continue;
+
+      const local = r01 * radius;
+      const ox = Math.cos(angle) * local;
+      const oy = Math.sin(angle) * local;
+      const x = center[0] + tangent[0] * ox + bitangent[0] * oy;
+      const y = center[1] + tangent[1] * ox + bitangent[1] * oy;
+      const z = center[2] + tangent[2] * ox + bitangent[2] * oy;
+
+      if (!passesMask(mask, x, z) || !isFree(x, y, z)) continue;
+
+      const yaw = random() * Math.PI * 2;
+      // Forward is the yaw direction projected onto the surface plane, so an
+      // aligned field leans along the surface instead of through it.
+      const fx = Math.cos(yaw);
+      const fz = Math.sin(yaw);
+      const dot = fx * oriented[0] + fz * oriented[2];
+      const forward = normalize3([
+        fx - oriented[0] * dot,
+        -oriented[1] * dot,
+        fz - oriented[2] * dot,
+      ]);
+
+      const placement = {
+        x,
+        y,
+        z,
+        normal: oriented.slice(),
+        forward,
+        yaw,
+        seed: Math.floor(random() * 0xffffffff),
+        surfaceIndex: index,
+      };
+      placements.push(placement);
+      made += 1;
+
+      if (spacing > 0) {
+        const key = `${Math.floor(x / cell)},${Math.floor(y / cell)},${Math.floor(z / cell)}`;
+        const bucket = occupied.get(key);
+        if (bucket) bucket.push(placement);
+        else occupied.set(key, [placement]);
+      }
+    }
+  }
+
+  return placements;
 }

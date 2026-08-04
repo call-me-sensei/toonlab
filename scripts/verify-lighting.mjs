@@ -506,6 +506,8 @@ check('the environment sun rig applies a true direction in non-square worlds', (
     shadow: { enabled: false },
   });
   const requested = new THREE.Vector3(0.12, 0.24, 0.96).normalize();
+  assert.equal(rig.light.intensity, Math.PI,
+    'one environment sun must compensate the ToonLab surface PI normalization');
   rig.setDirection(requested);
   const actual = rig.light.position.clone().sub(rig.light.target.position).normalize();
   assert.ok(actual.distanceTo(requested) < 1e-10,

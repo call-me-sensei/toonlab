@@ -16,19 +16,27 @@ import {
   recipeFromSettings,
   resolveCanopyColor,
   windOptionsFromSettings,
-} from '../../../src/vegetation/index.js';
+} from '../../../src/vegetation/experimental.js';
 import { downloadGLB } from '../exporters.js';
 import { mergeSketchIntoRecipe } from '../store/docUtils.js';
 import { createLabRenderer, whenRendererReady } from '../../shared/rendererFactory.js';
 import { createEnvironmentSunShadowPass } from '../../../src/environment/environmentSunShadowPass.js';
 import { createBarkMaterial } from './barkTextures.js';
 
-const REBUILD_DEBOUNCE_MS = 80;
+const REBUILD_DEBOUNCE_MS = 140;
 
 export function createTreeEngine({ mount = document.body, store, urlParams }) {
+  const captureView = (urlParams.get('captureView') || '').toLowerCase();
+  const deterministicCaptureViews = new Set(['front', 'side', 'back']);
+  if (deterministicCaptureViews.has(captureView)) {
+    document.body.dataset.captureView = captureView;
+  }
   const renderer = createLabRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(window.devicePixelRatio);
+  // Tree Lab is an interactive authoring surface, not a final-frame render.
+  // Uncapped Retina resolution doubles both dimensions and can quadruple the
+  // fill cost while scrubbing dense foliage.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
   renderer.shadowMap.enabled = true; // no skinned MMD casters here — native shadows are safe on all backends
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   mount.appendChild(renderer.domElement);
@@ -205,44 +213,134 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
     const canopySpec = Array.isArray(color.canopy) ? [...color.canopy] : color.canopy;
     const palette = deriveCanopyPalette(
       resolveCanopyColor(canopySpec, settings.plant.seed), overrides);
-    const uniforms = plant.canopyMesh.material.uniforms;
-    uniforms.uLitColor.value.copy(palette.lit);
-    uniforms.uShadowColor.value.copy(palette.shadow);
-    uniforms.uCrownColor.value.copy(palette.crown);
+    const materials = [];
+    plant.traverse((object) => {
+      if (!object.isMesh) return;
+      materials.push(...(Array.isArray(object.material) ? object.material : [object.material]));
+    });
+    const proceduralMaterial = plant.canopyMesh?.material;
+    const uniforms = !Array.isArray(proceduralMaterial) && proceduralMaterial?.uniforms;
+    if (uniforms?.uLitColor && uniforms?.uShadowColor && uniforms?.uCrownColor) {
+      uniforms.uLitColor.value.copy(palette.lit);
+      uniforms.uShadowColor.value.copy(palette.shadow);
+      uniforms.uCrownColor.value.copy(palette.crown);
+      return;
+    }
+    for (const material of new Set(materials)) {
+      if (!/foliage|leaf|needle/i.test(material?.name ?? '') || !material.color) continue;
+      material.color.copy(palette.lit);
+      material.needsUpdate = true;
+    }
   }
 
   function applyLiveWind() {
     if (!plant) return;
     const wind = windOptionsFromSettings(store.getState().settings);
-    plant.setWind({
+    plant.setWind?.({
       direction: wind.windDirection,
       speed: wind.windSpeed,
       strength: wind.windStrength,
     });
   }
 
+  function disposePlantRoot(root) {
+    root?.dispose?.();
+    const retired = root?.userData?.toonlabRetiredBarkMaterials;
+    if (retired) {
+      for (const material of retired) material?.dispose?.();
+      retired.clear();
+    }
+  }
+
+  function applyStructureBarkMaterial(root, choice, height, vegetationShader) {
+    const replacement = createBarkMaterial(choice, { height, vegetationShader });
+    const retired = root.userData.toonlabRetiredBarkMaterials
+      ?? new Set();
+    let applied = false;
+    root.traverse((object) => {
+      if (!object.isMesh) return;
+      const source = Array.isArray(object.material) ? object.material : [object.material];
+      const next = source.map((material) => {
+        const semanticRole = object.userData?.toonlabVegetationRole ?? '';
+        const structural = semanticRole === 'structuralSurface'
+          || /bark|wood|structure|culm|stem|succulent/i.test(
+            `${object.name ?? ''} ${material?.name ?? ''}`,
+          );
+        if (!structural) return material;
+        applied = true;
+        // WebGPU may still reference the previous material's binding buffers
+        // for an already-submitted frame. Retire it with the plant and dispose
+        // it when that plant leaves the scene instead of destroying it here.
+        if (material && material !== replacement) retired.add(material);
+        return replacement;
+      });
+      object.material = Array.isArray(object.material) ? next : next[0];
+    });
+    if (applied) root.userData.toonlabRetiredBarkMaterials = retired;
+    else replacement.dispose();
+    return applied;
+  }
+
+  function applyLiveBark() {
+    if (!plant) return;
+    const state = store.getState();
+    applyStructureBarkMaterial(
+      plant,
+      state.barkTexture,
+      state.settings.trunk.height,
+      state.settings.plant.stylePreset,
+    );
+    if (plant.userData.treeRecipe) {
+      plant.userData.treeRecipe = {
+        ...plant.userData.treeRecipe,
+        options: {
+          ...(plant.userData.treeRecipe.options ?? {}),
+          barkTexture: state.barkTexture,
+        },
+      };
+    }
+  }
+
   function rebuild() {
+    const rebuildStartedAt = performance.now();
     window.clearTimeout(rebuildTimer);
     disposeLodCompilation();
+    const state = store.getState();
     const {
-      animation, flowers, glbMode, leafShape, leafStyle, roots, settings, sketch, trunkProfile,
-      woodDetails,
-    } = store.getState();
-    if (plant) {
-      scene.remove(plant);
-      plant.dispose();
-    }
+      animation, barkTexture, flowers, glbMode, leafShape, leafStyle, roots, settings, sketch,
+      trunkProfile, woodDetails,
+    } = state;
     const recipe = mergeSketchIntoRecipe(
       recipeFromSettings(settings), sketch,
-      { animation, flowers, leafShape, leafStyle, roots, trunkProfile, woodDetails });
+      {
+        animation,
+        barkTexture,
+        flowers,
+        leafShape,
+        leafStyle,
+        roots,
+        trunkProfile,
+        woodDetails,
+      });
+    if (plant) {
+      scene.remove(plant);
+      disposePlantRoot(plant);
+    }
     plant = createPlantFromRecipe(recipe, {
       trunkMaterial: createBarkMaterial(store.getState().barkTexture, {
         height: settings.trunk.height,
+        vegetationShader: settings.plant.stylePreset,
       }),
     });
-    plant.setSun({ direction: sunDirection, color: [1.0, 0.96, 0.86], sky: [0.72, 0.87, 1.0] });
+    document.body.dataset.treeRuntime = plant?.plantGraph?.growthModel
+      ?? (settings.plant.speciesProfileId ? 'threejs-plant-graph' : 'legacy-woody');
+    plant.setSun?.({ direction: sunDirection, color: [1.0, 0.96, 0.86], sky: [0.72, 0.87, 1.0] });
     applyLiveWind();
     scene.add(plant);
+    // The editor can keep a stable wind shadow between geometry edits. Render
+    // it once for the new plant instead of rebuilding a 2048px depth target on
+    // every animation frame.
+    sunShadowPass.invalidate();
     if (bakedPreviewEnabled) {
       if (bakedPreview) {
         scene.remove(bakedPreview);
@@ -254,6 +352,9 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
     }
     refreshLodPreview({ recompile: store.getState().previewLod !== null });
     rebuildCount += 1;
+    document.body.dataset.treeLastRebuildMs = (
+      performance.now() - rebuildStartedAt
+    ).toFixed(1);
     document.body.dataset.treeRebuildCount = String(rebuildCount);
     document.body.dataset.treeSeed = String(settings.plant.seed);
     document.body.dataset.treeCardCount =
@@ -263,6 +364,9 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
       store.actions.setStatus('Hand-drawn mode: use ✏️ Branch to draw the trunk up from the ground.');
     }
     for (const listener of [...rebuildListeners]) listener(plant);
+    delete document.body.dataset.treeBaselineStatus;
+    delete document.body.dataset.treeBaselineError;
+    delete document.body.dataset.treeBaselineLod;
   }
 
   function scheduleRebuild() {
@@ -273,6 +377,46 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
   // Initial camera framing; user orbiting is preserved across rebuilds.
   function frameCamera() {
     const { settings } = store.getState();
+    if (plant && settings.plant.speciesProfileId) {
+      plant.updateWorldMatrix(true, true);
+      const bounds = new THREE.Box3().setFromObject(plant);
+      const center = bounds.getCenter(new THREE.Vector3());
+      const dimensions = bounds.getSize(new THREE.Vector3());
+      const span = Math.max(dimensions.x, dimensions.y, dimensions.z, 1);
+      const viewWidth = captureView === 'side' ? dimensions.z : dimensions.x;
+      const viewDepth = captureView === 'side' ? dimensions.x : dimensions.z;
+      const halfVerticalFov = THREE.MathUtils.degToRad(camera.fov * 0.5);
+      const fitVertical = dimensions.y / (2 * Math.tan(halfVerticalFov));
+      const fitHorizontal = viewWidth
+        / (2 * Math.tan(halfVerticalFov) * Math.max(0.1, camera.aspect));
+      // Fit both dimensions instead of using one scalar span. Deterministic
+      // review captures have no chrome over the canvas, so use a close 6%
+      // safety margin and only a small perspective-depth allowance. The
+      // interactive editor keeps its roomier orbit framing.
+      const captureFraming = deterministicCaptureViews.has(captureView);
+      const distance = Math.max(fitVertical, fitHorizontal)
+        * (captureFraming ? 1.06 : 1.16)
+        + viewDepth * (captureFraming ? 0.12 : 0.5);
+      controls.target.copy(center);
+      // Leave enough vertical safety for the persistent top/bottom chrome.
+      // A mathematically tight 45° fit clipped tall palms and bamboo even
+      // though their geometry bounds were correct.
+      if (captureView === 'front') {
+        camera.position.set(center.x, center.y + span * 0.08, center.z + distance);
+      } else if (captureView === 'side') {
+        camera.position.set(center.x + distance, center.y + span * 0.08, center.z);
+      } else if (captureView === 'back') {
+        camera.position.set(center.x, center.y + span * 0.08, center.z - distance);
+      } else {
+        camera.position.set(
+          center.x + span * 0.32,
+          center.y + span * 0.08,
+          center.z + span * 1.48,
+        );
+      }
+      controls.update();
+      return;
+    }
     const size = settings.plant.size;
     const eye = (settings.plant.type === 'bush' ? 0.9 : 1.75) * size;
     controls.target.set(0, eye, 0);
@@ -306,19 +450,34 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
   // ---- store subscription: revisions drive rebuilds ------------------------
   let lastDoc = store.getState().docRevision;
   let lastLive = store.getState().liveRevision;
+  let lastLiveBark = store.getState().barkTexture;
+  let lastLiveColor = store.getState().settings.color;
+  let lastLiveWind = store.getState().settings.wind;
   let lastPreviewLod = store.getState().previewLod;
   store.subscribe(() => {
     const state = store.getState();
     if (state.docRevision !== lastDoc) {
       lastDoc = state.docRevision;
-      if (state.lastChange.immediate) rebuild();
+      if (state.lastChange.transient) {
+        window.clearTimeout(rebuildTimer);
+      } else if (state.lastChange.immediate) rebuild();
       else scheduleRebuild();
-      if (state.lastChange.reframe) frameCamera();
+      if (state.lastChange.reframe && !state.lastChange.transient) frameCamera();
     }
     if (state.liveRevision !== lastLive) {
       lastLive = state.liveRevision;
-      applyLiveColor();
-      applyLiveWind();
+      if (state.settings.color !== lastLiveColor) {
+        lastLiveColor = state.settings.color;
+        applyLiveColor();
+      }
+      if (state.barkTexture !== lastLiveBark) {
+        lastLiveBark = state.barkTexture;
+        applyLiveBark();
+      }
+      if (state.settings.wind !== lastLiveWind) {
+        lastLiveWind = state.settings.wind;
+        applyLiveWind();
+      }
       if (state.previewLod !== null) scheduleLodPreviewRefresh();
     }
     if (state.previewLod !== lastPreviewLod) {
@@ -343,13 +502,13 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
       plant?.update(delta);
       for (const listener of frameListeners) listener(delta);
       controls.update();
-      sunShadowPass.update({ dynamic: true });
+      sunShadowPass.update();
       renderer.render(scene, camera);
       if (firstFrame) {
         firstFrame = false;
         // Gates scripts/lab-probe.mjs and visual-check.mjs share with the labs.
         document.body.dataset.modelReady = 'true';
-        document.body.dataset.treeDesignerReady = 'true';
+        document.body.dataset.treeLabReady = 'true';
       }
     });
   }

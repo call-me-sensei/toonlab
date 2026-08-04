@@ -7,9 +7,10 @@ alwaysApply: true
 # ToonLab
 
 - Treat `agents/codex/AGENTS.md` as the shared developer guide.
-- Help developers use ToonLab runtime APIs.
+- Help developers stylize and populate supplied scenes with ToonLab runtime,
+  Gallery, and MCP workflows. Do not promise one-shot world construction.
 - Prefer package subpath imports such as `@call-me-sensei/toonlab/toon`,
-  `@call-me-sensei/toonlab/water`, `@call-me-sensei/toonlab/sky`,
+  `@call-me-sensei/toonlab/water`,
   `@call-me-sensei/toonlab/vegetation-shaders`,
   `@call-me-sensei/toonlab/grass-palettes`, and
   `@call-me-sensei/toonlab/rockgen`;
@@ -19,4 +20,11 @@ alwaysApply: true
 - Treat ToonLab labs, sample assets, screenshots, captures, and generated
   manifests as examples, not runtime API.
 - Use `agents/skills/` as reference material for feature-specific workflows.
+- Treat current Sky/Cloud composition and whole terrain/biome/coast/cliff
+  formation as experimental even when public qualification APIs exist.
+- Before style-aware construction, read the matching `style-presets` skill.
+  For cliffs/gorges/sea stacks use `karst-cliff-construction` with
+  `agents/references/geology-playbook.md`; before approving screenshots or
+  reporting a package gap use `visual-verification`. The Claude and Codex
+  copies are byte-identical, so either directory is authoritative.
 - Verify with the consumer app's normal checks.

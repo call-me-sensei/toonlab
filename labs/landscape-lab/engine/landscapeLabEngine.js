@@ -12,6 +12,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 import { createWorldCollision } from '../../../src/worldCollision.js';
+import { createEnvironmentGroundFieldPass } from '../../../src/environment/environmentGroundFieldPass.js';
 import {
   createWalkPreviewActions,
   installWalkPreviewController,
@@ -49,6 +50,11 @@ export function createLandscapeLabEngine({ mount, store }) {
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(SKY_COLOR);
+  const groundFieldPass = createEnvironmentGroundFieldPass({
+    renderer,
+    resolution: 1024,
+    scene,
+  });
 
   const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 3000);
   const controls = new OrbitControls(camera, renderer.domElement);
@@ -203,6 +209,7 @@ export function createLandscapeLabEngine({ mount, store }) {
     rebuildAllSkirts();
     rebuildTunnels();
     fitStage();
+    groundFieldPass.invalidate();
   }
 
   function updateTerrainRect(rect) {
@@ -214,6 +221,7 @@ export function createLandscapeLabEngine({ mount, store }) {
         });
       }
       rebuildAllSkirts();
+      groundFieldPass.invalidate();
       return;
     }
     const touched = tilesForDirtyRect(current, rect);
@@ -224,6 +232,7 @@ export function createLandscapeLabEngine({ mount, store }) {
       // re-drape them. No-op for tiles without hole boundaries.
       if (skirtMeshes.has(`${tx},${tz}`)) rebuildSkirtForTile(tx, tz);
     }
+    groundFieldPass.invalidate();
   }
 
   function rebuildSkirtForTile(tx, tz) {
@@ -262,6 +271,7 @@ export function createLandscapeLabEngine({ mount, store }) {
         rebuildSkirtForTile(tx, tz);
       }
     }
+    groundFieldPass.invalidate();
   }
 
   function rebuildTunnels() {
@@ -275,10 +285,12 @@ export function createLandscapeLabEngine({ mount, store }) {
       const floorMesh = new THREE.Mesh(floor, material);
       floorMesh.name = `TunnelFloor ${tunnel.id}`;
       floorMesh.receiveShadow = true;
+      floorMesh.userData.groundFieldWrite = true;
       const wallsMesh = new THREE.Mesh(walls, skirtMaterial);
       wallsMesh.name = `TunnelWalls ${tunnel.id}`;
       tunnelGroup.add(floorMesh, wallsMesh);
     }
+    groundFieldPass.invalidate();
   }
 
   let splatRefreshQueued = false;
@@ -290,6 +302,7 @@ export function createLandscapeLabEngine({ mount, store }) {
     requestAnimationFrame(() => {
       splatRefreshQueued = false;
       material?.userData.landscape.refreshSplat();
+      groundFieldPass.invalidate();
     });
   }
 
@@ -299,6 +312,7 @@ export function createLandscapeLabEngine({ mount, store }) {
       const layers = resolveLandscapeLayers(settings);
       layers.forEach((layer, index) => landscape.setLayerTint(index, layer.tint));
       landscape.setMacro(settings.macroNoiseAmount, settings.macroNoiseScale);
+      groundFieldPass.invalidate();
     }
     water.visible = Boolean(settings.showWater);
     water.position.y = settings.waterLevel;
@@ -319,11 +333,13 @@ export function createLandscapeLabEngine({ mount, store }) {
       appliedLayerKeys[index] = key;
       if (!key) {
         landscape.setLayerTexture(index, null);
+        groundFieldPass.invalidate();
         return;
       }
       resolveLayerTexture(layer.textureRef).then((texture) => {
         if (appliedLayerKeys[index] !== key) return;
         landscape.setLayerTexture(index, texture, { repeat: layer.repeat });
+        groundFieldPass.invalidate();
       }).catch((error) => {
         store.actions.setStatus(`Layer texture failed: ${error.message}`);
       });
@@ -824,6 +840,7 @@ export function createLandscapeLabEngine({ mount, store }) {
         for (const layer of foliageLayers.values()) layer.update(delta, camera);
         walkMixer?.update(delta);
         for (const callback of frameCallbacks) callback(delta);
+        groundFieldPass.update();
         renderer.render(scene, camera);
       });
       await loadPendingFoliage();

@@ -11,21 +11,112 @@ import {
 
 export const TREE_LOD_TRIANGLE_CAPS = Object.freeze([12000, 7000, 3500, 140]);
 export const TREE_LOD_SCREEN_COVERAGE = Object.freeze([0.16, 0.075, 0.025, 0]);
+// Engine budgets are introduced only after a representative reviewed
+// benchmark exists. A clumping bamboo asset contains several complete culms,
+// node rings, and node-born branch complements, so forcing it through the
+// single-tree cap either invalidates every mature stage or destroys the
+// architecture. The Bambusa vulgaris benchmark establishes this first
+// architecture-specific envelope; other engines retain the conservative
+// default until their own benchmark wave is reviewed.
+export const TREE_LOD_ENGINE_TRIANGLE_CAPS = Object.freeze({
+  // The reviewed English-oak benchmark uses individually oriented leaves and
+  // a four-order decurrent scaffold. Its authored close source is naturally
+  // denser than the legacy aggregate-card tree. Give woody-axis trees an
+  // engine envelope that can retain the 55–78% / 24–42% family ratios while
+  // preserving the 140-triangle ultra-far ceiling.
+  'woody-axis': Object.freeze([40000, 21000, 11000, 140]),
+  'culm-colony': Object.freeze([110000, 35000, 14000, 140]),
+  // Native conifers keep explicit annual whorls, curved boughs, and three
+  // semantic needle-spray axes per bough. The reviewed Norway-spruce source
+  // stays below 40k triangles; LOD1 is targeted to 68% of the actual source
+  // below, while the proxy levels retain the compact gameplay budgets.
+  'whorled-conifer': Object.freeze([40000, 24000, 3500, 140]),
+});
 
 // Branch LOD follows the same structural rule as EZ-Tree 2: grow the full
 // tree, then remesh every branch from the identical centerline data. Larger
 // longitudinal strides and radial factors provide the reduction; branch
 // levels are never deleted, because doing so destroys conifer silhouettes.
-const LOD_RADIAL_FACTORS = Object.freeze([1, 0.75, 0.4]);
-const LOD_SECTION_STRIDES = Object.freeze([1, 3, 6]);
+// LOD1 remains the close gameplay mesh: preserve authored cross-sections so
+// sparse palm trunks/frond axes and broad old-tree scaffolds do not collapse
+// below their architecture-family envelopes. Its longitudinal stride supplies
+// the reduction. LOD2 keeps the aggressive far-mesh factor and is independently
+// protected by the silhouette gate.
+const LOD_RADIAL_FACTORS = Object.freeze([1, 1, 0.4]);
+const LOD_SECTION_STRIDES = Object.freeze([1, 2, 6]);
+const LOD_ENGINE_MESHING = Object.freeze({
+  // Sparse broadleaf branches encode silhouette in their complete curved
+  // centerlines. Reduce tube sides, not centerline samples; skipping spans
+  // caused mature decurrent crowns to fall to 40% at LOD1 even before their
+  // individually oriented foliage was simplified.
+  'woody-axis': Object.freeze({
+    radialFactors: Object.freeze([1, 0.75, 0.4]),
+    sectionStrides: Object.freeze([1, 1, 1]),
+  }),
+  // Annual whorls also depend on complete drooping/upturned centerlines.
+  // Six-sided stylized source tubes reduce cleanly to four/three sides while
+  // preserving every whorl and spray attachment.
+  'whorled-conifer': Object.freeze({
+    radialFactors: Object.freeze([1, 2 / 3, 0.5]),
+    sectionStrides: Object.freeze([1, 1, 1]),
+  }),
+  // Culms are already low-sided, mostly straight tubes. Keeping the generic
+  // close policy would retain nearly all of LOD0, so bamboo uses a stronger
+  // longitudinal/radial reduction while preserving every node and attachment.
+  'culm-colony': Object.freeze({
+    radialFactors: Object.freeze([1, 0.75, 0.375]),
+    sectionStrides: Object.freeze([1, 3, 6]),
+  }),
+  // A terminal crown has few axes, but each palm/fern rachis is a long,
+  // authored curve. Combining every pair at the close gameplay level makes
+  // mature fronds visibly angular and sheds too much of the species-defining
+  // crown. Preserve those sections at LOD1; its hard triangle cap can thin
+  // individual pinnae before it damages the rachis silhouette.
+  'terminal-crown': Object.freeze({
+    radialFactors: Object.freeze([1, 0.875, 0.4]),
+    sectionStrides: Object.freeze([1, 1, 6]),
+  }),
+  // Rosette and pseudostem silhouettes depend on a few large axes rather than
+  // hundreds of woody twigs. Their far mesh needs one extra radial step to
+  // stay inside the architecture envelope from side and oblique views.
+  'branched-rosette': Object.freeze({
+    radialFactors: Object.freeze([1, 1, 0.5]),
+    sectionStrides: LOD_SECTION_STRIDES,
+  }),
+  'pseudostem-fan': Object.freeze({
+    radialFactors: Object.freeze([1, 1, 0.5]),
+    sectionStrides: LOD_SECTION_STRIDES,
+  }),
+  // Succulents expose their structural surface directly. Reduce rib/pad
+  // tessellation and areole/spine sampling together so LODs remain visibly
+  // three-dimensional without carrying every close-up ridge bundle.
+  'succulent-axis': Object.freeze({
+    radialFactors: Object.freeze([1, 0.75, 0.4]),
+    sectionStrides: Object.freeze([1, 2, 4]),
+  }),
+});
 // Static export cards lose the live shader's camera-facing behavior. Retain
 // more authored cards than EZ-Tree's generic every-other-leaf default, then
 // use modest scale compensation; the triangle budget remains the hard cap.
 const LOD_FOLIAGE_RETENTION = Object.freeze([1, 1, 1]);
 const LOD_FOLIAGE_SCALE = Object.freeze([1, 1, 1]);
 
+function foliageScaleFor(engine, level) {
+  // A conifer branchlet alpha card is much narrower than its quad. Hybrid
+  // LOD2 turns most crossed pairs into one world-oriented plane; a restrained
+  // scale compensation restores the needle envelope without adding geometry
+  // or inflating broadleaf crowns.
+  if (engine === 'whorled-conifer' && level === 2) return 1.2;
+  return LOD_FOLIAGE_SCALE[level];
+}
+
 function cloneJson(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function semanticChild(root, role, legacyName) {
+  return root.children.find((child) =>
+    child.userData?.toonlabSemanticRole === role || child.name === legacyName);
 }
 
 function triangleCount(geometry) {
@@ -89,6 +180,54 @@ export function createProceduralTreeLeafTexture({ resolution = 128, seed = 1 } =
 export function createTreeLodRecipe(recipeInput, level) {
   const recipe = parseTreeRecipeDocument(recipeInput);
   const lod = THREE.MathUtils.clamp(Math.round(level), 0, 2);
+  const meshing = LOD_ENGINE_MESHING[recipe.architecture?.engine];
+  let radialFactor = meshing?.radialFactors?.[lod] ?? LOD_RADIAL_FACTORS[lod];
+  let sectionStride = meshing?.sectionStrides?.[lod] ?? LOD_SECTION_STRIDES[lod];
+  if (
+    recipe.architecture?.engine === 'woody-axis'
+    && recipe.lifeStageSlot === 'juvenile'
+  ) {
+    // A young broadleaf has too few centerline spans for stride decimation:
+    // skipping every second or fourth sample collapses its already-small
+    // scaffold to roughly 20%/10% of LOD0. Preserve its authored centerline
+    // and reduce only the tube cross-section. This keeps the close/far family
+    // ratios stable while remaining comfortably below the absolute caps.
+    radialFactor = [1, 0.75, 0.4][lod];
+    sectionStride = 1;
+  }
+  if (
+    recipe.architecture?.engine === 'woody-axis'
+    && recipe.lifeStageSlot === 'young'
+  ) {
+    // Young crowns still have too few branch spans for stride decimation.
+    // Preserve their centerlines at both gameplay levels and reduce only the
+    // tube cross-section, including the fine-branch cross-sections.
+    radialFactor = [1, 2 / 3, 1 / 3][lod];
+    sectionStride = 1;
+  }
+  // A Joshua tree's first fork has only a few terminal heads and a dense
+  // sleeve of retained leaf bases. Applying the mature multi-head stride to
+  // this stage deletes most of that defining sleeve and makes LOD1/2 read as
+  // a bare fork. Preserve all close sections and half the far sections while
+  // still reducing their radial cross-sections. Mature/old crowns keep the
+  // stronger generic policy so their many heads remain inside the hard caps.
+  if (
+    recipe.architecture?.engine === 'branched-rosette'
+    && recipe.lifeStageSlot === 'first-branching'
+  ) {
+    radialFactor = [1, 0.7, 0.5][lod];
+    sectionStride = [1, 1, 2][lod];
+  }
+  if (
+    recipe.architecture?.engine === 'succulent-axis'
+    && recipe.lifeStageSlot === 'first-branch'
+  ) {
+    // One newly emerged arm or a seven-pad young crown has little redundant
+    // geometry. Keep a denser rib/pad cross-section than mature specimens so
+    // the defining first branch survives both gameplay LODs.
+    radialFactor = [1, 0.875, 0.7][lod];
+    sectionStride = [1, 2, 2][lod];
+  }
   const options = cloneJson(recipe.options);
   options.canopy = { ...(options.canopy ?? {}) };
   options.skeleton = { ...(options.skeleton ?? {}) };
@@ -96,17 +235,38 @@ export function createTreeLodRecipe(recipeInput, level) {
   // The skeleton grower still computes every source centerline and foliage
   // attachment at every LOD. Only the meshing density changes, so transitions
   // do not re-roll the tree or delete complete limb levels.
-  options.skeleton.meshSectionStride = LOD_SECTION_STRIDES[lod];
+  options.skeleton.meshSectionStride = sectionStride;
   delete options.skeleton.meshLevelLimit;
-  const skeletonRadialSegments = Number(options.skeleton.radialSegments) || 8;
+  if (recipe.architecture?.engine === 'culm-colony') {
+    // Keep the semantic graph and stable part IDs at every level, but do not
+    // remesh fine dendroid branchlet tubes once their leaf cards carry the
+    // far silhouette. LOD1 retains primary and terminal twigs; LOD2 retains
+    // culms, nodes, and the node-born primary branch complement.
+    options.skeleton.bambooMaxStructuralLevel = [Infinity, 3, 2][lod];
+  }
+  // Species baselines own the source resolution for the native woody
+  // evaluator. Falling back to the old hard-coded eight-sided skeleton here
+  // silently made every catalog species look like the legacy low-poly
+  // generator as soon as it entered the LOD compiler.
+  const nativeWoodyEngine = ['woody-axis', 'whorled-conifer']
+    .includes(recipe.architecture?.engine);
+  const inheritedTrunkRadialSegments = nativeWoodyEngine
+    ? Number(
+      options.woodyBaseline?.controls?.['resolution.trunkRadialSegments']
+        ?? options.woodyBaseline?.inheritedControls?.['resolution.trunkRadialSegments'],
+    )
+    : NaN;
+  const skeletonRadialSegments = Number(options.skeleton.radialSegments)
+    || inheritedTrunkRadialSegments
+    || 8;
   options.skeleton.radialSegments = Math.max(
     3,
-    Math.round(skeletonRadialSegments * LOD_RADIAL_FACTORS[lod]),
+    Math.round(skeletonRadialSegments * radialFactor),
   );
   const trunkRadialSegments = Number(options.trunk.radialSegments) || 10;
   options.trunk.radialSegments = Math.max(
     3,
-    Math.round(trunkRadialSegments * LOD_RADIAL_FACTORS[lod]),
+    Math.round(trunkRadialSegments * radialFactor),
   );
   options.trunk.heightSegments = Math.max(
     6,
@@ -215,8 +375,8 @@ function createSingleMaterialAtlas(trunkMap, foliageMap) {
 }
 
 function combinedSingleMaterialLevel(exported) {
-  const trunk = exported.children.find((child) => child.name === 'Trunk');
-  const foliage = exported.children.find((child) => child.name === 'Foliage');
+  const trunk = semanticChild(exported, 'structure', 'Trunk');
+  const foliage = semanticChild(exported, 'organs', 'Foliage');
   const pieces = [trunk, foliage].filter(Boolean).map((mesh, index) => {
     const geometry = mesh.geometry.clone();
     ensureAttribute(geometry, 'normal', 3, [0, 1, 0]);
@@ -248,8 +408,13 @@ function combinedSingleMaterialLevel(exported) {
   });
   material.name = 'TreeSingleMaterial';
   const root = new THREE.Group();
+  root.userData = cloneJson(exported.userData);
   const mesh = new THREE.Mesh(merged, material);
   mesh.name = 'TreeSingleMaterialMesh';
+  mesh.userData.toonlabSemanticRole = 'plant';
+  mesh.userData.toonlabSemanticParts = exported.userData?.plantGraph
+    ? Object.fromEntries(exported.userData.plantGraph.parts.map((part) => [part.id, part]))
+    : undefined;
   mesh.castShadow = true;
   root.add(mesh);
   return root;
@@ -257,7 +422,7 @@ function combinedSingleMaterialLevel(exported) {
 
 function averageFoliageColor(root) {
   const color = new THREE.Color(0.26, 0.56, 0.24);
-  const foliage = root.children.find((child) => child.name === 'Foliage');
+  const foliage = semanticChild(root, 'organs', 'Foliage');
   const colors = foliage?.geometry?.attributes?.color;
   if (!colors?.count) return color;
   color.setRGB(0, 0, 0);
@@ -272,7 +437,13 @@ function averageFoliageColor(root) {
   return color.multiplyScalar(1 / Math.max(samples, 1));
 }
 
-function createCrownEnvelopeGeometry(sourceRoot, bounds, color, minimumY = -Infinity) {
+function createCrownEnvelopeGeometry(
+  sourceRoot,
+  bounds,
+  color,
+  minimumY = -Infinity,
+  maximumY = Infinity,
+) {
   const size = bounds.getSize(new THREE.Vector3());
   const ringCount = 8;
   const radialSegments = 8;
@@ -281,7 +452,7 @@ function createCrownEnvelopeGeometry(sourceRoot, bounds, color, minimumY = -Infi
   const pointsXZ = [];
   const points3D = [];
   const addPoint = (point) => {
-    if (point.y < minimumY) return;
+    if (point.y < minimumY || point.y > maximumY) return;
     pointsXY.push([point.x, point.y]);
     pointsZY.push([point.z, point.y]);
     pointsXZ.push([point.x, point.z]);
@@ -558,8 +729,22 @@ function upperBounds(reference, minimumY) {
   return bounds;
 }
 
+function boundsBetween(reference, minimumY, maximumY) {
+  const bounds = new THREE.Box3();
+  const vertex = new THREE.Vector3();
+  reference.traverse((object) => {
+    const position = object?.geometry?.attributes?.position;
+    if (!position) return;
+    for (let index = 0; index < position.count; index += 1) {
+      vertex.fromBufferAttribute(position, index).applyMatrix4(object.matrixWorld);
+      if (vertex.y >= minimumY && vertex.y <= maximumY) bounds.expandByPoint(vertex);
+    }
+  });
+  return bounds;
+}
+
 function trunkBase(reference, fullBounds) {
-  const trunk = reference.children.find((child) => child.name === 'Trunk');
+  const trunk = semanticChild(reference, 'structure', 'Trunk');
   const position = trunk?.geometry?.attributes?.position;
   if (!position) return new THREE.Vector3(
     (fullBounds.min.x + fullBounds.max.x) * 0.5,
@@ -580,20 +765,386 @@ function trunkBase(reference, fullBounds) {
   return count ? result.multiplyScalar(1 / count) : new THREE.Vector3(0, fullBounds.min.y, 0);
 }
 
+function createWhorledConiferMidProxy(reference) {
+  reference.updateWorldMatrix(true, true);
+  const fullBounds = new THREE.Box3().setFromObject(reference);
+  if (fullBounds.isEmpty()) return null;
+  const size = fullBounds.getSize(new THREE.Vector3());
+  const color = averageFoliageColor(reference);
+  const crownBottom = THREE.MathUtils.lerp(fullBounds.min.y, fullBounds.max.y, 0.1);
+  const crownBounds = boundsBetween(reference, crownBottom, fullBounds.max.y);
+  if (crownBounds.isEmpty()) return null;
+  // Begin with the exact three-projection support hull used by the proven
+  // far proxy. It preserves the authored front, side and top silhouette
+  // without view-facing billboards or a camera-dependent mesh.
+  const pieces = [createCrownEnvelopeGeometry(
+    reference,
+    crownBounds,
+    color,
+    crownBottom,
+    fullBounds.max.y,
+  )];
+  // LOD2 carries more architectural information than LOD3: three very thin,
+  // open whorl skirts mark the annual crown tiers. Because the skirts have no
+  // caps, they do not turn the top view into a filled ellipse; their radii
+  // come from narrow source bands rather than from a generic cone.
+  const lifeStage = reference.userData?.plantGraph?.lifeStageSlot;
+  // A juvenile has only its first annual tier. Encoding three proxy skirts
+  // fabricated maturity that is absent from the source and made the far mesh
+  // denser than its tiny close mesh. Later stages retain the three-band
+  // architecture cue.
+  const matureWhorlProxy = ['mature', 'old', 'ancient'].includes(lifeStage);
+  const whorlFractions = lifeStage === 'juvenile'
+    ? [0.68]
+    : matureWhorlProxy
+      ? [0.35, 0.52, 0.69, 0.84]
+      : [0.42, 0.62, 0.8];
+  const matureSkirtSegments = lifeStage === 'old'
+    ? 14
+    : lifeStage === 'ancient'
+      ? 15
+      : 12;
+  for (const fraction of whorlFractions) {
+    const centerY = THREE.MathUtils.lerp(crownBottom, fullBounds.max.y, fraction);
+    const halfWindow = size.y * 0.035;
+    const bandBounds = boundsBetween(
+      reference,
+      centerY - halfWindow,
+      centerY + halfWindow,
+    );
+    if (bandBounds.isEmpty()) continue;
+    const bandSize = bandBounds.getSize(new THREE.Vector3());
+    const bandCenter = bandBounds.getCenter(new THREE.Vector3());
+    const skirtHeight = Math.max(size.y * 0.012, 0.02);
+    const skirt = new THREE.CylinderGeometry(
+      0.88,
+      1,
+      skirtHeight,
+      matureWhorlProxy ? matureSkirtSegments : 8,
+      1,
+      true,
+    );
+    skirt.scale(
+      Math.max(bandSize.x * 0.5, size.x * 0.06),
+      1,
+      Math.max(bandSize.z * 0.5, size.z * 0.06),
+    );
+    skirt.translate(bandCenter.x, centerY, bandCenter.z);
+    ensureAttribute(skirt, 'color', 3, [
+      color.r * 0.88,
+      color.g * 0.88,
+      color.b * 0.88,
+    ]);
+    pieces.push(skirt);
+  }
+
+  const base = trunkBase(reference, fullBounds);
+  const join = new THREE.Vector3(
+    (fullBounds.min.x + fullBounds.max.x) * 0.5,
+    crownBottom + size.y * 0.08,
+    (fullBounds.min.z + fullBounds.max.z) * 0.5,
+  );
+  const direction = join.clone().sub(base);
+  const trunkRadius = Math.max(Math.min(size.x, size.z) * 0.038, 0.04);
+  const trunkSource = new THREE.CylinderGeometry(
+    trunkRadius * 0.56,
+    trunkRadius,
+    Math.max(direction.length(), size.y * 0.2),
+    6,
+    1,
+    true,
+  );
+  trunkSource.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(
+    new THREE.Vector3(0, 1, 0),
+    direction.normalize(),
+  ));
+  trunkSource.translate(
+    (base.x + join.x) * 0.5,
+    (base.y + join.y) * 0.5,
+    (base.z + join.z) * 0.5,
+  );
+  ensureAttribute(trunkSource, 'uv', 2, [0, 0]);
+  ensureAttribute(trunkSource, 'color', 3, [0.34, 0.24, 0.15]);
+  pieces.push(trunkSource);
+
+  // Sparse juvenile/young crowns can leave one or more sampled source bands
+  // empty. Guarantee a small but useful proxy floor with narrow architecture
+  // rings rather than allowing LOD2 to collapse below the tested silhouette
+  // envelope.
+  const sourceTriangles = () => pieces.reduce((sum, piece) => (
+    sum + Math.floor((piece.index?.count ?? piece.attributes.position.count) / 3)
+  ), 0);
+  const minimumProxyTriangles = lifeStage === 'juvenile' ? 110 : 130;
+  let supportRing = 0;
+  while (sourceTriangles() < minimumProxyTriangles && supportRing < 4) {
+    const fraction = 0.46 + supportRing * 0.16;
+    const support = new THREE.CylinderGeometry(
+      0.9,
+      1,
+      Math.max(size.y * 0.01, 0.015),
+      6,
+      1,
+      true,
+    );
+    support.scale(
+      Math.max(size.x * (0.13 - supportRing * 0.012), 0.04),
+      1,
+      Math.max(size.z * (0.13 - supportRing * 0.012), 0.04),
+    );
+    support.translate(
+      (fullBounds.min.x + fullBounds.max.x) * 0.5,
+      THREE.MathUtils.lerp(crownBottom, fullBounds.max.y, fraction),
+      (fullBounds.min.z + fullBounds.max.z) * 0.5,
+    );
+    ensureAttribute(support, 'color', 3, [
+      color.r * 0.86,
+      color.g * 0.86,
+      color.b * 0.86,
+    ]);
+    pieces.push(support);
+    supportRing += 1;
+  }
+
+  const mergeable = pieces.map((piece) => {
+    if (!piece.index) return piece;
+    const nonIndexed = piece.toNonIndexed();
+    piece.dispose();
+    return nonIndexed;
+  });
+  const geometry = mergeGeometries(mergeable, false);
+  mergeable.forEach((piece) => piece.dispose());
+  ensureAttribute(geometry, 'toonlabPartId', 1, 0);
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    side: THREE.DoubleSide,
+    vertexColors: true,
+  });
+  material.name = 'TreeWhorledConiferMidProxy';
+  const root = new THREE.Group();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = 'TreeWhorledConiferMidProxyMesh';
+  mesh.userData.toonlabSemanticRole = 'plant-proxy';
+  mesh.userData.toonlabSemanticParts = { 0: { id: 0, semantic: 'whole-plant-proxy' } };
+  root.add(mesh);
+  root.userData = cloneJson(reference.userData);
+  return root;
+}
+
+function createSucculentAxisProxy(reference) {
+  const graph = reference.userData?.plantGraph;
+  const padSegments = graph?.segments?.filter((entry) => entry.geometryKind === 'pad') ?? [];
+  const shallowRootSegments = graph?.segments?.filter(
+    (entry) => entry.semantic === 'shallow-root',
+  ) ?? [];
+  const axisKindById = new Map(
+    (graph?.axes ?? []).map((entry) => [entry.id, entry.kind]),
+  );
+  const succulentArmAxisCount = [...axisKindById.values()]
+    .filter((kind) => kind === 'succulent-arm').length;
+  const sourceSegments = graph?.segments?.filter((entry) => (
+    entry.semantic === 'succulent-stem'
+    || entry.semantic === 'succulent-arm'
+    || (
+      entry.semantic === 'succulent-cork'
+      && (
+        axisKindById.get(entry.axisId) === 'succulent-cork-trunk'
+        || axisKindById.get(entry.axisId) === 'pad-primary'
+      )
+    )
+  )) ?? [];
+  if (!sourceSegments.length && !padSegments.length) return null;
+  const pieces = [];
+  const up = new THREE.Vector3(0, 1, 0);
+  const start = new THREE.Vector3();
+  const end = new THREE.Vector3();
+  const direction = new THREE.Vector3();
+  const segmentsByAxis = new Map();
+  for (const entry of sourceSegments) {
+    const entries = segmentsByAxis.get(entry.axisId) ?? [];
+    entries.push(entry);
+    segmentsByAxis.set(entry.axisId, entries);
+  }
+  const segments = [];
+  for (const entries of segmentsByAxis.values()) {
+    if (
+      entries[0]?.semantic === 'succulent-arm'
+      && entries.length >= 5
+      && succulentArmAxisCount <= 3
+    ) {
+      // A saguaro arm is a quarter-curve, not two disconnected sticks. Keep
+      // three contiguous spans so the outward reach remains visible from the
+      // top/oblique QA cameras while still fitting comfortably under LOD3's
+      // 140-triangle budget.
+      segments.push({
+        ...entries[0],
+        end: entries[1].end,
+        radiusEnd: entries[1].radiusEnd,
+      });
+      segments.push(entries[2]);
+      segments.push({
+        ...entries[3],
+        end: entries.at(-1).end,
+        radiusEnd: entries.at(-1).radiusEnd,
+      });
+    } else if (entries[0]?.semantic === 'succulent-arm' && entries.length >= 5) {
+      // Dense old crowns spend the same fixed budget across more arms. Two
+      // connected chords retain every arm's reach and upright tip without
+      // dropping the six shallow roots from the semantic/top-view proxy.
+      segments.push({
+        ...entries[0],
+        end: entries[2].end,
+        radiusEnd: entries[2].radiusEnd,
+      });
+      segments.push({
+        ...entries[3],
+        end: entries.at(-1).end,
+        radiusEnd: entries.at(-1).radiusEnd,
+      });
+    } else if (entries[0]?.semantic === 'succulent-arm' && entries.length >= 3) {
+      segments.push(...entries);
+    } else if (entries.length > 1) {
+      segments.push({
+        ...entries[0],
+        end: entries.at(-1).end,
+        radiusEnd: entries.at(-1).radiusEnd,
+      });
+    } else if (entries.length === 1) {
+      segments.push(entries[0]);
+    }
+  }
+  // These feeder roots sit below grade in the live scene, but they are still
+  // part of the exported semantic plant and of the top-view silhouette gate.
+  // Keep the six authored radials instead of collapsing their shared root
+  // axis into one chord.
+  segments.push(...shallowRootSegments);
+  const terminalSegments = new Map();
+  for (const entry of segments) terminalSegments.set(entry.axisId, entry.id);
+  const radialSegments = segments.length > 9 ? 3 : 4;
+  let graphMinimumY = Infinity;
+  for (const entry of segments) {
+    graphMinimumY = Math.min(graphMinimumY, entry.start[1], entry.end[1]);
+    start.fromArray(entry.start);
+    end.fromArray(entry.end);
+    direction.copy(end).sub(start);
+    const length = direction.length();
+    if (length <= 1e-6) continue;
+    const source = new THREE.CylinderGeometry(
+      Math.max(Number(entry.radiusEnd) || 0, 0.015),
+      Math.max(Number(entry.radiusStart) || 0, 0.02),
+      length,
+      radialSegments,
+      1,
+      true,
+    );
+    source.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(
+      up,
+      direction.normalize(),
+    ));
+    source.translate(
+      (start.x + end.x) * 0.5,
+      (start.y + end.y) * 0.5,
+      (start.z + end.z) * 0.5,
+    );
+    const proxyColor = entry.semantic === 'shallow-root'
+      ? [0.22, 0.31, 0.16]
+      : [0.32, 0.56, 0.25];
+    ensureAttribute(source, 'color', 3, proxyColor);
+    pieces.push(source);
+    if (terminalSegments.get(entry.axisId) === entry.id) {
+      const cap = new THREE.CircleGeometry(
+        Math.max(Number(entry.radiusEnd) || 0, 0.015),
+        radialSegments,
+      );
+      cap.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(
+        new THREE.Vector3(0, 0, 1),
+        direction,
+      ));
+      cap.translate(end.x, end.y, end.z);
+      ensureAttribute(cap, 'color', 3, proxyColor);
+      pieces.push(cap);
+    }
+  }
+  for (const entry of padSegments) {
+    graphMinimumY = Math.min(graphMinimumY, entry.start[1], entry.end[1]);
+    start.fromArray(entry.start);
+    end.fromArray(entry.end);
+    direction.copy(end).sub(start);
+    const length = direction.length();
+    if (length <= 1e-6) continue;
+    const yAxis = direction.normalize();
+    const requestedNormal = Array.isArray(entry.padNormal)
+      ? new THREE.Vector3(...entry.padNormal).normalize()
+      : new THREE.Vector3(0, 0, 1);
+    const xAxis = new THREE.Vector3().crossVectors(yAxis, requestedNormal).normalize();
+    const zAxis = new THREE.Vector3().crossVectors(xAxis, yAxis).normalize();
+    const pad = new THREE.PlaneGeometry(
+      Math.max((Number(entry.padWidth) || Number(entry.radiusStart) || 0.08) * 2, 0.04),
+      length,
+      1,
+      1,
+    );
+    pad.applyQuaternion(new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis),
+    ));
+    pad.translate(
+      (start.x + end.x) * 0.5,
+      (start.y + end.y) * 0.5,
+      (start.z + end.z) * 0.5,
+    );
+    ensureAttribute(pad, 'color', 3, [0.38, 0.56, 0.34]);
+    pieces.push(pad);
+  }
+  if (!pieces.length) return null;
+  const geometry = mergeGeometries(pieces, false);
+  pieces.forEach((piece) => piece.dispose());
+  geometry.translate(0, Number.isFinite(graphMinimumY) ? -graphMinimumY : 0, 0);
+  ensureAttribute(geometry, 'uv', 2, [0, 0]);
+  ensureAttribute(geometry, 'toonlabPartId', 1, 0);
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    side: THREE.DoubleSide,
+    vertexColors: true,
+  });
+  material.name = 'TreeVolumetricProxy';
+  const root = new THREE.Group();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = 'TreeSucculentAxisProxyMesh';
+  mesh.userData.toonlabSemanticRole = 'plant-proxy';
+  mesh.userData.toonlabSemanticParts = { 0: { id: 0, semantic: 'whole-plant-proxy' } };
+  root.add(mesh);
+  root.userData = cloneJson(reference.userData);
+  return root;
+}
+
 function createUltraFarProxy(reference) {
-  const foliage = reference.children.find((child) => child.name === 'Foliage');
+  const foliage = semanticChild(reference, 'organs', 'Foliage');
   reference.updateWorldMatrix(true, true);
   const fullBounds = new THREE.Box3().setFromObject(reference);
   const foliageBounds = new THREE.Box3().setFromObject(foliage ?? reference);
   const fullSize = fullBounds.getSize(new THREE.Vector3());
   const foliageSize = foliageBounds.getSize(new THREE.Vector3());
-  const architecture = reference.userData?.treeRecipe?.options?.canopy?.architecture;
-  const radialFronds = architecture === 'radial-fronds';
-  const needleWhorls = architecture === 'needle-whorls';
+  const architecture = reference.userData?.treeRecipe?.architecture?.engine
+    ?? reference.userData?.treeRecipe?.options?.canopy?.architecture;
+  const engine = reference.userData?.treeRecipe?.architecture?.engine;
+  if (engine === 'succulent-axis') {
+    const succulentProxy = createSucculentAxisProxy(reference);
+    if (succulentProxy) return succulentProxy;
+  }
+  const radialFronds = architecture === 'radial-fronds'
+    || engine === 'terminal-crown' || engine === 'pseudostem-fan'
+    || engine === 'branched-rosette';
+  const needleWhorls = architecture === 'needle-whorls' || engine === 'whorled-conifer';
+  const hasOrgans = Boolean(foliage?.geometry?.attributes?.position?.count);
+  const terminalCrown = engine === 'terminal-crown' || engine === 'pseudostem-fan'
+    || engine === 'branched-rosette';
+  const culmColony = engine === 'culm-colony';
   const sparseUpperCrown = foliageSize.y / Math.max(fullSize.y, 1e-5) < 0.25;
-  const wholeTreeEnvelope = sparseUpperCrown && !radialFronds && !needleWhorls;
-  const useUpperSkeleton = radialFronds || needleWhorls || sparseUpperCrown;
-  const crownStart = needleWhorls ? 0.12 : radialFronds ? 0.28 : 0.1;
+  const wholeTreeEnvelope = !hasOrgans
+    || (sparseUpperCrown && !radialFronds && !needleWhorls);
+  const useUpperSkeleton = radialFronds || needleWhorls || terminalCrown
+    || culmColony || sparseUpperCrown;
+  const crownStart = needleWhorls || culmColony ? 0.12
+    : radialFronds || terminalCrown ? 0.28 : 0.1;
   const minimumCrownY = useUpperSkeleton
     ? THREE.MathUtils.lerp(fullBounds.min.y, fullBounds.max.y, crownStart)
     : -Infinity;
@@ -618,12 +1169,16 @@ function createUltraFarProxy(reference) {
   // camera direction (a billboard cannot do this).
   if (wholeTreeEnvelope) {
     const geometry = pieces[0];
+    ensureAttribute(geometry, 'toonlabPartId', 1, 0);
     const material = new THREE.MeshBasicMaterial({ color: 0xffffff, vertexColors: true });
     material.name = 'TreeVolumetricProxy';
     const root = new THREE.Group();
     const mesh = new THREE.Mesh(geometry, material);
     mesh.name = 'TreeVolumetricProxyMesh';
+    mesh.userData.toonlabSemanticRole = 'plant-proxy';
+    mesh.userData.toonlabSemanticParts = { 0: { id: 0, semantic: 'whole-plant-proxy' } };
     root.add(mesh);
+    root.userData = cloneJson(reference.userData);
     return root;
   }
   const base = trunkBase(reference, fullBounds);
@@ -660,7 +1215,74 @@ function createUltraFarProxy(reference) {
   const root = new THREE.Group();
   const mesh = new THREE.Mesh(geometry, material);
   mesh.name = 'TreeVolumetricProxyMesh';
+  ensureAttribute(mesh.geometry, 'toonlabPartId', 1, 0);
+  mesh.userData.toonlabSemanticRole = 'plant-proxy';
+  mesh.userData.toonlabSemanticParts = { 0: { id: 0, semantic: 'whole-plant-proxy' } };
   root.add(mesh);
+  root.userData = cloneJson(reference.userData);
+  return root;
+}
+
+function createLowBudgetFarProxy(reference) {
+  reference.updateWorldMatrix(true, true);
+  const bounds = new THREE.Box3().setFromObject(reference);
+  const size = bounds.getSize(new THREE.Vector3());
+  const center = bounds.getCenter(new THREE.Vector3());
+  const color = averageFoliageColor(reference);
+  const radialSegments = 6;
+  const rings = [
+    { radius: 0.16, y: bounds.min.y },
+    { radius: 0.82, y: THREE.MathUtils.lerp(bounds.min.y, bounds.max.y, 0.34) },
+    { radius: 1, y: THREE.MathUtils.lerp(bounds.min.y, bounds.max.y, 0.72) },
+    { radius: 0.12, y: bounds.max.y },
+  ];
+  const positions = [];
+  const colors = [];
+  const uvs = [];
+  const indices = [];
+  for (let ring = 0; ring < rings.length; ring += 1) {
+    const entry = rings[ring];
+    for (let radial = 0; radial < radialSegments; radial += 1) {
+      const angle = radial / radialSegments * Math.PI * 2;
+      positions.push(
+        center.x + Math.cos(angle) * size.x * 0.5 * entry.radius,
+        entry.y,
+        center.z + Math.sin(angle) * size.z * 0.5 * entry.radius,
+      );
+      colors.push(color.r, color.g, color.b);
+      uvs.push(radial / radialSegments, ring / (rings.length - 1));
+    }
+  }
+  for (let ring = 0; ring < rings.length - 1; ring += 1) {
+    for (let radial = 0; radial < radialSegments; radial += 1) {
+      const next = (radial + 1) % radialSegments;
+      const lower = ring * radialSegments + radial;
+      const lowerNext = ring * radialSegments + next;
+      const upper = (ring + 1) * radialSegments + radial;
+      const upperNext = (ring + 1) * radialSegments + next;
+      indices.push(lower, upper, lowerNext, lowerNext, upper, upperNext);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  ensureAttribute(geometry, 'toonlabPartId', 1, 0);
+  const material = new THREE.MeshBasicMaterial({
+    color: 0xffffff,
+    side: THREE.DoubleSide,
+    vertexColors: true,
+  });
+  material.name = 'TreeLowBudgetVolumetricProxy';
+  const root = new THREE.Group();
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.name = 'TreeLowBudgetVolumetricProxyMesh';
+  mesh.userData.toonlabSemanticRole = 'plant-proxy';
+  mesh.userData.toonlabSemanticParts = { 0: { id: 0, semantic: 'whole-plant-proxy' } };
+  root.add(mesh);
+  root.userData = cloneJson(reference.userData);
   return root;
 }
 
@@ -676,6 +1298,8 @@ function boundsForLevels(levels) {
 
 export function compileTreeLodLevels(recipeInput, { leafTexture = null } = {}) {
   const recipe = parseTreeRecipeDocument(recipeInput);
+  const triangleCaps = TREE_LOD_ENGINE_TRIANGLE_CAPS[recipe.architecture?.engine]
+    ?? TREE_LOD_TRIANGLE_CAPS;
   const ownedLeafTexture = leafTexture ?? createProceduralTreeLeafTexture({
     seed: recipe.options.seed ?? 1,
   });
@@ -696,6 +1320,20 @@ export function compileTreeLodLevels(recipeInput, { leafTexture = null } = {}) {
         const trunkTriangles = plant.trunkMesh?.geometry
           ? triangleCount(plant.trunkMesh.geometry)
           : 0;
+        let foliageTriangleBudget = level === 0
+          ? Infinity
+          : Math.max(0, triangleCaps[level] - trunkTriangles);
+        if (
+          level === 1
+          && recipe.architecture?.engine === 'whorled-conifer'
+          && levels[0]
+        ) {
+          const closeTarget = Math.min(
+            triangleCaps[level],
+            Math.floor(rootTriangles(levels[0]) * 0.68),
+          );
+          foliageTriangleBudget = Math.max(0, closeTarget - trunkTriangles);
+        }
         exported = prepareTreeForExport(plant, {
           // LOD1 keeps the exact authored crossed-card crown. LOD2 retains
           // every card center but converts most pairs to one plane, with a
@@ -703,20 +1341,24 @@ export function compileTreeLodLevels(recipeInput, { leafTexture = null } = {}) {
           // invoke nested card thinning on exceptionally dense trees.
           foliageMode: level < 2 ? 'crossed' : 'hybrid',
           foliageCardRetention: LOD_FOLIAGE_RETENTION[level],
-          foliageCardScale: LOD_FOLIAGE_SCALE[level],
+          foliageCardScale: foliageScaleFor(recipe.architecture?.engine, level),
           // LOD0 remains the exact authored high-detail source. Lower levels
           // distribute their leaf-card budget after the continuous bark mesh
           // has been accounted for, so neither can exceed its contract merely
           // because a species has an unusually complex skeleton.
-          foliageTriangleBudget: level === 0
-            ? Infinity
-            : Math.max(0, TREE_LOD_TRIANGLE_CAPS[level] - trunkTriangles),
+          foliageTriangleBudget,
         });
       } finally {
         plant.dispose();
       }
       if (level === 2) {
-        const combined = combinedSingleMaterialLevel(exported);
+        const combined = recipe.architecture?.engine === 'whorled-conifer'
+          // Derive the compact support hull from LOD1 before needle-card
+          // thinning removes sparse branch-tip extrema. The proxy itself is
+          // still the only geometry exported at LOD2.
+          ? createWhorledConiferMidProxy(levels[1])
+          : combinedSingleMaterialLevel(exported);
+        if (!combined) throw new Error('Unable to create the conifer LOD2 proxy.');
         disposeExportGroup(exported);
         exported = combined;
       }
@@ -726,7 +1368,11 @@ export function compileTreeLodLevels(recipeInput, { leafTexture = null } = {}) {
     }
     // LOD2 is deliberately merged to one material, so retain LOD1's named
     // trunk/foliage separation while constructing the silhouette envelope.
-    const far = createUltraFarProxy(levels[1]);
+    let far = createUltraFarProxy(levels[1]);
+    if (rootTriangles(far) >= rootTriangles(levels[2])) {
+      disposeExportGroup(far);
+      far = createLowBudgetFarProxy(levels[1]);
+    }
     far.name = 'Tree_LOD3';
     levels.push(far);
     const report = levels.map((root, level) => ({
@@ -734,7 +1380,7 @@ export function compileTreeLodLevels(recipeInput, { leafTexture = null } = {}) {
       materials: rootMaterialCount(root),
       minScreenCoverage: TREE_LOD_SCREEN_COVERAGE[level],
       node: root.name,
-      triangleCap: TREE_LOD_TRIANGLE_CAPS[level],
+      triangleCap: triangleCaps[level],
       triangles: rootTriangles(root),
     }));
     const valid = report.every((entry) => entry.triangles <= entry.triangleCap)

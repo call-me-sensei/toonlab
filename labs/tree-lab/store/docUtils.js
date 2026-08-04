@@ -12,7 +12,7 @@ import {
   recipeFromSettings,
   settingsFromRecipe,
   validateTreeRecipeDocument,
-} from '../../../src/vegetation/index.js';
+} from '../../../src/vegetation/experimental.js';
 import { findTreePreset, loadLocalTreePresets } from '../treePresetStore.js';
 
 export const STATE_STORAGE_KEY = 'toonlab.treeDesigner.state.v1';

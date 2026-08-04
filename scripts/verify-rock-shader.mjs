@@ -25,12 +25,20 @@ check('Call Me Sensei is the default and every editor field has metadata', () =>
   const settings = rockShader.createRockShaderSettings();
   assert.equal(settings.preset, 'call_me_sensei');
   assert.equal(rockShader.DEFAULT_ROCK_SHADER_PRESET, 'call_me_sensei');
-  assert.equal(settings.projection.scale, 64);
+  assert.equal(settings.projection.scale, 48);
   assert.equal(settings.projection.projectionContrast, 2);
   assert.equal(settings.distanceTint.closeDistance, 500);
   assert.equal(settings.distanceTint.farDistance, 15000);
   assert.equal(settings.normals.distance, 30000);
   assert.equal(settings.normals.useSmoothed, true);
+  assert.deepEqual(settings.material.tint, [0.92, 0.94, 0.98]);
+  assert.equal(settings.projection.nearDetailScale, 1.2);
+  assert.equal(settings.projection.nearDetailStrength, 0.34);
+  assert.equal(settings.lighting.exposure, 1.12);
+  assert.equal(settings.lighting.ambientFloor, 0.08);
+  assert.equal(settings.shoreline.wetBandWidth, 1);
+  assert.equal(settings.material.metallic, 0);
+  assert.equal(settings.material.emissiveStrength, 0);
   assert.equal(settings.assetIntegration.vertexColorStrength, 0);
   assert.equal(settings.assetIntegration.vertexAoStrength, 0);
   assert.ok(rockShader.ROCK_SHADER_SETTING_GROUPS.length >= 10);
@@ -66,7 +74,7 @@ check('portable rock shader documents round-trip through the public schema', () 
   assert.equal(document.schema, rockShader.ROCK_SHADER_DOCUMENT_TYPE);
 });
 
-check('editor settings map onto the source-faithful material profile', () => {
+check('editor settings map onto the independent material profile', () => {
   const profile = rockShader.rockShaderSettingsToProfile({
     distanceTint: { closeDistance: 21, farDistance: 155, strength: 0.36 },
     layerMask: { offset: 0.3, sharpness: 3.2, useAssetMask: false },
@@ -95,6 +103,11 @@ check('runtime assignment preserves exact defaults and supports optional asset c
   const report = rockShader.applyRockShader(root);
   assert.equal(report.preset, 'call_me_sensei');
   assert.equal(report.applied, 1);
+  assert.equal(report.textureSource, 'first-party-generated');
+  assert.equal(report.usedGeneratedTextures, true);
+  assert.equal(report.shadowDefaultsApplied, 1);
+  assert.equal(mesh.castShadow, true);
+  assert.equal(mesh.receiveShadow, true);
   assert.equal(geometry.getAttribute('color'), undefined);
   assert.equal(geometry.getAttribute('envVertexAo'), undefined);
 
@@ -108,9 +121,17 @@ check('runtime assignment preserves exact defaults and supports optional asset c
   assert.ok(geometry.getAttribute('envVertexAo'));
   assert.equal(mesh.material.userData.toonLabRockShaderPreset, 'call_me_sensei');
   assert.equal(mesh.material.userData.toonLabRockShaderOwned, true);
+  assert.equal(mesh.material.userData.toonLabRockTextureSource, 'first-party-generated');
+  assert.deepEqual(rockShader.setRockShaderSceneState(root, { waterLevel: 2 }), {
+    updated: 1,
+    waterLevel: 2,
+  });
+  assert.equal(mesh.material.userData.toonLabRockSceneState.waterLevel.value, 2);
 
   assert.equal(rockShader.restoreRockShader(root), 1);
   assert.equal(mesh.material, originalMaterial);
+  assert.equal(mesh.castShadow, false);
+  assert.equal(mesh.receiveShadow, false);
   geometry.dispose();
   originalMaterial.dispose();
   rockShader.disposeDefaultRockShaderTextures();

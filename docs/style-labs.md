@@ -7,7 +7,7 @@ recipe can therefore produce thousands or millions of reproducible candidates,
 and applications can register new families, operators, graph nodes, events, and
 layer types without changing ToonLab's built-in lists.
 
-## Status (2026-07 triage)
+## Status in npm 0.4.10
 
 The dedicated browser labs for these domains were removed from the labs grid:
 behavioral domains (camera, game feel, motion) cannot be judged against a demo
@@ -18,12 +18,12 @@ game developer's life today?*
 | Domain | npm export | Lab | Notes |
 |---|---|---|---|
 | Post & color | ✅ `./post` | removed (future feature) | Curate presets via MCP; needs 3–5 owner-reviewed presets |
-| Camera | ✅ `./camera` | removed (future feature) | Ships as a code library; needs README quickstart |
-| Game feel | ✅ `./game-feel` | removed (future feature) | Ships as a code library; needs README quickstart |
-| Lighting | ✅ `./lighting` | ✅ `/lighting-lab/` | Styles + fixtures; see [lighting.md](lighting.md) |
+| Camera | ⏸ source only | removed (future feature) | Not exported from npm 0.4.10; host-owned |
+| Game feel | ⏸ source only | removed (future feature) | Not exported from npm 0.4.10; host-owned |
+| Lighting | ⏸ source only | repository-only `/lighting-lab/` | Not exported from npm 0.4.10; see the status banner in [lighting.md](lighting.md) |
 | Motion | ⏸ held (source at `src/motion/`) | removed (future feature) | Returns when a demo drives real GLTF clips end-to-end |
 | Soundscape | ⏸ held (source at `src/soundscape/`) | removed (future feature) | Rethink as adaptive mixing over curated audio assets |
-| Biome | ❌ cut (source at `src/biome/`) | removed (future feature) | Value lives in `stylizedTerrain`/`stylizedWorld`, already exported |
+| Biome | ❌ cut (source at `src/biome/`) | removed (future feature) | Use stable terrain plus explicit host composition |
 | UI theme | ❌ removed entirely | removed (future feature) | Out of scope for a Three.js game library; recoverable from history |
 
 The product boundary is:
@@ -99,7 +99,7 @@ Import from `@call-me-sensei/toonlab/post`.
 
 ### Camera
 
-**Shipped in npm; lab removed (future feature).** Builds a stack of camera
+**Repository source only; not exported in npm 0.4.10.** Builds a stack of camera
 operators instead of selecting one hard-coded camera type. Follow, framing,
 collision, damping, procedural noise, impulses, and lens behavior can be
 composed or extended.
@@ -112,7 +112,9 @@ composed or extended.
 - Scale: one resolved operator stack is evaluated per active camera. Noise and
   impulses are time-based and no candidate generation occurs in the frame loop.
 
-Import from `@call-me-sensei/toonlab/camera`.
+Do not import `@call-me-sensei/toonlab/camera` in a 0.4.10 consumer. Keep camera
+behavior host-owned until this source receives a stable package export and
+clean-consumer qualification.
 
 ### Motion (held — future feature)
 
@@ -145,15 +147,15 @@ implementation lived at `src/ui-theme/` + `labs/ui-theme-lab/` (removed
 
 **Export cut; lab removed.** The runtime at `src/biome/` is a lifecycle wrapper
 that hard-requires ToonLab's own renderer/scene, so it is not consumable as a
-standalone package export; the underlying value (`stylizedTerrain`,
-`stylizedWorld`) is already exported from the package root. Treated a biome as
+standalone package export. The stable terrain generator plus explicitly
+composed focused systems cover the supported boundary. This prototype treated a biome as
 continuous terrain morphology plus a linked palette, water, atmosphere, and
 vegetation system.
 
 - Open generation: terrain height/depth/frequency/terracing/islands, palette
   endpoints, water colors, fog, grass/flower/tree density and size, and wind
   are domain values; new terrain archetypes and biome families are registerable.
-- Runtime: `createBiomeRuntime` constructs the terrain and stylized world,
+- Runtime prototype: `createBiomeRuntime` constructs terrain and repository-only world composition,
   exposes race-safe asynchronous regeneration, updates world systems, reports
   scene statistics, and owns disposal.
 - Budgets: mobile, balanced, and cinematic cap terrain segments and vegetation
@@ -179,7 +181,7 @@ resolver later.
 
 ### Game feel
 
-**Shipped in npm; lab removed (future feature).** Maps named gameplay events to
+**Repository source only; not exported in npm 0.4.10.** Maps named gameplay events to
 coordinated response graphs. It is the integration layer for impact, not
 another VFX asset catalog.
 
@@ -198,9 +200,11 @@ another VFX asset catalog.
   state. Runtime quality tiers can tighten recipes, resolved presets, or raw
   settings.
 
-Import from `@call-me-sensei/toonlab/game-feel`.
+Do not import `@call-me-sensei/toonlab/game-feel` in a 0.4.10 consumer. Keep
+feedback orchestration host-owned until this source receives a stable package
+export and clean-consumer qualification.
 
-### Lighting Lab
+### Lighting Lab (repository-only)
 
 `/lighting-lab/` authors the game's lighting identity as two generative
 artifacts instead of per-scene light configuration: **lighting styles**
@@ -224,12 +228,16 @@ and day/night schedules).
   scrubber and weather modulation presets, so a style is judged standing next
   to a lantern at night, not only at editor noon.
 
-Import from `@call-me-sensei/toonlab/lighting`.
+Do not import `@call-me-sensei/toonlab/lighting` in a 0.4.10 consumer. The lab
+and source are repository-only until a public export, clean-consumer test, and
+visual release gate are approved.
 
 ## MCP authoring
 
-The local MCP server exposes four tools shared by the shipped domains (post,
-camera, game feel, lighting styles, light fixtures):
+The repository-local MCP server can author post documents and experimental
+camera, game-feel, lighting-style, and light-fixture documents. Only post has a
+stable 0.4.10 runtime import. MCP authoring does not make a repository-only
+runtime a public npm contract:
 
 - `list_style_labs` returns runtime imports/APIs, extension families,
   and generation capabilities.

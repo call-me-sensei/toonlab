@@ -1,6 +1,7 @@
 // Small stateless kit primitives. Anything with real interaction logic
 // (Slider, overlays) lives in its own file.
 
+import { useEffect, useId, useMemo, useState } from 'react';
 import { Icon } from './Icon.jsx';
 
 export function Button({
@@ -75,11 +76,76 @@ export function Select({
       onChange={(event) => onChange(event.target.value)}
     >
       {options.map((option) => (
-        <option key={String(option.value)} value={String(option.value)}>
+        <option
+          key={String(option.value)}
+          disabled={Boolean(option.disabled)}
+          title={typeof option.disabledReason === 'string' ? option.disabledReason : undefined}
+          value={String(option.value)}
+        >
           {option.label}
         </option>
       ))}
     </select>
+  );
+}
+
+export function SearchSelect({
+  disabled = false, onChange, options, testId, value,
+}) {
+  const listId = useId();
+  const enabledOptions = useMemo(
+    () => options.filter((option) => !option.disabled),
+    [options],
+  );
+  const selected = options.find((option) => String(option.value) === String(value));
+  const selectedLabel = selected?.label ?? '';
+  const [query, setQuery] = useState(selectedLabel);
+
+  useEffect(() => {
+    setQuery(selectedLabel);
+  }, [selectedLabel]);
+
+  const commit = (label) => {
+    const normalized = label.trim().toLocaleLowerCase();
+    const match = enabledOptions.find((option) => (
+      option.label.trim().toLocaleLowerCase() === normalized
+    ));
+    if (match) {
+      setQuery(match.label);
+      onChange(match.value);
+      return true;
+    }
+    return false;
+  };
+
+  return (
+    <span className="tk-search-select">
+      <input
+        aria-autocomplete="list"
+        autoComplete="off"
+        className="tk-text-field"
+        data-testid={testId}
+        disabled={disabled}
+        list={listId}
+        onBlur={() => {
+          if (!commit(query)) setQuery(selectedLabel);
+        }}
+        onChange={(event) => {
+          const next = event.target.value;
+          setQuery(next);
+          commit(next);
+        }}
+        placeholder="Type a common or scientific name…"
+        role="combobox"
+        type="search"
+        value={query}
+      />
+      <datalist id={listId}>
+        {enabledOptions.map((option) => (
+          <option key={String(option.value)} value={option.label} />
+        ))}
+      </datalist>
+    </span>
   );
 }
 

@@ -2,3 +2,4 @@
 // Import from '@call-me-sensei/toonlab/character'.
 export * from './characterRig.js';
 export * from './freestyleSwimClip.js';
+export * from './mannequinAsset.js';

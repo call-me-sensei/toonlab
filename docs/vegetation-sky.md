@@ -1,5 +1,11 @@
 # Vegetation
 
+Vegetation treatment and qualified focused generators are recommended for a
+scene with host-authored geometry or placements. Sky and Cloud are documented
+because their public qualification APIs exist, but their authoring and
+cross-system composition remain experimental until the labs are cleaned up.
+See [What ToonLab is ready for today](capability-status.md).
+
 Procedural stylized vegetation from
 `@call-me-sensei/toonlab/vegetation`. Geometry and shading are generated;
 animation runs in the vertex shaders. The runtime sky now has its own
@@ -157,17 +163,18 @@ semantic contract and returns coverage/unsupported-uniform diagnostics.
 `applyVegetationShaderScope(root, 'tree' | 'grass' | 'flower', profile)`
 additionally rejects roles owned by another profile.
 
-`createStylizedWorld({ vegetationShaders: { tree, grass, flower } })` routes
-the three role profiles independently after shared-base resolution.
-`world.setVegetationShaders(...)` updates them. Historical `vegetationShader` and
-`world.setVegetationShader(profile)` apply one aggregate to all three for
-compatibility. Far forest proxies still report when a tree-profile change
-requires a rebuild.
+ToonLab 0.4.10 has no stable full-world coordinator. Apply tree, grass, and
+flower profiles to their explicitly labeled roots with
+`applyVegetationShaderScope(...)`, and keep the returned diagnostics. The host
+must also rebuild any far-forest proxy whose baked appearance no longer
+matches an updated tree profile. Do not invent world-level setters.
 
 The labs intentionally split by responsibility:
 
-- Tree, Grass, and Flower **Generation Labs** author geometry, species,
-  palettes, planting data, LOD, and export.
+- Tree, Grass, and Flower **Generation Labs** may research geometry and
+  palettes. The 0.4.10 package supports the 12 named pre-species legacy tree
+  silhouettes plus the generic `BranchTree`; taxonomy/species experiments
+  remain repository-only.
 - Tree, Grass, and Flower **Shader Labs** author the three reusable profiles.
 - The legacy Vegetation Shader Lab route remains only for aggregate-document
   compatibility.
@@ -196,6 +203,38 @@ same adapter and restores its captured baseline on disposal.
 | `StylizedTree` | current wind/sun/cloud/weather through setters; IP look through `setVegetationShader`; canopy palette re-derivation through `applySettings` | `size`, `seed`, `canopyWidth/Depth/Scale/Layout`, `leafDensity`, `leafPlacement`, trunk/skeleton topology |
 
 ## Grass
+
+For the default Call Me Sensei meadow, prefer the focused package factory:
+
+```js
+import { createCallMeSenseiGrassField } from '@call-me-sensei/toonlab/grass';
+
+const grass = await createCallMeSenseiGrassField({ placements });
+scene.add(grass);
+grass.update(delta, camera);
+console.log(grass.bladeBudget()); // authored, actually drawn, and per-LOD counts
+```
+
+It resolves `call_me_sensei_clump`: first-party procedural 40-blade primary
+clumps, generated LOD0/1/2 geometry, full ground-field adoption, texture-free
+watercolor lift, translucent stroke layering, and no terminal hard cull. Mark
+terrain writers and update the environment ground-field pass before grass.
+Reject dark/dirty roots, isolated tuft islands, tangled blades, bare-ground
+pinholes at normal density, or a straight coverage boundary. The P18 parity
+example must pass in both Composition and Grass close modes without importing
+repository geometry or material into the package result.
+
+The Call Me Sensei default is hue-preserving and uses an exact neutral
+`groundAdoptTint` of `[1, 1, 1]`: it does not brighten pale terrain into
+bleached roots. The profile keeps `tipHueShift` and `tipDesaturation` at zero,
+so green ground stays within shades of green. Those fields remain available
+for explicitly authored styles. Recipe-v3 LOD0/1/2 uses 40/30/22
+primary blades; retained width compensation keeps measured integrated coverage
+at 1.000/0.997/0.991. The signature Grass Shader sets `bendExponent: 1.3` so
+the root-to-tip deformation reads as a painted blade arc rather than a straight
+spar. `bladeBudget()` reports authored and currently drawn blades; do not infer
+draw cost from placement count after camera LOD assignment. Reject a
+zoom-dependent terrain color change.
 
 ```js
 import { StylizedGrassField } from '@call-me-sensei/toonlab/vegetation';
@@ -281,6 +320,30 @@ Instanced flowers that receive scene shadows like the grass. Settings:
 
 ## Trees
 
+For the focused stable branch-type tree, use `BranchTree`. It exposes five
+broadleaf silhouettes, leaf/bark textures, a portable three-tone canopy
+palette, trunk bend/twist/taper, roots, and a leaf `coverageScale` that can be
+tuned without resizing the tree:
+
+```js
+import { BranchTree } from '@call-me-sensei/toonlab/vegetation';
+
+const tree = new BranchTree({
+  size: 2,
+  branches: { children: 4, levels: 3 },
+  trunk: { bend: 0.22, radiusTop: 0.06, twist: 0.18, textureRef: barkAssetId },
+  leaves: {
+    shape: 'oak',
+    coverageScale: 0.8,
+    palette: { lit: [0.28, 0.62, 0.3], shadow: [0.08, 0.22, 0.1], crown: [0.12, 0.32, 0.13] },
+  },
+});
+```
+
+`branches.children` is the number of lateral children per primary parent. The
+branching generator also carries a terminal continuation into the next level,
+forming a leader instead of ending the trunk in a stump.
+
 ```js
 import { StylizedTree, layoutTreeRow, TREE_TRUNK_STYLES } from '@call-me-sensei/toonlab/vegetation';
 
@@ -296,6 +359,7 @@ tree.update(delta);
 
 tree.applySettings({ foliage: { windStrength: 0.4 } }); // grouped settings
 tree.setCloudShadow({ strength: 0.45 });
+tree.setSceneFog(scene.fog); // linear THREE.Fog; updates true billboard depth
 ```
 
 Curved trunk (`createTreeTrunkGeometry`, `TREE_TRUNK_STYLES`) + leaf-card
@@ -327,7 +391,7 @@ profile owns that value. The authoritative Tree boundary is:
 
 | Owner | Values |
 |---|---|
-| Tree asset/species recipe | Primary and gradient foliage colors, canopy palette, bark base color/texture, leaf sprite, alpha cutoff, normalized card/height data, stable variation seed, geometry, branching, LOD, and collision |
+| Legacy tree or BranchTree asset recipe | Primary and gradient foliage colors, canopy palette, bark base color/texture, leaf sprite, alpha cutoff, stable variation seed, generic silhouette/branching, roots, LOD, and collision. It does not claim botanical species identity. |
 | Tree Shader profile | Shared Lighting, Thin Surface and Weather Response coefficients; foliage gradient transfer, hue treatment, highlight/surface response, toon bands, crown response, sprite/detail influence, transmission; bark tint/flattening, highlight response, toon bands, floors, fill, rim, and vertical shading |
 | Placed instance or condition | Optional instance tint/hue, variation seed, season, damage, wet/snow retention state, and similar per-tree data |
 | Scene/runtime | Current sun/sky, cloud field, wind field, wetness, snow amount, fog, time, and interaction positions |
@@ -351,9 +415,10 @@ warnings identifying the asset recipe fields that must receive those values;
 the parser does not silently keep species colors in the shader.
 
 The Tree Shader Lab's **Preview assets** modal starts with the immutable P18
-pine and also lists procedural tree/bush recipes from Tree Lab, including
-locally saved recipes. A developer can import another tree recipe JSON for the
-current preview. The same effective Tree Shader is reapplied to each fixture
+pine and may also list repository-only experimental fixtures. Package
+consumers should use `LEGACY_TREE_PRESETS`/`createLegacyTree()` for the
+pre-species set or `BranchTree` documents for the focused branch-type tree. The same
+effective Tree Shader is reapplied to each fixture
 through `foliageCard` and `woodySurface` roles. The selected recipe and its
 palette never enter the exported Tree Shader or style-bundle slot.
 

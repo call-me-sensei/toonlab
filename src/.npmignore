@@ -54,6 +54,36 @@ environment/toonLabTerrainNativeAuthority.js
 # Unpublished experiments or superseded implementations.
 core/shaderBackend.js
 debrisgen/debrisPalettes.js
+ground-shader/p18GroundShaderMaterial.js
+ground-shader/p18GroundShaderSettings.js
 rockgen/reference/toonRockMaterial.js
 rockgen/reference/
 shaders-tsl/chunks/landscape-splat.js
+vegetation/p18VegetationShaderMaterial.js
+vegetation/p18VegetationStyleOverlay.js
+vegetation/retainedGrassShaderV2.js
+
+# Experimental taxonomy/species engines are repository-only in 0.4.3. The
+# supported package tree is vegetation/branchTree.js.
+vegetation/plantGraph.js
+vegetation/experimental.js
+vegetation/proceduralSpeciesTree.js
+vegetation/recursiveWoodyGrowth.js
+vegetation/recursiveWoodyMesh.js
+vegetation/treeArchitectureProfiles.js
+vegetation/treeLodCompiler.js
+vegetation/treeRecipe.js
+vegetation/treeRecipePresets.js
+vegetation/treeSpeciesProfiles.js
+vegetation/treeSpeciesResearch.generated.js
+vegetation/treeSpeciesRoster.js
+vegetation/treeSpeciesTaxonomy.generated.js
+vegetation/treeSurfaceTextures.js
+vegetation/woodyBaselineControls.js
+
+# Host-only analytics is not part of the runtime package.
+analytics/
+
+# Binary reference and lab assets never ship through npm. Runtime helpers use
+# first-party procedural data or immutable public-R2 delivery instead.
+character/assets/

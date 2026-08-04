@@ -55,6 +55,14 @@ const MODULES = [
     note: 'Reusable grouped material settings consumed by `applyRockShader(root, settings)`. Rock geometry, erosion, seed, LOD, collision, and current scene conditions remain separate.',
   },
   {
+    title: 'Ground shader profile',
+    subpath: 'toonlab/ground-shader',
+    module: '/src/ground-shader/groundShaderSettings.js',
+    groups: 'GROUND_SHADER_SETTING_GROUPS',
+    schema: 'GROUND_SHADER_FIELD_SCHEMA',
+    note: 'Reusable grouped terrain-material settings consumed by `createGroundShaderMaterial(settings)` and `createGroundShaderMesh(geometry, settings)`. Terrain geometry, coverage, LOD, collision, and current scene conditions remain separate.',
+  },
+  {
     title: 'Water',
     subpath: 'toonlab/water',
     module: '/src/water/waterSettings.js',
@@ -124,7 +132,7 @@ const MODULES = [
     module: '/src/ambientfx/ambientFxSettings.js',
     groups: 'AMBIENTFX_SETTING_GROUPS',
     schema: 'AMBIENTFX_SETTING_FIELD_SCHEMA',
-    note: 'Settings are nested per group: `createAmbientFx({ settings: { fireflies: { blinkSpeed: 0.8 } } })`. Effect entries in `effects` override their group; `density` there is a multiplier.',
+    note: 'Settings are nested per group: `createAmbientFx({ settings: { fireflies: { blinkSpeed: 0.8 } } })`. Effect entries in `effects` override their group; `densityScale` multiplies the authored per-m³ density (`density` remains a compatibility alias). Call `emitNow(camera)` when build-time stats or a settled first capture are required before the first update.',
   },
   {
     title: 'Gameplay VFX',
@@ -161,7 +169,7 @@ const MODULES = [
 ];
 
 function startDevServer() {
-  const child = spawn('npx', ['vite', '--port', String(PORT), '--strictPort'], {
+  const child = spawn('npx', ['vite', '--host', '127.0.0.1', '--port', String(PORT), '--strictPort'], {
     cwd: ROOT,
     env: { ...process.env, BROWSER: 'none' },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -322,7 +330,7 @@ function renderMarkdown(sections) {
 }
 
 async function main() {
-  const baseUrl = EXTERNAL_BASE_URL ?? `http://[::1]:${PORT}`;
+  const baseUrl = EXTERNAL_BASE_URL ?? `http://127.0.0.1:${PORT}`;
   const server = EXTERNAL_BASE_URL ? null : startDevServer();
 
   let browser = null;

@@ -1,4 +1,9 @@
-import { createReadStream, existsSync, readdirSync, statSync } from 'node:fs';
+import {
+  createReadStream,
+  existsSync,
+  readdirSync,
+  statSync,
+} from 'node:fs';
 import { basename, extname, relative, resolve, sep } from 'node:path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -211,6 +216,25 @@ function localReferenceExamplesDevPlugin() {
   };
 }
 
+function googleAnalyticsHtmlPlugin() {
+  return {
+    name: 'toonlab-google-analytics',
+    transformIndexHtml: {
+      order: 'pre',
+      handler() {
+        return [{
+          attrs: {
+            src: '/src/analytics/googleAnalytics.js',
+            type: 'module',
+          },
+          injectTo: 'head',
+          tag: 'script',
+        }];
+      },
+    },
+  };
+}
+
 // examples/ import ToonLab by its published package name so they read
 // exactly like consumer code; these aliases resolve those specifiers to the
 // in-repo source. Subpath entries must come before the bare root entry.
@@ -224,7 +248,7 @@ const packageAliases = [
   })),
   { find: '@call-me-sensei/toonlab/toon-settings', replacement: resolve(__dirname, 'src/toon/toonSettings.js') },
   { find: '@call-me-sensei/toonlab/water-settings', replacement: resolve(__dirname, 'src/water/waterSettings.js') },
-  { find: '@call-me-sensei/toonlab/grass', replacement: resolve(__dirname, 'src/vegetation/stylizedGrass.js') },
+  { find: '@call-me-sensei/toonlab/grass', replacement: resolve(__dirname, 'src/vegetation/grass.js') },
   { find: '@call-me-sensei/toonlab/post-processing', replacement: resolve(__dirname, 'src/post/postProcessing.js') },
   { find: '@call-me-sensei/toonlab', replacement: resolve(__dirname, 'src/index.js') },
 ];
@@ -240,6 +264,7 @@ export default defineConfig(({ mode }) => {
   // Fast Refresh for the React HUD (labs/**/ui). Vanilla .js modules —
   // engines, generators, shaders — pass through untouched.
   plugins: [
+    googleAnalyticsHtmlPlugin(),
     localAssetsDevPlugin(__dirname),
     localReferenceExamplesDevPlugin(),
     toonlabWorkspacePlugin({ rootDirectory: __dirname }),
@@ -249,6 +274,7 @@ export default defineConfig(({ mode }) => {
     alias: packageAliases,
   },
   server: {
+    host: env.TOONLAB_BIND_HOST || '127.0.0.1',
     open: true,
     port: 5175,
     // ambientCG sends no CORS headers, so the browser reaches it through
@@ -321,13 +347,19 @@ export default defineConfig(({ mode }) => {
         flowerLab: resolve(__dirname, 'flower-lab/index.html'),
         debrisLab: resolve(__dirname, 'debris-lab/index.html'),
         propLab: resolve(__dirname, 'prop-lab/index.html'),
+        fbxLab: resolve(__dirname, 'fbx-lab/index.html'),
         buildingLab: resolve(__dirname, 'building-lab/index.html'),
         textureLab: resolve(__dirname, 'texture-lab/index.html'),
         gallery: resolve(__dirname, 'gallery/index.html'),
+        generate: resolve(__dirname, 'generate/index.html'),
+        library: resolve(__dirname, 'library/index.html'),
+        styles: resolve(__dirname, 'styles/index.html'),
         // Gallery detail page + the unlisted embed stage it iframes.
         assetPage: resolve(__dirname, 'asset/index.html'),
         assetLab: resolve(__dirname, 'asset-lab/index.html'),
+        skyCloudLab: resolve(__dirname, 'sky-cloud-lab/index.html'),
         skyLab: resolve(__dirname, 'sky-lab/index.html'),
+        senseiSkyLab: resolve(__dirname, 'sensei-sky-lab/index.html'),
         cloudShaderLab: resolve(__dirname, 'cloud-shader-lab/index.html'),
         waterLab: resolve(__dirname, 'water-lab/index.html'),
         landscapeLab: resolve(__dirname, 'landscape-lab/index.html'),
@@ -337,13 +369,14 @@ export default defineConfig(({ mode }) => {
         settings: resolve(__dirname, 'settings/index.html'),
         docs: resolve(__dirname, 'docs/index.html'),
         vfxLab: resolve(__dirname, 'vfx-lab/index.html'),
-        treeDesignerLegacy: resolve(__dirname, 'tree-designer/index.html'),
+        treeLabLegacy: resolve(__dirname, 'tree-designer/index.html'),
         outdoorWorld: resolve(__dirname, 'examples/outdoor-world/index.html'),
         vfxArena: resolve(__dirname, 'examples/vfx-arena/index.html'),
         // Hub-listed demos — without inputs they resolve in dev but 404 in
         // production builds.
         faunaDemo: resolve(__dirname, 'examples/fauna-demo/index.html'),
         ambientFxDemo: resolve(__dirname, 'examples/ambientfx-demo/index.html'),
+        grassClumpParity: resolve(__dirname, 'examples/p18-grass-clump-parity/index.html'),
         sourceCatalog: resolve(__dirname, 'examples/source-catalog/index.html'),
         manufacturedMaterialLab: resolve(__dirname, 'manufactured-material-lab/index.html'),
         manufacturedMaterialLabLegacy: resolve(__dirname, 'manufactured-material-lab/legacy/index.html'),

@@ -11,8 +11,33 @@ import { StylizedBush } from './stylizedBush.js';
 import { StylizedFlower } from './stylizedFlower.js';
 import { FLOWER_SPECIES } from './flowerSpecies.js';
 import { resolveCanopyColor } from './stylizedTreeFoliage.js';
+import { ProceduralSpeciesTree } from './proceduralSpeciesTree.js';
+import {
+  TREE_SPECIES_PROFILES,
+  getTreeSpeciesProfile,
+} from './treeSpeciesProfiles.js';
+import {
+  TREE_ARCHITECTURE_ENGINE_IDS,
+  TREE_DEVELOPMENT_STAGE_SETS,
+} from './treeArchitectureProfiles.js';
+import {
+  WOODY_BASELINE_CONTROL_SCHEMA_VERSION,
+  WOODY_BASELINE_SPECIES_PROFILE_VERSION,
+  WOODY_GROWTH_FORMS,
+  WOODY_GROWTH_FORM_SUBTYPES,
+  woodyBaselineInheritedControlsForSpecies,
+  woodyBaselineAgeProfileForSpecies,
+  woodyBaselineTrainingProfileForSpecies,
+  validateWoodyBaselineAgeProfile,
+  validateWoodyBaselineTrainingProfile,
+  validateWoodyBaselineControlValues,
+} from './woodyBaselineControls.js';
 
 export { TREE_RECIPE_SCHEMA, TREE_RECIPE_VERSION };
+export {
+  WOODY_GROWTH_FORMS as TREE_GROWTH_FORMS,
+  WOODY_GROWTH_FORM_SUBTYPES as TREE_GROWTH_FORM_SUBTYPES,
+};
 
 // Tree/bush recipe layer: the single source of truth Tree Lab's UI,
 // preset files, and runtime rebuilds all share.
@@ -46,7 +71,26 @@ const CANONICAL_DEFAULTS = DEFAULT_STYLIZED_TREE_SETTINGS;
 export const TREE_SETTING_DEFAULTS = Object.freeze({
   // Curated starter plant (a pleasant mid-size tree), not the constructor
   // defaults: the editor should open on something worth looking at.
-  plant: Object.freeze({ type: 'tree', seed: 3, size: 1.7 }),
+  plant: Object.freeze({
+    type: 'tree',
+    seed: 3,
+    size: 1.7,
+    speciesProfileId: '',
+    lifeStageSlot: 'mature',
+    developmentProgress: 0.5,
+    foliageState: 'leaf-on',
+    stylePreset: 'call_me_sensei',
+    growthForm: 'natural',
+    growthFormSubtype: 'species-default',
+  }),
+  structure: Object.freeze({
+    engine: 'legacy-woody',
+    crownMode: 'decurrent',
+    stemCount: 1,
+    nodeCount: 18,
+    armCount: 4,
+    whorlSize: 1,
+  }),
   trunk: Object.freeze({
     style: 'straight',
     height: CANONICAL_DEFAULTS.trunk.height,
@@ -67,6 +111,15 @@ export const TREE_SETTING_DEFAULTS = Object.freeze({
     radiusRatio: CANONICAL_DEFAULTS.skeleton.radiusRatio,
     gnarliness: CANONICAL_DEFAULTS.skeleton.gnarliness,
     forceStrength: CANONICAL_DEFAULTS.skeleton.forceStrength,
+    phyllotaxisAngle: 137.5,
+    branchInternodeSpacing: 0.65,
+    gravitropism: 0.04,
+    phototropism: 0.035,
+    branchSag: 0.018,
+    tipUpturn: 0.12,
+    windBias: 0,
+    pipeExponent: 2.18,
+    junctionBulge: 1.1,
     conifer: CANONICAL_DEFAULTS.skeleton.conifer,
     attractionCount: CANONICAL_DEFAULTS.skeleton.attractionCount,
     segmentLength: CANONICAL_DEFAULTS.skeleton.segmentLength,
@@ -130,10 +183,14 @@ export const TREE_SETTING_DEFAULTS = Object.freeze({
       CANONICAL_DEFAULTS.foliage.windDirection[1],
       CANONICAL_DEFAULTS.foliage.windDirection[0]) * 100) / 100,
   }),
+  // Sparse neutral overrides for the exact woody baseline. An absent key
+  // means "inherit the selected Toonlab architecture/species tuning".
+  baselineControls: Object.freeze({}),
 });
 
 export const TREE_SETTING_GROUPS = Object.freeze([
   Object.freeze({ id: 'plant', label: 'Plant', description: 'Plant type, seed, and overall size.' }),
+  Object.freeze({ id: 'structure', label: 'Species Structure', description: 'Architecture engine and engine-specific counts.' }),
   Object.freeze({ id: 'trunk', label: 'Trunk', description: 'Trunk silhouette: bow, lean, twist, gnarl. Trees only.' }),
   Object.freeze({ id: 'skeleton', label: 'Branches', description: 'Space-colonization limb growth. Trees only.' }),
   Object.freeze({ id: 'canopy', label: 'Crown Shape', description: 'Blob layout that defines the crown/bush silhouette.' }),
@@ -173,16 +230,34 @@ function field(group, key, extra = {}) {
     label: extra.label ?? base?.label ?? key,
     description: extra.description ?? base?.description ?? '',
     type,
+    control: extra.control ?? base?.control ?? null,
     defaultValue,
     serializable: true,
     bake: extra.bake ?? 'rebuild',
     range: extra.range ?? base?.range ?? null,
     options: extra.options ?? base?.options ?? null,
     optionLabels: extra.optionLabels ?? base?.optionLabels ?? null,
+    optionDisabled: extra.optionDisabled ?? base?.optionDisabled ?? null,
   });
 }
 
 const TRUNK_STYLE_OPTIONS = [...Object.keys(TREE_TRUNK_STYLES), 'custom'];
+const SORTED_TREE_SPECIES_PROFILES = [...TREE_SPECIES_PROFILES].sort((left, right) => (
+  left.commonName.localeCompare(right.commonName, 'en', { sensitivity: 'base' })
+  || left.scientificName.localeCompare(right.scientificName, 'en', { sensitivity: 'base' })
+));
+const TREE_SPECIES_OPTIONS = ['', ...SORTED_TREE_SPECIES_PROFILES.map((profile) => profile.id)];
+const TREE_SPECIES_OPTION_LABELS = Object.freeze({
+  '': 'Classic / custom tree',
+  ...Object.fromEntries(SORTED_TREE_SPECIES_PROFILES.map((profile) => [
+    profile.id,
+    `${profile.commonName} — ${profile.scientificName}${
+      profile.treeLabEnabled ? '' : ' (experimental)'
+    }`,
+  ])),
+});
+const LIFE_STAGE_OPTIONS = [...new Set(Object.values(TREE_DEVELOPMENT_STAGE_SETS).flat())];
+const FOLIAGE_STATE_OPTIONS = ['leaf-on', 'autumn', 'dormant', 'dry', 'wet', 'snow', 'green'];
 
 export const TREE_SETTING_FIELD_SCHEMA = Object.freeze({
   plant: Object.freeze({
@@ -195,6 +270,110 @@ export const TREE_SETTING_FIELD_SCHEMA = Object.freeze({
     }),
     seed: field('plant', 'seed', { from: 'tree.seed' }),
     size: field('plant', 'size', { from: 'tree.size' }),
+    speciesProfileId: field('plant', 'speciesProfileId', {
+      label: 'Species',
+      description: 'A botanical species preset backed by its architecture-specific procedural engine. Experimental profiles are available for testing but remain excluded from approved catalog output.',
+      type: 'select',
+      control: 'search-select',
+      options: TREE_SPECIES_OPTIONS,
+      optionLabels: TREE_SPECIES_OPTION_LABELS,
+    }),
+    lifeStageSlot: field('plant', 'lifeStageSlot', {
+      label: 'Life stage',
+      description: 'A named checkpoint for the selected species; choosing one also positions the growth slider.',
+      type: 'select',
+      options: LIFE_STAGE_OPTIONS,
+    }),
+    developmentProgress: field('plant', 'developmentProgress', {
+      label: 'Growth / age',
+      description: 'Continuously grow the same individual from its youngest to oldest supported form.',
+      range: { min: 0, max: 1, step: 0.01 },
+    }),
+    foliageState: field('plant', 'foliageState', {
+      label: 'Foliage state',
+      description: 'Biologically valid seasonal appearance for the selected species.',
+      type: 'select',
+      options: FOLIAGE_STATE_OPTIONS,
+    }),
+    stylePreset: field('plant', 'stylePreset', {
+      label: 'Art style',
+      description: 'The vegetation shading language used consistently by trunks, culms, fronds, needles, and leaves.',
+      type: 'select',
+      options: ['call_me_sensei', 'default'],
+      optionLabels: {
+        call_me_sensei: 'Call Me Sensei',
+        default: 'Neutral toon',
+      },
+    }),
+    growthForm: field('plant', 'growthForm', {
+      label: 'Growth / training form',
+      description: 'A structural transform applied after species and biological age. Bonsai and cultivated forms never change the botanical identity.',
+      type: 'select',
+      options: WOODY_GROWTH_FORMS,
+      optionLabels: {
+        natural: 'Natural / species default',
+        'multi-stem': 'Multi-stem',
+        columnar: 'Columnar',
+        weeping: 'Weeping',
+        pollarded: 'Pollarded',
+        coppiced: 'Coppiced',
+        bonsai: 'Bonsai',
+        topiary: 'Topiary',
+      },
+    }),
+    growthFormSubtype: field('plant', 'growthFormSubtype', {
+      label: 'Form subtype',
+      description: 'Training-system subtype. The available choices follow the selected growth form.',
+      type: 'select',
+      options: [...new Set(Object.values(WOODY_GROWTH_FORM_SUBTYPES).flat())],
+    }),
+  }),
+  structure: Object.freeze({
+    engine: field('structure', 'engine', {
+      label: 'Architecture engine',
+      description: 'The structural generator selected by the species profile.',
+      type: 'select',
+      options: ['legacy-woody', ...TREE_ARCHITECTURE_ENGINE_IDS],
+    }),
+    crownMode: field('structure', 'crownMode', {
+      label: 'Crown growth mode',
+      description: 'Leader and crown-envelope behavior for recursive woody trees.',
+      type: 'select',
+      options: [
+        'monopodial',
+        'excurrent',
+        'sparse-excurrent',
+        'decurrent',
+        'sympodial',
+        'vase',
+        'layered',
+        'columnar',
+        'weeping',
+        'spreading',
+        'umbrella',
+        'colonized',
+      ],
+    }),
+    stemCount: field('structure', 'stemCount', {
+      label: 'Stems / culms',
+      description: 'Colony stem count for bamboo, clustering palms, and giant monocots.',
+      range: { min: 1, max: 24, step: 1 },
+    }),
+    nodeCount: field('structure', 'nodeCount', {
+      label: 'Culm nodes',
+      description: 'Node and internode count along each bamboo culm.',
+      range: { min: 4, max: 36, step: 1 },
+    }),
+    armCount: field('structure', 'armCount', {
+      label: 'Arms / heads',
+      description: 'Mature arm count for cacti or terminal-head count for branched rosettes.',
+      range: { min: 1, max: 16, step: 1 },
+    }),
+    whorlSize: field('structure', 'whorlSize', {
+      label: 'Branches per whorl',
+      description: 'One gives spiral phyllotaxis; larger values initiate evenly spaced branches at the same internode.',
+      range: { min: 1, max: 8, step: 1 },
+    }),
   }),
   trunk: Object.freeze({
     style: field('trunk', 'style', {
@@ -234,6 +413,51 @@ export const TREE_SETTING_FIELD_SCHEMA = Object.freeze({
     radiusRatio: field('skeleton', 'radiusRatio', { from: 'skeleton.radiusRatio' }),
     gnarliness: field('skeleton', 'gnarliness', { from: 'skeleton.gnarliness' }),
     forceStrength: field('skeleton', 'forceStrength', { from: 'skeleton.forceStrength' }),
+    phyllotaxisAngle: field('skeleton', 'phyllotaxisAngle', {
+      label: 'Divergence angle',
+      description: 'Azimuthal rotation in degrees between successive branch initiations.',
+      range: { min: 30, max: 180, step: 0.5 },
+    }),
+    branchInternodeSpacing: field('skeleton', 'branchInternodeSpacing', {
+      label: 'Branch internode',
+      description: 'Average vertical spacing between primary branch initiations.',
+      range: { min: 0.08, max: 3, step: 0.02 },
+    }),
+    gravitropism: field('skeleton', 'gravitropism', {
+      label: 'Upward growth',
+      description: 'Long-term correction of growing axes against gravity.',
+      range: { min: -0.1, max: 0.25, step: 0.005 },
+    }),
+    phototropism: field('skeleton', 'phototropism', {
+      label: 'Light seeking',
+      description: 'Bias growing tips toward the crown light direction.',
+      range: { min: 0, max: 0.2, step: 0.005 },
+    }),
+    branchSag: field('skeleton', 'branchSag', {
+      label: 'Branch sag',
+      description: 'Downward compliance accumulated along horizontal, slender branches.',
+      range: { min: 0, max: 0.25, step: 0.005 },
+    }),
+    tipUpturn: field('skeleton', 'tipUpturn', {
+      label: 'Tip recovery',
+      description: 'Upward correction near branch endpoints after sag and wind.',
+      range: { min: 0, max: 0.4, step: 0.005 },
+    }),
+    windBias: field('skeleton', 'windBias', {
+      label: 'Prevailing wind',
+      description: 'Persistent growth bias from the prevailing wind, separate from live animation.',
+      range: { min: -0.2, max: 0.2, step: 0.005 },
+    }),
+    pipeExponent: field('skeleton', 'pipeExponent', {
+      label: 'Pipe exponent',
+      description: 'Area-preserving exponent used to distribute parent radius across child axes.',
+      range: { min: 1.6, max: 3.2, step: 0.02 },
+    }),
+    junctionBulge: field('skeleton', 'junctionBulge', {
+      label: 'Branch collar',
+      description: 'Subtle radius reinforcement at the first ring of a child axis.',
+      range: { min: 1, max: 1.24, step: 0.01 },
+    }),
     conifer: field('skeleton', 'conifer', { from: 'skeleton.conifer' }),
     attractionCount: field('skeleton', 'attractionCount', { from: 'skeleton.attractionCount' }),
     segmentLength: field('skeleton', 'segmentLength', { from: 'skeleton.segmentLength' }),
@@ -390,7 +614,9 @@ export function windOptionsFromSettings(settings) {
 // always hold the concrete values, so options stay explicit and recipes never
 // depend on preset tables.
 export function treeOptionsFromSettings(settings) {
-  const { plant, trunk, skeleton, canopy, leaves, color } = settings;
+  const {
+    plant, structure = TREE_SETTING_DEFAULTS.structure, trunk, skeleton, canopy, leaves, color,
+  } = settings;
   const shared = {
     size: plant.size,
     seed: plant.seed,
@@ -413,6 +639,7 @@ export function treeOptionsFromSettings(settings) {
       whorlRadius: leaves.whorlRadius,
     },
     foliage: windOptionsFromSettings(settings),
+    vegetationShader: plant.stylePreset,
   };
 
   if (plant.type === 'bush') {
@@ -474,6 +701,66 @@ export function treeOptionsFromSettings(settings) {
     },
   };
 
+  if (plant.speciesProfileId) {
+    treeOptions.speciesProfileId = plant.speciesProfileId;
+    treeOptions.lifeStage = plant.lifeStageSlot;
+    treeOptions.developmentProgress = plant.developmentProgress;
+    treeOptions.foliageState = plant.foliageState;
+    treeOptions.growthForm = plant.growthForm;
+    treeOptions.growthFormSubtype = plant.growthFormSubtype;
+    treeOptions.geometrySeed = plant.seed;
+    treeOptions.radialSegments = skeleton.radialSegments;
+    treeOptions.traitOverrides = {
+      height: trunk.height,
+      trunkRadius: trunk.radiusBottom,
+      crownWidth: canopy.width,
+      crownDepth: canopy.depth,
+      branchStart: skeleton.branchStart,
+      branchAngle: skeleton.branchAngle,
+      children: structure.armCount,
+      levels: skeleton.levels,
+      gnarl: trunk.gnarl,
+      lean: trunk.lean,
+      bend: trunk.bend,
+      twist: trunk.twist,
+      lengthRatio: skeleton.lengthRatio,
+      radiusRatio: skeleton.radiusRatio,
+      gnarliness: skeleton.gnarliness,
+      forceStrength: skeleton.forceStrength,
+      crownMode: structure.crownMode,
+      branchWhorlSize: structure.whorlSize,
+      whorlArmCount: structure.whorlSize,
+      phyllotaxisAngle: skeleton.phyllotaxisAngle,
+      branchInternodeSpacing: skeleton.branchInternodeSpacing,
+      gravitropism: skeleton.gravitropism,
+      phototropism: skeleton.phototropism,
+      branchSag: skeleton.branchSag,
+      tipUpturn: skeleton.tipUpturn,
+      windBias: skeleton.windBias,
+      pipeExponent: skeleton.pipeExponent,
+      junctionBulge: skeleton.junctionBulge,
+      attractionCount: skeleton.attractionCount,
+      segmentLength: skeleton.segmentLength,
+      influenceRadius: skeleton.influenceRadius,
+      killRadius: skeleton.killRadius,
+      maxNodes: skeleton.maxNodes,
+      stemCount: structure.stemCount,
+      nodeCount: structure.nodeCount,
+      frondCount: leaves.frondCount,
+    };
+    const baselineControls = settings.baselineControls ?? {};
+    if (Object.keys(baselineControls).length) {
+      const validation = validateWoodyBaselineControlValues(baselineControls);
+      if (!validation.ok) {
+        throw new Error(`Invalid woody baseline settings: ${validation.errors.join(' ')}`);
+      }
+      treeOptions.woodyBaseline = {
+        schemaVersion: WOODY_BASELINE_CONTROL_SCHEMA_VERSION,
+        controls: validation.value,
+      };
+    }
+  }
+
   if (plant.type === 'flower') {
     // A flower is a tree with blooms: same wood/leaf options plus the head.
     const flower = settings.flower ?? TREE_SETTING_DEFAULTS.flower;
@@ -489,10 +776,6 @@ export function treeOptionsFromSettings(settings) {
 
 const PLANT_TYPES = new Set(['tree', 'bush', 'flower']);
 
-export const TREE_GROWTH_FORMS = Object.freeze([
-  'sapling', 'mature', 'ancient', 'windswept', 'asymmetric', 'dead-standing',
-]);
-
 export const TREE_AGE_CLASSES = Object.freeze(['young', 'mature', 'old', 'ancient', 'dead']);
 
 function normalizePlantType(type) {
@@ -500,10 +783,20 @@ function normalizePlantType(type) {
 }
 
 export function recipeFromSettings(settings, { taxonomy = null, surfaceLooks = null } = {}) {
+  if (settings.plant.speciesProfileId) {
+    return createTreeSpeciesRecipe(settings.plant.speciesProfileId, {
+      foliageState: settings.plant.foliageState,
+      lifeStage: settings.plant.lifeStageSlot,
+      options: treeOptionsFromSettings(settings),
+      seed: settings.plant.seed,
+      surfaceLooks,
+    });
+  }
   const recipe = {
     schema: TREE_RECIPE_SCHEMA,
     version: TREE_RECIPE_VERSION,
     type: normalizePlantType(settings.plant.type),
+    architecture: { id: 'legacy-woody', engine: 'legacy-woody', version: 2 },
     options: serializableTreeOptions(treeOptionsFromSettings(settings)),
   };
   if (taxonomy) recipe.taxonomy = JSON.parse(JSON.stringify(taxonomy));
@@ -535,10 +828,85 @@ export function settingsFromRecipe(recipe) {
   const options = recipe?.options ?? {};
   const type = normalizePlantType(recipe?.type);
   const defaults = TREE_SETTING_DEFAULTS;
+  const woodyBaseline = options.woodyBaseline;
+  if (woodyBaseline?.controls) {
+    const validation = validateWoodyBaselineControlValues(woodyBaseline.controls);
+    if (validation.ok) settings.baselineControls = validation.value;
+  }
 
   settings.plant.type = type;
+  if (recipe?.speciesProfileId) {
+    const profile = getTreeSpeciesProfile(recipe.speciesProfileId);
+    const traits = profile.structuralTraits;
+    settings.plant.speciesProfileId = recipe.speciesProfileId;
+    settings.plant.lifeStageSlot = recipe.lifeStageSlot ?? options.lifeStage;
+    const stageIndex = profile.supportedStages.indexOf(settings.plant.lifeStageSlot);
+    settings.plant.developmentProgress = options.developmentProgress
+      ?? Math.max(0, stageIndex) / Math.max(1, profile.supportedStages.length - 1);
+    settings.plant.foliageState = options.foliageState ?? profile.validFoliageStates[0];
+    settings.plant.growthForm = WOODY_GROWTH_FORMS.includes(options.growthForm)
+      ? options.growthForm
+      : 'natural';
+    const growthFormSubtypes = WOODY_GROWTH_FORM_SUBTYPES[settings.plant.growthForm];
+    settings.plant.growthFormSubtype = growthFormSubtypes.includes(options.growthFormSubtype)
+      ? options.growthFormSubtype
+      : growthFormSubtypes[0];
+    settings.structure.engine = profile.engine;
+    settings.structure.crownMode = traits.crownMode ?? profile.axisMode;
+    settings.structure.stemCount = traits.stemCount ?? settings.structure.stemCount;
+    settings.structure.nodeCount = traits.nodeCount ?? settings.structure.nodeCount;
+    settings.structure.armCount = traits.children ?? settings.structure.armCount;
+    settings.structure.whorlSize = traits.branchWhorlSize
+      ?? traits.whorlArmCount
+      ?? settings.structure.whorlSize;
+    settings.trunk.height = traits.height ?? settings.trunk.height;
+    settings.trunk.radiusBottom = traits.trunkRadius ?? settings.trunk.radiusBottom;
+    settings.trunk.gnarl = traits.gnarl ?? settings.trunk.gnarl;
+    settings.trunk.lean = traits.lean ?? settings.trunk.lean;
+    settings.canopy.width = traits.crownWidth ?? settings.canopy.width;
+    settings.canopy.depth = traits.crownDepth ?? settings.canopy.depth;
+    settings.skeleton.branchStart = traits.branchStart ?? settings.skeleton.branchStart;
+    settings.skeleton.branchAngle = traits.branchAngle ?? settings.skeleton.branchAngle;
+    settings.skeleton.childrenCount = traits.children ?? settings.skeleton.childrenCount;
+    settings.skeleton.levels = traits.levels ?? settings.skeleton.levels;
+    for (const key of [
+      'phyllotaxisAngle',
+      'branchInternodeSpacing',
+      'gravitropism',
+      'phototropism',
+      'branchSag',
+      'tipUpturn',
+      'windBias',
+      'pipeExponent',
+      'junctionBulge',
+    ]) {
+      if (traits[key] !== undefined) settings.skeleton[key] = traits[key];
+    }
+    settings.leaves.frondCount = traits.frondCount ?? settings.leaves.frondCount;
+    settings.leaves.density = traits.canopyDensity ?? settings.leaves.density;
+    settings.leaves.architecture = profile.foliageArchitecture;
+    if (traits.foliageCardSizeRange) {
+      settings.leaves.cardSizeMin = traits.foliageCardSizeRange[0];
+      settings.leaves.cardSizeMax = traits.foliageCardSizeRange[1]
+        ?? traits.foliageCardSizeRange[0];
+    }
+    settings.leaves.cardsPerCluster = traits.foliageCardsPerCluster
+      ?? settings.leaves.cardsPerCluster;
+    settings.leaves.clusterRadius = traits.foliageClusterRadius
+      ?? settings.leaves.clusterRadius;
+    settings.leaves.sprayLayers = traits.foliageSprayLayers
+      ?? settings.leaves.sprayLayers;
+    settings.leaves.spraySpread = traits.foliageSpraySpread
+      ?? settings.leaves.spraySpread;
+    settings.leaves.sprayThickness = traits.foliageSprayThickness
+      ?? settings.leaves.sprayThickness;
+    settings.color.canopy = [...profile.foliageColor];
+  }
   settings.plant.seed = options.seed ?? defaults.plant.seed;
   settings.plant.size = options.size ?? defaults.plant.size;
+  settings.plant.stylePreset = typeof options.vegetationShader === 'string'
+    ? options.vegetationShader
+    : defaults.plant.stylePreset;
 
   if (options.canopyColor !== undefined) {
     settings.color.canopy = srgbTriplet(options.canopyColor, settings.plant.seed);
@@ -552,7 +920,7 @@ export function settingsFromRecipe(recipe) {
     }
   }
 
-  settings.leaves.density = options.leafDensity ?? defaults.leaves.density;
+  settings.leaves.density = options.leafDensity ?? settings.leaves.density;
   const canopyOptions = options.canopy ?? {};
   if (canopyOptions.architecture !== undefined) settings.leaves.architecture = canopyOptions.architecture;
   if (canopyOptions.cardCount !== undefined) settings.leaves.cardCount = canopyOptions.cardCount;
@@ -589,10 +957,10 @@ export function settingsFromRecipe(recipe) {
     return settings;
   }
 
-  settings.canopy.width = options.canopyWidth ?? defaults.canopy.width;
-  settings.canopy.depth = options.canopyDepth ?? defaults.canopy.depth;
-  settings.canopy.canopyScale = options.canopyScale ?? defaults.canopy.canopyScale;
-  settings.leaves.placement = options.leafPlacement ?? defaults.leaves.placement;
+  settings.canopy.width = options.canopyWidth ?? settings.canopy.width;
+  settings.canopy.depth = options.canopyDepth ?? settings.canopy.depth;
+  settings.canopy.canopyScale = options.canopyScale ?? settings.canopy.canopyScale;
+  settings.leaves.placement = options.leafPlacement ?? settings.leaves.placement;
 
   const trunk = options.trunk ?? {};
   for (const key of ['height', 'radiusBottom', 'bend', 'lean', 'twist', 'gnarl']) {
@@ -614,6 +982,59 @@ export function settingsFromRecipe(recipe) {
   settings.skeleton.attractionReachAuto = skeleton.attractionReach == null;
   if (skeleton.attractionReach != null) settings.skeleton.attractionReach = skeleton.attractionReach;
 
+  const traitOverrides = options.traitOverrides ?? {};
+  if (traitOverrides.crownMode !== undefined) {
+    settings.structure.crownMode = traitOverrides.crownMode;
+  }
+  if (traitOverrides.branchWhorlSize !== undefined) {
+    settings.structure.whorlSize = traitOverrides.branchWhorlSize;
+  } else if (traitOverrides.whorlArmCount !== undefined) {
+    settings.structure.whorlSize = traitOverrides.whorlArmCount;
+  }
+  if (traitOverrides.height !== undefined) settings.trunk.height = traitOverrides.height;
+  if (traitOverrides.trunkRadius !== undefined) settings.trunk.radiusBottom = traitOverrides.trunkRadius;
+  if (traitOverrides.crownWidth !== undefined) settings.canopy.width = traitOverrides.crownWidth;
+  if (traitOverrides.crownDepth !== undefined) settings.canopy.depth = traitOverrides.crownDepth;
+  if (traitOverrides.branchStart !== undefined) settings.skeleton.branchStart = traitOverrides.branchStart;
+  if (traitOverrides.branchAngle !== undefined) settings.skeleton.branchAngle = traitOverrides.branchAngle;
+  if (traitOverrides.levels !== undefined) settings.skeleton.levels = traitOverrides.levels;
+  if (traitOverrides.gnarl !== undefined) settings.trunk.gnarl = traitOverrides.gnarl;
+  if (traitOverrides.lean !== undefined) settings.trunk.lean = traitOverrides.lean;
+  if (traitOverrides.bend !== undefined) settings.trunk.bend = traitOverrides.bend;
+  if (traitOverrides.twist !== undefined) settings.trunk.twist = traitOverrides.twist;
+  if (traitOverrides.lengthRatio !== undefined) settings.skeleton.lengthRatio = traitOverrides.lengthRatio;
+  if (traitOverrides.radiusRatio !== undefined) settings.skeleton.radiusRatio = traitOverrides.radiusRatio;
+  if (traitOverrides.gnarliness !== undefined) settings.skeleton.gnarliness = traitOverrides.gnarliness;
+  if (traitOverrides.forceStrength !== undefined) settings.skeleton.forceStrength = traitOverrides.forceStrength;
+  for (const key of [
+    'phyllotaxisAngle',
+    'branchInternodeSpacing',
+    'gravitropism',
+    'phototropism',
+    'branchSag',
+    'tipUpturn',
+    'windBias',
+    'pipeExponent',
+    'junctionBulge',
+  ]) {
+    if (traitOverrides[key] !== undefined) settings.skeleton[key] = traitOverrides[key];
+  }
+  if (traitOverrides.attractionCount !== undefined) {
+    settings.skeleton.attractionCount = traitOverrides.attractionCount;
+  }
+  if (traitOverrides.segmentLength !== undefined) {
+    settings.skeleton.segmentLength = traitOverrides.segmentLength;
+  }
+  if (traitOverrides.influenceRadius !== undefined) {
+    settings.skeleton.influenceRadius = traitOverrides.influenceRadius;
+  }
+  if (traitOverrides.killRadius !== undefined) settings.skeleton.killRadius = traitOverrides.killRadius;
+  if (traitOverrides.maxNodes !== undefined) settings.skeleton.maxNodes = traitOverrides.maxNodes;
+  if (traitOverrides.stemCount !== undefined) settings.structure.stemCount = traitOverrides.stemCount;
+  if (traitOverrides.nodeCount !== undefined) settings.structure.nodeCount = traitOverrides.nodeCount;
+  if (traitOverrides.children !== undefined) settings.structure.armCount = traitOverrides.children;
+  if (traitOverrides.frondCount !== undefined) settings.leaves.frondCount = traitOverrides.frondCount;
+
   if (type === 'flower') {
     settings.flower.species = options.species ?? defaults.flower.species;
     settings.flower.pinHeadColor = options.headColor != null;
@@ -629,22 +1050,25 @@ export function settingsFromRecipe(recipe) {
 // slider ranges (recipes are a superset of what the UI edits).
 export function upgradeTreeRecipeDocument(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return input;
-  if (input.schema !== TREE_RECIPE_SCHEMA || input.version !== 1) return input;
+  if (input.schema !== TREE_RECIPE_SCHEMA || ![1, 2].includes(input.version)) return input;
   const options = serializableTreeOptions(input.options ?? {});
-  options.canopy = {
-    architecture: CANONICAL_DEFAULTS.canopy.architecture,
-    sprayLayers: CANONICAL_DEFAULTS.canopy.sprayLayers,
-    spraySpread: CANONICAL_DEFAULTS.canopy.spraySpread,
-    sprayThickness: CANONICAL_DEFAULTS.canopy.sprayThickness,
-    whorlArms: CANONICAL_DEFAULTS.canopy.whorlArms,
-    whorlRadius: CANONICAL_DEFAULTS.canopy.whorlRadius,
-    frondCount: CANONICAL_DEFAULTS.canopy.frondCount,
-    frondLength: CANONICAL_DEFAULTS.canopy.frondLength,
-    ...(options.canopy ?? {}),
-  };
+  if (input.version === 1) {
+    options.canopy = {
+      architecture: CANONICAL_DEFAULTS.canopy.architecture,
+      sprayLayers: CANONICAL_DEFAULTS.canopy.sprayLayers,
+      spraySpread: CANONICAL_DEFAULTS.canopy.spraySpread,
+      sprayThickness: CANONICAL_DEFAULTS.canopy.sprayThickness,
+      whorlArms: CANONICAL_DEFAULTS.canopy.whorlArms,
+      whorlRadius: CANONICAL_DEFAULTS.canopy.whorlRadius,
+      frondCount: CANONICAL_DEFAULTS.canopy.frondCount,
+      frondLength: CANONICAL_DEFAULTS.canopy.frondLength,
+      ...(options.canopy ?? {}),
+    };
+  }
   return {
     ...input,
     version: TREE_RECIPE_VERSION,
+    architecture: { id: 'legacy-woody', engine: 'legacy-woody', version: input.version },
     options,
   };
 }
@@ -665,6 +1089,84 @@ export function validateTreeRecipeDocument(input, { requireIdentity = false } = 
   }
   if (!input.options || typeof input.options !== 'object' || Array.isArray(input.options)) {
     errors.push('options must be an object.');
+  } else if (input.options.woodyBaseline !== undefined) {
+    const baseline = input.options.woodyBaseline;
+    if (!baseline || typeof baseline !== 'object' || Array.isArray(baseline)) {
+      errors.push('options.woodyBaseline must be an object when present.');
+    } else {
+      if (baseline.schemaVersion !== WOODY_BASELINE_CONTROL_SCHEMA_VERSION) {
+        errors.push(
+          `options.woodyBaseline.schemaVersion must be ${WOODY_BASELINE_CONTROL_SCHEMA_VERSION}.`,
+        );
+      }
+      const controls = validateWoodyBaselineControlValues(baseline.controls);
+      if (!controls.ok) errors.push(...controls.errors);
+      const ageProfile = validateWoodyBaselineAgeProfile(baseline.ageProfile);
+      if (!ageProfile.ok) errors.push(...ageProfile.errors);
+      const trainingProfile = validateWoodyBaselineTrainingProfile(baseline.trainingProfile);
+      if (!trainingProfile.ok) errors.push(...trainingProfile.errors);
+      if (baseline.inheritedControls !== undefined) {
+        if (baseline.speciesProfileVersion !== WOODY_BASELINE_SPECIES_PROFILE_VERSION) {
+          errors.push(
+            `options.woodyBaseline.speciesProfileVersion must be ${WOODY_BASELINE_SPECIES_PROFILE_VERSION}.`,
+          );
+        }
+        const inheritedControls = validateWoodyBaselineControlValues(
+          baseline.inheritedControls,
+        );
+        if (!inheritedControls.ok) {
+          errors.push(...inheritedControls.errors.map(
+            (error) => error.replace('woodyBaseline.controls', 'woodyBaseline.inheritedControls'),
+          ));
+        }
+      }
+    }
+  }
+  if (input.options && typeof input.options === 'object' && !Array.isArray(input.options)) {
+    const growthForm = input.options.growthForm ?? 'natural';
+    if (!WOODY_GROWTH_FORMS.includes(growthForm)) {
+      errors.push(`options.growthForm must be one of ${WOODY_GROWTH_FORMS.join(', ')}.`);
+    } else {
+      const subtypes = WOODY_GROWTH_FORM_SUBTYPES[growthForm];
+      const subtype = input.options.growthFormSubtype ?? subtypes[0];
+      if (!subtypes.includes(subtype)) {
+        errors.push(`options.growthFormSubtype must be one of ${subtypes.join(', ')} for ${growthForm}.`);
+      }
+    }
+  }
+  // v3 architecture/species contracts apply to procedural trees and bushes.
+  // Flower recipes share the historical document envelope but are generated
+  // by the flower engine and therefore do not carry a tree architecture.
+  if (input.version === 3 && input.type !== 'flower') {
+    if (!input.architecture || typeof input.architecture !== 'object') {
+      errors.push('architecture must be an object in recipe v3.');
+    } else {
+      for (const key of ['id', 'engine']) {
+        if (typeof input.architecture[key] !== 'string' || !input.architecture[key].trim()) {
+          errors.push(`architecture.${key} must be a non-empty string.`);
+        }
+      }
+      if (!Number.isInteger(input.architecture.version) || input.architecture.version < 1) {
+        errors.push('architecture.version must be a positive integer.');
+      }
+    }
+    if (input.speciesProfileId !== undefined) {
+      let profile = null;
+      try {
+        profile = getTreeSpeciesProfile(input.speciesProfileId);
+      } catch {
+        errors.push(`speciesProfileId "${input.speciesProfileId}" is not registered.`);
+      }
+      if (profile) {
+        if (!profile.supportedStages.includes(input.lifeStageSlot)) {
+          errors.push(`lifeStageSlot must be one of ${profile.supportedStages.join(', ')}.`);
+        }
+        if (input.architecture?.id !== profile.architectureId
+          || input.architecture?.engine !== profile.engine) {
+          errors.push(`architecture must match species profile ${profile.id}.`);
+        }
+      }
+    }
   }
   if (requireIdentity) {
     if (typeof input.id !== 'string' || !input.id.trim()) errors.push('id must be a non-empty string.');
@@ -677,7 +1179,10 @@ export function validateTreeRecipeDocument(input, { requireIdentity = false } = 
     if (!input.taxonomy || typeof input.taxonomy !== 'object' || Array.isArray(input.taxonomy)) {
       errors.push('taxonomy must be an object when present.');
     } else {
-      for (const key of ['family', 'growthForm', 'ageClass']) {
+      const requiredTaxonomyKeys = input.version === 3 && input.speciesProfileId
+        ? ['acceptedScientificName', 'commonName', 'family', 'genus', 'powoTaxonId', 'backboneVersion']
+        : ['family', 'growthForm', 'ageClass'];
+      for (const key of requiredTaxonomyKeys) {
         if (typeof input.taxonomy[key] !== 'string' || !input.taxonomy[key].trim()) {
           errors.push(`taxonomy.${key} must be a non-empty string.`);
         }
@@ -709,6 +1214,12 @@ export function validateTreeRecipeDocument(input, { requireIdentity = false } = 
     type: upgraded.type,
     options: upgraded.options,
   };
+  if (upgraded.architecture) value.architecture = JSON.parse(JSON.stringify(upgraded.architecture));
+  if (upgraded.speciesProfileId) value.speciesProfileId = upgraded.speciesProfileId;
+  if (upgraded.lifeStageSlot) value.lifeStageSlot = upgraded.lifeStageSlot;
+  if (upgraded.rootProfile) value.rootProfile = upgraded.rootProfile;
+  if (upgraded.organProfiles) value.organProfiles = JSON.parse(JSON.stringify(upgraded.organProfiles));
+  if (upgraded.structuralHash) value.structuralHash = upgraded.structuralHash;
   if (typeof input.id === 'string' && input.id.trim()) value.id = input.id.trim();
   if (typeof input.label === 'string' && input.label.trim()) value.label = input.label.trim();
   if (input.description) value.description = input.description;
@@ -723,10 +1234,135 @@ export function parseTreeRecipeDocument(input, options) {
   return result.value;
 }
 
+export function createTreeSpeciesRecipe(speciesProfileId, {
+  lifeStage = null,
+  seed = 1,
+  foliageState = null,
+  options = {},
+  surfaceLooks = null,
+} = {}) {
+  const profile = getTreeSpeciesProfile(speciesProfileId);
+  const lifeStageSlot = lifeStage ?? profile.supportedStages[2];
+  if (!profile.supportedStages.includes(lifeStageSlot)) {
+    throw new Error(
+      `Unsupported life stage "${lifeStageSlot}" for ${profile.id}; expected ${profile.supportedStages.join(', ')}.`,
+    );
+  }
+  const resolvedFoliageState = foliageState ?? profile.validFoliageStates[0];
+  if (!profile.validFoliageStates.includes(resolvedFoliageState)) {
+    throw new Error(
+      `Unsupported foliage state "${resolvedFoliageState}" for ${profile.id}; expected ${profile.validFoliageStates.join(', ')}.`,
+    );
+  }
+  const inheritedControls = woodyBaselineInheritedControlsForSpecies(profile);
+  const ageProfile = woodyBaselineAgeProfileForSpecies(profile);
+  const growthForm = WOODY_GROWTH_FORMS.includes(options.growthForm)
+    ? options.growthForm
+    : 'natural';
+  const growthFormSubtypes = WOODY_GROWTH_FORM_SUBTYPES[growthForm];
+  const growthFormSubtype = growthFormSubtypes.includes(options.growthFormSubtype)
+    ? options.growthFormSubtype
+    : growthFormSubtypes[0];
+  const trainingProfile = woodyBaselineTrainingProfileForSpecies(
+    profile,
+    growthForm,
+    growthFormSubtype,
+  );
+  const suppliedBaseline = options.woodyBaseline;
+  const woodyBaseline = inheritedControls
+    ? {
+      schemaVersion: WOODY_BASELINE_CONTROL_SCHEMA_VERSION,
+      speciesProfileVersion: WOODY_BASELINE_SPECIES_PROFILE_VERSION,
+      inheritedControls,
+      ageProfile,
+      trainingProfile,
+      controls: suppliedBaseline?.controls ?? {},
+    }
+    : suppliedBaseline;
+  const recipe = {
+    schema: TREE_RECIPE_SCHEMA,
+    version: TREE_RECIPE_VERSION,
+    type: 'tree',
+    speciesProfileId: profile.id,
+    architecture: {
+      id: profile.architectureId,
+      engine: profile.engine,
+      version: profile.architectureVersion,
+    },
+    lifeStageSlot,
+    rootProfile: profile.rootProfile,
+    organProfiles: [profile.foliageOrgan],
+    options: serializableTreeOptions({
+      ...options,
+      ...(woodyBaseline ? { woodyBaseline } : {}),
+      seed,
+      geometrySeed: options.geometrySeed ?? seed,
+      speciesProfileId: profile.id,
+      lifeStage: lifeStageSlot,
+      foliageState: resolvedFoliageState,
+      growthForm,
+      growthFormSubtype,
+    }),
+    taxonomy: {
+      acceptedScientificName: profile.scientificName,
+      aliases: profile.aliases,
+      commonName: profile.commonName,
+      family: profile.family,
+      genus: profile.genus,
+      powoTaxonId: profile.taxonId,
+      backboneVersion: profile.taxonomyBackbone.version,
+    },
+  };
+  if (surfaceLooks) recipe.surfaceLooks = JSON.parse(JSON.stringify(surfaceLooks));
+  return parseTreeRecipeDocument(recipe);
+}
+
 // Rebuild a plant from a recipe (or bare constructor options). Deterministic:
 // the same recipe always grows the identical plant.
 //   import { createPlantFromRecipe } from '@call-me-sensei/toonlab/vegetation';
-export function createPlantFromRecipe(recipe, { trunkMaterial = null } = {}) {
+function legacyPreviewOptionsForSpecies(document) {
+  const profile = getTreeSpeciesProfile(document.speciesProfileId);
+  const options = document.options ?? {};
+  const traits = profile.structuralTraits;
+  const conifer = profile.engine === 'whorled-conifer';
+  const crownRatio = traits.crownWidth / Math.max(traits.height, 0.01);
+  const depthRatio = traits.crownDepth / Math.max(traits.crownWidth, 0.01);
+  return {
+    ...options,
+    preset: 'call_me_sensei',
+    seed: options.geometrySeed ?? options.seed ?? 1,
+    size: options.size ?? 1.7,
+    canopyColor: profile.foliageColor,
+    canopyDepth: Math.max(0.62, Math.min(1.3, depthRatio)),
+    canopyWidth: Math.max(0.72, Math.min(1.75, crownRatio * 1.75)),
+    leafDensity: Math.max(0.72, Math.min(1.25, traits.canopyDensity ?? 1)),
+    leafPlacement: conifer ? 'canopy' : 'tips',
+    skeleton: {
+      conifer,
+      generator: 'branching',
+      branchAngle: traits.branchAngle ?? 55,
+      branchStart: traits.branchStart ?? 0.4,
+      childrenCount: Math.max(3, Math.min(8, traits.children ?? 6)),
+      levels: Math.max(2, Math.min(4, traits.levels ?? 3)),
+    },
+    trunk: {
+      ...(conifer ? TREE_TRUNK_STYLES.straight : TREE_TRUNK_STYLES.curved),
+      bend: conifer ? 0.07 : Math.max(0.12, Math.min(0.32, traits.gnarl * 0.42)),
+      gnarl: conifer ? 0.06 : Math.max(0.1, Math.min(0.48, traits.gnarl)),
+      height: 1.9,
+      lean: Math.max(0.04, Math.min(0.24, traits.lean ?? 0.12)),
+      radiusBottom: conifer ? 0.17 : 0.22,
+    },
+  };
+}
+
+export function createPlantFromRecipe(
+  recipe,
+  {
+    trunkMaterial = null,
+    previewUnreviewedAsLegacy = false,
+  } = {},
+) {
   const document = recipe?.options
     ? parseTreeRecipeDocument(recipe)
     : { schema: TREE_RECIPE_SCHEMA, version: TREE_RECIPE_VERSION, type: 'tree', options: recipe ?? {} };
@@ -736,6 +1372,21 @@ export function createPlantFromRecipe(recipe, { trunkMaterial = null } = {}) {
   if (document.type === 'flower') {
     // No bark material: the flower grows its own toon stem material.
     return new StylizedFlower(document.options);
+  }
+  if (document.speciesProfileId) {
+    const profile = getTreeSpeciesProfile(document.speciesProfileId);
+    if (previewUnreviewedAsLegacy && !profile.treeLabEnabled) {
+      const preview = new StylizedTree(legacyPreviewOptionsForSpecies(document));
+      preview.userData.toonlabSpeciesPreviewFallback = Object.freeze({
+        requestedSpeciesProfileId: profile.id,
+        runtime: 'legacy-woody',
+        reason: 'morphology-needs-review',
+      });
+      return preview;
+    }
+    return new ProceduralSpeciesTree(
+      trunkMaterial ? { ...document.options, trunkMaterial } : document.options,
+    );
   }
   return new StylizedTree(
     trunkMaterial ? { ...document.options, trunkMaterial } : document.options,

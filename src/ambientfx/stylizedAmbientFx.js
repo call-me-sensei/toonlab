@@ -12,9 +12,10 @@
 //
 // All five effects are emission presets over ONE particle backbone (three
 // draw calls total — see particleBackbone.js for the grouping rationale).
-// Effects listed in `effects` override their settings group; `density` there
-// is a MULTIPLIER over the per-m³ base density, so `{ fireflies: { density:
-// 1.5 } }` reads as "half again as many fireflies".
+// Effects listed in `effects` override their settings group; `densityScale`
+// multiplies the per-m³ base density, so `{ fireflies: { densityScale: 1.5 } }`
+// reads as "half again as many fireflies". The former `density` spelling
+// remains a compatibility alias.
 
 import * as THREE from 'three';
 
@@ -84,8 +85,9 @@ export function createAmbientFx({
     } else if (raw === true) {
       effectOverrides[id] = { enabled: true };
     } else if (raw && typeof raw === 'object') {
-      const { density, mask, ...rest } = raw;
-      if (Number.isFinite(Number(density))) densityMult[id] = Math.max(Number(density), 0);
+      const { density, densityScale, mask, ...rest } = raw;
+      const scale = densityScale ?? density;
+      if (Number.isFinite(Number(scale))) densityMult[id] = Math.max(Number(scale), 0);
       if (typeof mask === 'function') effectMasks[id] = mask;
       effectOverrides[id] = { enabled: true, ...rest };
     }
@@ -312,6 +314,7 @@ export function createAmbientFx({
         capacity: Object.values(backbone.groups).reduce((sum, g) => sum + g.capacity, 0),
         center: { ...emissionCenter },
         drawCalls: Object.values(backbone.groups).filter((g) => g.count > 0).length,
+        densityScales: { ...densityMult },
         gateWeights: { ...gateWeights },
         hour,
         liveParticles: Object.values(counts).reduce((sum, n) => sum + n, 0),
@@ -413,6 +416,14 @@ export function createAmbientFx({
         const next = Array.isArray(color) ? new THREE.Color(...color) : new THREE.Color(color);
         u.uFogColor.value.copy(next);
       }
+      return fx;
+    },
+
+    /** Emits immediately so construction-time stats and captures are valid. */
+    emitNow(camera = null) {
+      const focus = resolveFocus(camera);
+      u.uCenter.value.set(focus.x, focus.z);
+      emitAll(focus);
       return fx;
     },
 

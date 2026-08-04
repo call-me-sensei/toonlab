@@ -266,6 +266,9 @@ export function updateWaterMaterialCamera(material, renderer, camera) {
   renderer.getDrawingBufferSize(uniforms.uResolution.value);
   uniforms.uCameraNear.value = camera.near;
   uniforms.uCameraFar.value = camera.far;
+  if (uniforms.uDepthTargetNeedsReverse) {
+    uniforms.uDepthTargetNeedsReverse.value = renderer.reversedDepthBuffer ? 1 : 0;
+  }
   invViewProjScratch.multiplyMatrices(camera.matrixWorld, camera.projectionMatrixInverse);
   invViewProjScratch.multiply(
     renderer.coordinateSystem === THREE.WebGPUCoordinateSystem ? ndcAdjustWebGPU : ndcAdjustGL,

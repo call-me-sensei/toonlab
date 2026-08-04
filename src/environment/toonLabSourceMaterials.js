@@ -3104,8 +3104,8 @@ async function buildStylizedBasic(profile, context) {
 }
 
 /**
- * Route an ordinary imported PBR material through the same P18
- * M_StylizedBasic implementation without changing the imported mesh.
+ * Route an ordinary imported PBR material through the Call Me Sensei
+ * manufactured-surface implementation without changing the imported mesh.
  *
  * This is intentionally narrow: it preserves the authored PBR factors, maps,
  * normal strength, emission, and sidedness present in the supplied GLB.
@@ -3126,10 +3126,10 @@ export async function createToonLabBasicMaterialFromPbr(
   const profileName = String(sourceMaterial?.name || 'ImportedSolid')
     .replace(/[^A-Za-z0-9_-]+/g, '_');
   const profile = {
-    path: `/ToonLab/P18/${sourceAssetName}/${profileName}.${profileName}`,
+    path: `/ToonLab/CallMeSensei/${sourceAssetName}/${profileName}.${profileName}`,
     family: 'misc',
     chain: [
-      `/ToonLab/P18/${sourceAssetName}/${profileName}.${profileName}`,
+      `/ToonLab/CallMeSensei/${sourceAssetName}/${profileName}.${profileName}`,
       '/Game/ToonLab/Materials/M_StylizedBasic.M_StylizedBasic',
     ],
     parameters: {
@@ -3164,7 +3164,7 @@ export async function createToonLabBasicMaterialFromPbr(
         'RoughnessMap?': false,
         'SpecularMap?': false,
         'UseColorTexture?': false,
-        // P18 owns the general solid-surface response only. Imported
+        // Call Me Sensei owns the general solid-surface response only. Imported
         // emission is preserved verbatim; time/weather modulation remains
         // frozen until its declared checkpoint.
         'UseDayCycleEmission?': false,
@@ -3197,10 +3197,10 @@ export async function createToonLabBasicMaterialFromPbr(
     library,
     sourceActorIdentity,
     sourceAssetName,
-    sourceSceneVariant: 'p18-imported-solid-prop',
+    sourceSceneVariant: 'call-me-sensei-imported-solid-prop',
     state: state ?? createToonLabSourceEnvironmentState(library),
   });
-  material.name = `P18::${sourceAssetName}::${profileName}`;
+  material.name = `CallMeSensei::${sourceAssetName}::${profileName}`;
   // Fab/Sketchfab GLBs commonly author foliage-like thin pieces, slats, and
   // lamp housings as double-sided. M_StylizedBasic's native beach fixtures
   // remain front-sided, while the imported adapter preserves the GLB's

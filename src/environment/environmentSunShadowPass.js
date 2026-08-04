@@ -217,6 +217,8 @@ export function createEnvironmentSunShadowPass({ renderer, scene } = {}) {
 
     const previousTarget = renderer.getRenderTarget();
     const previousBackground = scene.background;
+    const previousClearColor = renderer.getClearColor(new THREE.Color());
+    const previousClearAlpha = renderer.getClearAlpha();
     // If a lab keeps three's native shadows on alongside this pass (the water
     // playground does, for its MeshToonMaterial ground), rendering our
     // depth-swapped scene must not also trigger three's native shadow-map
@@ -229,6 +231,7 @@ export function createEnvironmentSunShadowPass({ renderer, scene } = {}) {
     renderer.clear();
     renderer.render(scene, shadowCamera);
     renderer.setRenderTarget(previousTarget);
+    renderer.setClearColor(previousClearColor, previousClearAlpha);
     renderer.shadowMap.enabled = previousShadowAutoUpdate;
     scene.background = previousBackground;
 

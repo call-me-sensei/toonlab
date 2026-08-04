@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   TREE_SETTING_FIELD_SCHEMA, traceLeafShapePath,
-} from '../../../src/vegetation/index.js';
+} from '../../../src/vegetation/experimental.js';
 import { Button, Modal } from '../../shared/ui/index.js';
 import { LEAF_STYLES, SEASONS, resolveLeafSeason } from './leafStyles.js';
 import { LEAF_PALETTES, paletteSwatches } from './leafPalettes.js';

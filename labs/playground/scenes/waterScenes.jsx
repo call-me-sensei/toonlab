@@ -62,7 +62,7 @@ import {
 import {
   applyBroadleafEnvironment,
   createBroadleafTreeInstance,
-} from './treeDesignerBroadleaf.js';
+} from './toonlabBroadleaf.js';
 
 // Fab-licensed props live in the gitignored assets-local/ tree, so they are
 // runtime URLs, never bundler imports — a clone without them must still build.

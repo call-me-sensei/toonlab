@@ -32,6 +32,7 @@ import {
   createEnvironmentShadowMaterial,
   setEnvironmentDebugOutput,
 } from './environmentShaderMaterials.js';
+import { resolveEnvironmentPreset } from './environmentPresets.js';
 import {
   resolveEnvironmentTextureSet,
 } from './environmentTextureResolver.js';
@@ -205,20 +206,42 @@ export async function applyEnvironmentShader(root, {
   materialManifest = null,
   objectClass = '',
   parameters = {},
+  preset = undefined,
   roleOverrides = null,
   scanStylize = 'auto',
   scanStylizeParams = {},
+  scenario = undefined,
   settings = {},
   shaderMode = 'anime',
   openWindows = false,
   vertexAoOptions = {},
 } = {}) {
+  const presetSettings = preset !== undefined || scenario !== undefined
+    ? resolveEnvironmentPreset(preset ?? 'default', scenario)
+    : null;
+  const sourceSettings = settings && typeof settings === 'object' ? settings : {};
+  const composedSettings = presetSettings ? {
+    ...sourceSettings,
+    features: {
+      ...presetSettings.features,
+      ...(sourceSettings.features ?? {}),
+    },
+    materialLook: sourceSettings.materialLook ?? presetSettings.materialLook,
+    parameters: {
+      ...presetSettings.parameters,
+      ...(sourceSettings.parameters ?? {}),
+    },
+  } : sourceSettings;
   const manifestResult = materialManifest
     ? applyManufacturedMaterialManifest(root, materialManifest)
     : null;
-  const environmentSettings = resolveEnvironmentSettings({ features, parameters, settings });
+  const environmentSettings = resolveEnvironmentSettings({
+    features,
+    parameters,
+    settings: composedSettings,
+  });
   const resolvedMaterialLook = createManufacturedMaterialLook(
-    materialLook ?? settings?.materialLook ?? {},
+    materialLook ?? composedSettings.materialLook ?? {},
   );
   const resolvedAssetId = String(
     assetId
@@ -410,7 +433,9 @@ export async function applyEnvironmentShader(root, {
     manifestWarnings: manifestResult?.warnings ?? [],
     manufacturedAssetId: resolvedAssetId,
     manufacturedObjectClass: resolvedObjectClass,
+    preset: presetSettings ? String(preset ?? 'default') : null,
     scanStylizedMaterialCount,
+    scenario: presetSettings && scenario !== undefined ? String(scenario) : null,
     shaderMode: normalizedShaderMode,
     shadowMeshCount,
     vertexAoMeshCount,

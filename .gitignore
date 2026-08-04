@@ -9,11 +9,17 @@ dist-ssr/
 build/
 .toonlab/
 
+# Local credentials and machine-specific configuration.
+.env
+.env.*
+!.env.example
+
 # Private test assets — licensed content that must never enter the public
 # repo. The labs discover models/environments dropped in here (see
 # docs/characters.md). Back this folder up — it is not in git.
 assets-local/
 .local-reference/
+artifacts/woody-baseline/
 
 # Licensed reference texture — supply your own painted stone tile; the
 # outdoor-world example runs without it (cliffs just skip the triplanar

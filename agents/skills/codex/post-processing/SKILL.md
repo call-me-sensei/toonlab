@@ -14,16 +14,17 @@ Public imports:
 - `@call-me-sensei/toonlab/post-processing`
 
 Read first:
-- `docs/post-processing.md`
+- `agents/references/anime-art-direction.md`
+- `agents/references/style-bundles.md`
+- `agents/references/runtime-entry-points.md`
 
 Generating looks (no lab UI required):
 - `createPostGeneratorRecipe(id, { seed, locks, configuration })` defines an
   editable domain; `createGeneratedPostPresetDocument(recipe, { quality })`
   resolves it into a flat, portable preset deterministically per seed.
-- The MCP style tools (`create_style_recipe`, `generate_style_presets` with
-  `lab: 'post'`) do the same thing server-side — use them only when you want
-  validated batches persisted to the shared `.toonlab/` workspace; otherwise
-  generate in code.
+- The packaged MCP server is reserved for asset discovery, provenance,
+  sourcing-policy decisions, and custom-gap records. Generate post profiles
+  in code and commit any resolved document that the project needs to retain.
 - Ship the resolved preset in the app; keep the recipe only if runtime
   re-rolling is a feature.
 

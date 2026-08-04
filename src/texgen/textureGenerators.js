@@ -172,11 +172,27 @@ function compileGrid(params) {
   };
 }
 
-function compileStripes(params) {
+function compileStripes(params, seed) {
   const cols = intIn(params.columns ?? 8, 1, 64, 8);
-  return (u) => {
-    const t = fract(u * cols);
-    return { v: 1 - Math.abs(t * 2 - 1), cell: null };
+  const rows = intIn(params.rows ?? 8, 1, 64, 8);
+  const variation = clamp01(params.cellVariation ?? 0);
+  return (u, v) => {
+    const y = v * rows;
+    const row = Math.floor(y);
+    const nextRow = row + 1;
+    const rowMix = smoothstep(0.25, 0.75, fract(y));
+    const rowId = ((row % rows) + rows) % rows;
+    const nextRowId = ((nextRow % rows) + rows) % rows;
+    const phaseA = cellRandom(hash3u(seed, 0, rowId, 0), 0x57a1) - 0.5;
+    const phaseB = cellRandom(hash3u(seed, 0, nextRowId, 0), 0x57a1) - 0.5;
+    const valueA = cellRandom(hash3u(seed, 1, rowId, 0), 0x57a2);
+    const valueB = cellRandom(hash3u(seed, 1, nextRowId, 0), 0x57a2);
+    const phase = (phaseA + (phaseB - phaseA) * rowMix) * variation;
+    const amplitude = 1 - variation * 0.55 * (valueA + (valueB - valueA) * rowMix);
+    const t = fract(u * cols + phase);
+    const stripe = 1 - Math.abs(t * 2 - 1);
+    const cell = hash3u(seed, Math.floor(u * cols), rowId, 0);
+    return { v: clamp01(stripe * amplitude), cell };
   };
 }
 
@@ -469,7 +485,7 @@ export const TEXTURE_GENERATORS = Object.freeze({
   hex: { label: 'Hex tiles', category: 'pattern', uses: ['columns', 'gap', 'bevel', 'cellVariation', 'warp', 'warpScale'], compile: compileHex },
   checker: { label: 'Checker', category: 'pattern', uses: ['columns', 'rows', 'warp', 'warpScale'], compile: compileChecker },
   grid: { label: 'Grid lines', category: 'pattern', uses: ['columns', 'rows', 'gap', 'bevel', 'warp', 'warpScale'], compile: compileGrid },
-  stripes: { label: 'Stripes', category: 'pattern', uses: ['columns', 'warp', 'warpScale'], compile: compileStripes },
+  stripes: { label: 'Stripes', category: 'pattern', uses: ['columns', 'rows', 'cellVariation', 'warp', 'warpScale'], compile: compileStripes },
   chevron: { label: 'Chevron zigzag', category: 'pattern', uses: ['columns', 'rows', 'warp', 'warpScale'], compile: compileChevron },
   weave: { label: 'Cloth weave', category: 'pattern', uses: ['columns', 'rows', 'gap', 'warp', 'warpScale'], compile: compileWeave },
   basketWeave: { label: 'Basket weave', category: 'pattern', uses: ['columns', 'rows', 'gap', 'bevel', 'warp', 'warpScale'], compile: compileBasketWeave },

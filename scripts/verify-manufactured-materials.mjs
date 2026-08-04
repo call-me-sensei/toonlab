@@ -162,6 +162,19 @@ assert.equal(converted.body.material.uniforms.specularStrength.value, 0.6);
 
 const preset = resolveEnvironmentPreset('call_me_sensei');
 assert.ok(preset.materialLook.baseMaterials.metal);
+const presetApplied = createTestAsset();
+const presetApplication = await applyEnvironmentShader(presetApplied.root, {
+  bakeVertexAo: false,
+  preset: 'call_me_sensei',
+  scenario: 'exteriorDay',
+  settings: { parameters: { exposure: 0.9, shadowLift: 0.5 } },
+  parameters: { exposure: 1.12 },
+});
+assert.equal(presetApplication.preset, 'call_me_sensei');
+assert.equal(presetApplication.scenario, 'exteriorDay');
+assert.equal(presetApplied.body.material.uniforms.exposure.value, 1.12);
+assert.equal(presetApplied.body.material.uniforms.ambientStrength.value, 0.38);
+assert.equal(presetApplied.body.material.uniforms.shadowLift.value, 0.5);
 const document = createEnvironmentPresetDocument('call_me_sensei');
 assert.equal(document.schemaVersion, 3);
 assert.ok(document.preset.materialLook.objectClasses.buildingExterior);

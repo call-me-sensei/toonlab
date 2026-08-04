@@ -1,16 +1,6 @@
-// Gallery — the same UI as toonlab.io/gallery (toolbar, showcase grid,
-// sticky pager), but backed exclusively by THIRD-PARTY public APIs queried
-// live from the browser. That is the OSS/Pro split: Pro searches ToonLab's
-// own index (community creations + curated open-data mirror, downloads behind an
-// account); this page never talks to a ToonLab backend. Remote indexes come
-// from source APIs, while processed PLATEAU landmark GLBs are bundled with
-// their source feature IDs and attribution.
-//
-// A source qualifies only if it has a keyless public API and downloadable
-// open assets. Smithsonian 3D allows browser requests directly; Poly Haven
-// metadata uses a same-origin host route so requests can identify the app.
-// ambientCG has an API but sends no CORS headers; Kenney, Quaternius,
-// Mantissa and 3DTextures.me have no search API.
+// Gallery metadata comes from the local Postgres catalog. Seed rows point to
+// immutable official R2 releases, so browsing is fast and repeatable without
+// a third-party metadata API. Downloads still go directly to the public CDN.
 
 import '../shared/siteHeader.js';
 import { downloadPolyhavenAsset } from '../shared/polyhavenDownload.js';
@@ -168,8 +158,8 @@ const state = { q: '', src: '', type: '', page: 1 };
 function readUrl() {
   const params = new URLSearchParams(window.location.search);
   state.q = params.get('q') ?? '';
-  state.src = params.get('src') in SOURCES ? params.get('src') : '';
-  state.type = ['texture', 'model', 'hdri'].includes(params.get('type')) ? params.get('type') : '';
+  state.src = params.get('src') === 'official' ? 'official' : '';
+  state.type = ['texture', 'model', 'hdri', 'skybox'].includes(params.get('type')) ? params.get('type') : '';
   state.page = Math.max(1, Number(params.get('page')) || 1);
 }
 
@@ -191,25 +181,33 @@ function syncControls() {
 }
 
 async function collect() {
-  const loads = [];
-  for (const [key, source] of Object.entries(SOURCES)) {
-    if (state.src && state.src !== key) continue;
-    for (const kind of source.kinds) {
-      if (state.type && state.type !== kind) continue;
-      loads.push(source.list(kind));
-    }
-  }
-  const settled = await Promise.allSettled(loads);
-  const failures = settled.filter((result) => result.status === 'rejected');
-  const fulfilled = settled.filter((result) => result.status === 'fulfilled');
-  if (fulfilled.length === 0 && failures.length > 0) throw failures[0].reason;
-  for (const failure of failures) console.warn('Gallery source unavailable:', failure.reason);
-  let items = fulfilled.flatMap((result) => result.value);
-  const terms = state.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (terms.length) items = items.filter((item) => terms.every((t) => item.haystack.includes(t)));
-  // Same ordering as Pro's CC0 half of the feed: popularity, descending.
-  items.sort((a, b) => b.popularity - a.popularity);
-  return { items, unavailable: failures.length };
+  const params = new URLSearchParams({
+    limit: String(PAGE_SIZE),
+    offset: String((state.page - 1) * PAGE_SIZE),
+  });
+  if (state.q.trim()) params.set('q', state.q.trim());
+  if (state.type) params.set('kind', state.type);
+  const response = await fetch(`/api/toonlab/catalog?${params}`);
+  if (!response.ok) throw new Error(`local catalog → HTTP ${response.status}`);
+  const result = await response.json();
+  const items = (result.items ?? []).map((asset) => ({
+    actionLabel: 'Download ↓',
+    badge: `${asset.source} · ${asset.license}`,
+    directOpen: false,
+    downloadHref: asset.download_url,
+    downloadName: `${asset.name.replace(/[^a-z0-9._-]+/gi, '-') || asset.id}`,
+    haystack: [asset.name, asset.description, ...(asset.tags ?? [])].join(' ').toLowerCase(),
+    href: `/asset/?src=official&id=${encodeURIComponent(asset.id)}&kind=${encodeURIComponent(asset.kind)}`,
+    id: asset.id,
+    kind: asset.kind,
+    label: asset.name,
+    popularity: 0,
+    source: 'official',
+    sourceHref: asset.source_url || asset.download_url,
+    sourceId: asset.source_id || asset.id,
+    thumbUrl: asset.thumbnail_url,
+  }));
+  return { items, total: Number(result.total) || 0, unavailable: 0 };
 }
 
 function card(item) {
@@ -341,8 +339,9 @@ async function render() {
 
   let items;
   let sourceFailures = 0;
+  let total = 0;
   try {
-    ({ items, unavailable: sourceFailures } = await collect());
+    ({ items, total, unavailable: sourceFailures } = await collect());
   } catch (error) {
     if (id !== renderId) return;
     console.error('Gallery fetch failed:', error);
@@ -357,16 +356,15 @@ async function render() {
   }
   if (id !== renderId) return;
 
-  const total = items.length;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   if (state.page > totalPages) {
     state.page = totalPages;
     history.replaceState(null, '', urlFor());
+    render();
+    return;
   }
-  const start = (state.page - 1) * PAGE_SIZE;
-  const pageItems = items.slice(start, start + PAGE_SIZE);
 
-  els.grid.replaceChildren(...pageItems.map(card));
+  els.grid.replaceChildren(...items.map(card));
   els.status.textContent = `${total.toLocaleString()} assets${sourceFailures ? ` · ${sourceFailures} source unavailable` : ''}`;
 
   const q = state.q.trim();

@@ -12,6 +12,11 @@ import { createPassDepthColorMaterial } from '../shaders-tsl/chunks/pass-depth-c
 //   waterGrabExclude       — hidden from the above-water grab only
 //   waterReflectionExclude — hidden from the reflection pass only
 //   skipWaterReflection    — legacy alias of waterReflectionExclude
+//   onWaterPass(camera, passKind) — optional synchronous hook for camera-facing
+//                objects. `passKind` is `grab` or `reflection`. The hook may
+//                adjust the object's transform for that pass and return a
+//                cleanup function. ToonLab restores the object's transform and
+//                visibility after the pass even when rendering throws.
 //
 // Node backends (docs/tsl-conventions.md):
 // - The grab target keeps its texture linear (working space): rendering into
@@ -55,6 +60,75 @@ function hideFlagged(root, predicate) {
   };
 }
 
+function isEffectivelyVisible(object, root) {
+  for (let current = object; current; current = current.parent) {
+    if (!current.visible) return false;
+    if (current === root) break;
+  }
+  return true;
+}
+
+function activateWaterPassHooks(root, camera, passKind) {
+  const active = [];
+  const restore = () => {
+    let cleanupError = null;
+    for (let index = active.length - 1; index >= 0; index -= 1) {
+      const entry = active[index];
+      try {
+        entry.cleanup?.();
+      } catch (error) {
+        cleanupError ??= error;
+      } finally {
+        const { object } = entry;
+        object.visible = entry.visible;
+        object.position.copy(entry.position);
+        object.quaternion.copy(entry.quaternion);
+        object.scale.copy(entry.scale);
+        object.matrix.copy(entry.matrix);
+        object.matrixWorld.copy(entry.matrixWorld);
+        object.matrixAutoUpdate = entry.matrixAutoUpdate;
+        object.matrixWorldAutoUpdate = entry.matrixWorldAutoUpdate;
+        object.matrixWorldNeedsUpdate = entry.matrixWorldNeedsUpdate;
+      }
+    }
+    active.length = 0;
+    if (cleanupError) throw cleanupError;
+  };
+
+  try {
+    root.traverse((object) => {
+      const hook = object.userData?.onWaterPass;
+      if (typeof hook !== 'function' || !isEffectivelyVisible(object, root)) return;
+      const entry = {
+        cleanup: null,
+        matrix: object.matrix.clone(),
+        matrixAutoUpdate: object.matrixAutoUpdate,
+        matrixWorld: object.matrixWorld.clone(),
+        matrixWorldAutoUpdate: object.matrixWorldAutoUpdate,
+        matrixWorldNeedsUpdate: object.matrixWorldNeedsUpdate,
+        object,
+        position: object.position.clone(),
+        quaternion: object.quaternion.clone(),
+        scale: object.scale.clone(),
+        visible: object.visible,
+      };
+      active.push(entry);
+      const cleanup = hook.call(object, camera, passKind);
+      if (typeof cleanup === 'function') entry.cleanup = cleanup;
+      if (object.matrixAutoUpdate) object.updateMatrix();
+      object.updateMatrixWorld(true);
+    });
+  } catch (error) {
+    restore();
+    throw error;
+  }
+  return restore;
+}
+
+function targetSize(target) {
+  return target ? { height: target.height, width: target.width } : null;
+}
+
 export class WaterScenePasses {
   constructor({
     sceneColor = true,
@@ -77,6 +151,7 @@ export class WaterScenePasses {
     this.reflectionValid = false;
     this.grabValid = false;
     this.depthValid = false;
+    this.lastFrameStats = { passes: [], sceneRenders: 0 };
 
     // Scene-depth pass state for the TSL renderer path.
     this.depthTarget = null;
@@ -100,6 +175,31 @@ export class WaterScenePasses {
       waterWorldPosition: new THREE.Vector3(),
       clearColor: new THREE.Color(),
     };
+  }
+
+  get stats() {
+    return {
+      configuredMaximumSceneRenders:
+        (this.sceneColorEnabled ? 2 : 0) + (this.reflectionEnabled ? 1 : 0),
+      enabled: {
+        reflection: this.reflectionEnabled,
+        sceneColor: this.sceneColorEnabled,
+      },
+      lastFrame: {
+        passes: [...this.lastFrameStats.passes],
+        sceneRenders: this.lastFrameStats.sceneRenders,
+      },
+      targets: {
+        depth: targetSize(this.depthTarget),
+        grab: targetSize(this.grabTarget),
+        reflection: targetSize(this.reflectionTarget),
+      },
+    };
+  }
+
+  recordSceneRender(passKind) {
+    this.lastFrameStats.sceneRenders += 1;
+    this.lastFrameStats.passes.push(passKind);
   }
 
   ensureGrabTarget(renderer) {
@@ -256,6 +356,7 @@ export class WaterScenePasses {
     // Depth clears to 1 (far plane / sky) like the classic depth buffer.
     renderer.setClearColor(0xffffff, 1);
     renderer.clear();
+    this.recordSceneRender('depth');
     renderer.render(scene, camera);
     scene.background = previousBackground;
     scene.fog = previousFog;
@@ -293,11 +394,14 @@ export class WaterScenePasses {
     const previousTarget = renderer.getRenderTarget();
     const previousXr = renderer.xr.enabled;
     const previousShadowAutoUpdate = renderer.shadowMap.autoUpdate;
+    let restorePassHooks = () => {};
     try {
+      restorePassHooks = activateWaterPassHooks(scene, grabCamera, 'grab');
       renderer.xr.enabled = false;
       renderer.shadowMap.autoUpdate = false;
       renderer.setRenderTarget(this.grabTarget);
       renderer.clear();
+      this.recordSceneRender('grab');
       renderer.render(scene, grabCamera);
       if (cameraBelow) {
         this.depthValid = false;
@@ -311,7 +415,11 @@ export class WaterScenePasses {
       renderer.xr.enabled = previousXr;
       renderer.shadowMap.autoUpdate = previousShadowAutoUpdate;
       waterMesh.visible = waterWasVisible;
-      restoreFlagged();
+      try {
+        restorePassHooks();
+      } finally {
+        restoreFlagged();
+      }
     }
   }
 
@@ -411,11 +519,18 @@ export class WaterScenePasses {
     const previousTarget = renderer.getRenderTarget();
     const previousXr = renderer.xr.enabled;
     const previousShadowAutoUpdate = renderer.shadowMap.autoUpdate;
+    let restorePassHooks = () => {};
     try {
+      restorePassHooks = activateWaterPassHooks(
+        scene,
+        this.reflectionCamera,
+        'reflection',
+      );
       renderer.xr.enabled = false;
       renderer.shadowMap.autoUpdate = false;
       renderer.setRenderTarget(this.reflectionTarget);
       renderer.clear();
+      this.recordSceneRender('reflection');
       renderer.render(scene, this.reflectionCamera);
       this.reflectionValid = true;
     } finally {
@@ -423,11 +538,17 @@ export class WaterScenePasses {
       renderer.xr.enabled = previousXr;
       renderer.shadowMap.autoUpdate = previousShadowAutoUpdate;
       waterMesh.visible = waterWasVisible;
-      restoreFlagged();
+      try {
+        restorePassHooks();
+      } finally {
+        restoreFlagged();
+      }
     }
   }
 
   render(renderer, scene, camera, waterMesh) {
+    this.lastFrameStats.passes.length = 0;
+    this.lastFrameStats.sceneRenders = 0;
     if (this.sceneColorEnabled) this.renderGrabPass(renderer, scene, camera, waterMesh);
     else {
       this.grabValid = false;

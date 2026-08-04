@@ -27,7 +27,7 @@ import {
 } from 'three/tsl';
 
 export const environmentSunShadow = {
-  bias: uniform(0.0025),
+  bias: uniform(-0.00004),
   map: null, // TextureNode, created lazily below (needs a fallback texture)
   mapSize: uniform(2048),
   matrix: uniform(new THREE.Matrix4()),
@@ -65,7 +65,9 @@ export const sampleEnvironmentSunShadow = /*@__PURE__*/ Fn(([worldPosition]) => 
       .and(coord.z.lessThanEqual(1.0)).and(coord.z.greaterThanEqual(0.0));
     If(inside, () => {
       const texel = float(1.0).div(environmentSunShadow.mapSize);
-      const reference = coord.z.sub(environmentSunShadow.bias);
+      // Match THREE.LightShadow.bias: negative values move the receiver
+      // reference toward the light and reduce self-shadow acne.
+      const reference = coord.z.add(environmentSunShadow.bias);
       const map = sunShadowMapNode();
       // 3×3 PCF (classic PCFSoftShadowMap kernel footprint): averages the
       // 8-bit-quantized self-shadowing into the fine dither the approved

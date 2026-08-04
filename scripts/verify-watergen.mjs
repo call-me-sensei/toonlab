@@ -42,8 +42,11 @@ import {
   shouldUseDedicatedBreakerShell,
   validateWaterPresetDocument,
   WaterShoreStateField,
+  WaterScenePasses,
   WaterSurface,
   updateWaterShoreMaterial,
+  resolveWaterUnderwaterAtmosphereState,
+  WaterUnderwaterAtmosphere,
 } from '../src/water/index.js';
 import { beachBedHeight } from '../labs/water-lab/engine/waterLabEngine.js';
 import {
@@ -117,6 +120,96 @@ check('underwater optics settings clamp to their public ranges',
   underwaterLimits.indexOfRefraction === 1.8
     && underwaterLimits.underwaterTransmission === 0
     && underwaterLimits.underwaterTintStrength === 1);
+
+const remediationWaterShaderSource = readFileSync(
+  new URL('../src/shaders-tsl/water.js', import.meta.url),
+  'utf8',
+);
+const remediationWaterSurfaceSource = readFileSync(
+  new URL('../src/water/waterSurface.js', import.meta.url),
+  'utf8',
+);
+check('finite shore-state tiles retain procedural shoreline fallback outside their region',
+  remediationWaterShaderSource.includes('fallbackBand.mul(persistentShoreCoverage.oneMinus())'));
+check('water mirrors host FogExp2 density as well as linear Fog',
+  remediationWaterSurfaceSource.includes('scene?.fog?.isFogExp2')
+    && remediationWaterShaderSource.includes('uSceneFogDensity'));
+
+// --- default camera-underwater scene atmosphere ------------------------------------
+const underwaterAtmosphereProbe = resolveWaterUnderwaterAtmosphereState({
+  cameraX: 2,
+  cameraY: -3,
+  cameraZ: -4,
+  waterX: 0,
+  waterY: 0,
+  waterZ: 0,
+  width: 20,
+  depth: 20,
+  settings: { midColor: [0.2, 0.4, 0.6] },
+});
+check('default underwater atmosphere matches the proven Water Lab treatment',
+  underwaterAtmosphereProbe.active
+    && underwaterAtmosphereProbe.fogNear === 0.5
+    && underwaterAtmosphereProbe.fogFar === 32
+    && underwaterAtmosphereProbe.color.every((channel, index) => (
+      Math.abs(channel - [0.16, 0.34, 0.54][index]) < 1e-9
+    )));
+check('finite surface bounds prevent underwater fog outside the water body',
+  !resolveWaterUnderwaterAtmosphereState({
+    cameraX: 11,
+    cameraY: -3,
+    cameraZ: 0,
+    waterY: 0,
+    width: 20,
+    depth: 20,
+  }).active);
+
+const atmosphereScene = new THREE.Scene();
+const hostBackground = new THREE.Color(0.45, 0.7, 0.95);
+const hostFog = new THREE.Fog(0xbadcee, 40, 180);
+const hostFogNode = { name: 'host-fog-node' };
+atmosphereScene.background = hostBackground;
+atmosphereScene.fog = hostFog;
+atmosphereScene.fogNode = hostFogNode;
+const atmosphereController = new WaterUnderwaterAtmosphere();
+const atmosphereCamera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 100);
+atmosphereCamera.position.set(0, -2, 4);
+atmosphereController.beginFrame(atmosphereScene);
+const appliedAtmosphere = atmosphereController.update(atmosphereScene, {
+  camera: atmosphereCamera,
+  cameraY: -2,
+  waterY: 0,
+  width: 20,
+  depth: 20,
+  settings: { midColor: [0.2, 0.4, 0.6] },
+});
+check('scene adapter applies package-owned fog/background and clears host fogNode underwater',
+  appliedAtmosphere.active
+    && atmosphereScene.background !== hostBackground
+    && atmosphereScene.fog !== hostFog
+    && atmosphereScene.fog.near === 0.5
+    && atmosphereScene.fog.far === 32
+    && atmosphereScene.fogNode === null
+    && atmosphereScene.getObjectByName('ToonLab Underwater Atmosphere Veil')?.visible);
+atmosphereController.beginFrame(atmosphereScene);
+check('scene adapter restores the exact host air scene before water capture passes',
+  atmosphereScene.background === hostBackground
+    && atmosphereScene.fog === hostFog
+    && atmosphereScene.fogNode === hostFogNode
+    && !atmosphereScene.getObjectByName('ToonLab Underwater Atmosphere Veil')?.visible);
+atmosphereController.update(atmosphereScene, {
+  cameraY: 2,
+  waterY: 0,
+  width: 20,
+  depth: 20,
+  settings: { midColor: [0.2, 0.4, 0.6] },
+});
+check('above-water update leaves the restored host scene untouched',
+  !atmosphereController.state.active
+    && atmosphereScene.background === hostBackground
+    && atmosphereScene.fog === hostFog
+    && atmosphereScene.fogNode === hostFogNode);
+atmosphereController.dispose();
 
 // --- sanitize + document round-trips -----------------------------------------------
 const sanitized = sanitizeWaterPresetSettings(DEFAULT_WATER_SETTINGS);
@@ -565,6 +658,18 @@ const visibleWaterShaderSource = readFileSync(
   new URL('../src/shaders-tsl/water.js', import.meta.url),
   'utf8',
 );
+const waterColorShaderSource = readFileSync(
+  new URL('../src/shaders-tsl/chunks/water-color.js', import.meta.url),
+  'utf8',
+);
+const waterMaterialSource = readFileSync(
+  new URL('../src/water/waterMaterial.js', import.meta.url),
+  'utf8',
+);
+const waterVegetationSource = readFileSync(
+  new URL('../src/water/waterVegetation.js', import.meta.url),
+  'utf8',
+);
 const shoreStateShaderSource = readFileSync(
   new URL('../src/shaders-tsl/water-shore-state-simulation.js', import.meta.url),
   'utf8',
@@ -575,6 +680,10 @@ const shoreGroundMaterialSource = readFileSync(
 );
 const waterLabEngineSource = readFileSync(
   new URL('../labs/water-lab/engine/waterLabEngine.js', import.meta.url),
+  'utf8',
+);
+const waterSurfaceSource = readFileSync(
+  new URL('../src/water/waterSurface.js', import.meta.url),
   'utf8',
 );
 const scenePassSource = readFileSync(
@@ -592,6 +701,17 @@ const environmentShaderSource = readFileSync(
 check('temporal foam breakup stays out of the private-memory-heavy main shader',
   !visibleWaterShaderSource.includes('waterValueNoise(')
     && shoreStateShaderSource.includes('const fineNoise ='));
+check('canonical water depth targets remap for reversed-depth renderers',
+  visibleWaterShaderSource.includes('uDepthTargetNeedsReverse: uniform(0)')
+    && waterColorShaderSource.includes('stored.oneMinus()')
+    && waterColorShaderSource.includes('storedDepthHasGeometry')
+    && waterMaterialSource.includes('renderer.reversedDepthBuffer ? 1 : 0'));
+check('packaged underwater vegetation is deterministic and shadow-ready by default',
+  waterVegetationSource.includes('seed = 1')
+    && waterVegetationSource.includes('const random = mulberry32(seed)')
+    && !waterVegetationSource.includes('Math.random()')
+    && waterVegetationSource.includes('this.castShadow = true')
+    && waterVegetationSource.includes('this.receiveShadow = true'));
 check('swash foam injection stays registered to the visible signed water edge',
   shoreStateShaderSource.includes('const sourceHead = filmHead.add(edgeJitter)')
     && shoreStateShaderSource.includes('min(foamWidth.mul(0.22), 0.004)')
@@ -628,6 +748,76 @@ check('environment and shore materials both receive the underwater caustic proje
 check('Water Lab exposes repeatable underside and seabed inspection cameras',
   waterLabEngineSource.includes("view === 'underwater-up'")
     && waterLabEngineSource.includes("view !== 'underwater-floor'"));
+check('WaterSurface restores air state before passes and applies its default atmosphere after them',
+  waterSurfaceSource.indexOf('this.underwaterAtmosphere.beginFrame(scene)')
+    < waterSurfaceSource.indexOf('this.passes.render(renderer, scene, camera, this)')
+    && waterSurfaceSource.indexOf('this.underwaterAtmosphere.update(scene, {')
+    > waterSurfaceSource.indexOf('this.passes.render(renderer, scene, camera, this)'));
+check('Water Lab consumes the package atmosphere instead of owning a private fog swap',
+  !waterLabEngineSource.includes('syncUnderwaterAtmosphere')
+    && waterLabEngineSource.includes('water.underwaterAtmosphereState.active'));
+
+// --- water-pass camera-facing object contract + cost reporting --------------------
+{
+  const scene = new THREE.Scene();
+  const waterMesh = new THREE.Object3D();
+  const billboard = new THREE.Object3D();
+  billboard.position.set(3, 2, 1);
+  const passKinds = [];
+  let cleanupCalls = 0;
+  billboard.userData.onWaterPass = function onWaterPass(passCamera, passKind) {
+    passKinds.push({ camera: passCamera, kind: passKind });
+    this.position.x = passKind === 'reflection' ? 20 : 10;
+    return () => { cleanupCalls += 1; };
+  };
+  scene.add(waterMesh, billboard);
+  scene.updateMatrixWorld(true);
+
+  const camera = new THREE.PerspectiveCamera(50, 4 / 3, 0.1, 100);
+  camera.position.set(0, 5, 10);
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
+
+  const renderPositions = [];
+  const renderer = {
+    _clearAlpha: 1,
+    _clearColor: new THREE.Color(0),
+    _target: null,
+    coordinateSystem: THREE.WebGLCoordinateSystem,
+    shadowMap: { autoUpdate: true },
+    xr: { enabled: true },
+    clear() {},
+    getClearAlpha() { return this._clearAlpha; },
+    getClearColor(target) { return target.copy(this._clearColor); },
+    getDrawingBufferSize(target) { return target.set(800, 600); },
+    getRenderTarget() { return this._target; },
+    render() { renderPositions.push(billboard.position.x); },
+    setClearColor(color, alpha = 1) {
+      this._clearColor.set(color);
+      this._clearAlpha = alpha;
+    },
+    setRenderTarget(target) { this._target = target; },
+  };
+  const passes = new WaterScenePasses();
+  passes.render(renderer, scene, camera, waterMesh);
+  check('water pass hook receives grab and mirrored reflection cameras',
+    deepEqual(passKinds.map(({ kind }) => kind), ['grab', 'reflection'])
+      && passKinds[0].camera === camera
+      && passKinds[1].camera === passes.reflectionCamera);
+  check('water pass hook transform remains active through grab/depth/reflection renders',
+    deepEqual(renderPositions, [10, 10, 20]));
+  check('water pass hook cleanup and exact host transform restoration are guaranteed',
+    cleanupCalls === 2 && billboard.position.equals(new THREE.Vector3(3, 2, 1)));
+  check('water pass stats expose the real offscreen scene-render budget and target sizes',
+    passes.stats.configuredMaximumSceneRenders === 3
+      && passes.stats.lastFrame.sceneRenders === 3
+      && deepEqual(passes.stats.lastFrame.passes, ['grab', 'depth', 'reflection'])
+      && deepEqual(passes.stats.targets.grab, { height: 600, width: 800 })
+      && deepEqual(passes.stats.targets.depth, { height: 600, width: 800 })
+      && deepEqual(passes.stats.targets.reflection, { height: 300, width: 400 }));
+  passes.dispose();
+}
 
 if (failures > 0) {
   console.error(`\nverify-watergen: ${failures} failure(s)`);

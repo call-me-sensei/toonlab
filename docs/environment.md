@@ -14,7 +14,6 @@ and untextured/flat-color scenes.
 ```js
 import {
   applyEnvironmentShader,
-  resolveEnvironmentPreset,
   createEnvironmentSunRig,
   createEnvironmentLampRig,
   captureEnvironmentAmbientProbe,
@@ -22,8 +21,12 @@ import {
   advanceEnvironmentShaderTime,
 } from '@call-me-sensei/toonlab/environment';
 
-const preset = resolveEnvironmentPreset('interiorDay');
-await applyEnvironmentShader(root, { environmentBox, hasSun: true, ...preset });
+await applyEnvironmentShader(root, {
+  environmentBox,
+  hasSun: true,
+  preset: 'call_me_sensei',
+  scenario: 'interiorDay',
+});
 
 const sun = createEnvironmentSunRig({ scene, environmentBox });
 const lamps = createEnvironmentLampRig({ scene, environmentBox, root, spot: { castShadow: true } });
@@ -40,8 +43,10 @@ advanceEnvironmentShaderTime(delta);
 `applyEnvironmentShader(root, options)` walks the scene, resolves texture
 sets, classifies material roles and manufactured-material identity, resolves
 IP profiles, and converts materials. Configuration is
-`{ features, parameters, materialLook }`; the global features and parameters
-are the catch-all normalized by `createEnvironmentSettings()`:
+`{ preset, scenario, features, parameters, materialLook }`; the named preset is
+resolved first, `settings` may refine that baseline, and explicit feature,
+parameter, and material-look options win last. The global features and
+parameters are normalized by `createEnvironmentSettings()`:
 
 ```js
 await applyEnvironmentShader(sceneRoot, {
@@ -214,7 +219,9 @@ Stylized light rigs positioned relative to the environment bounds
 (`environmentRelativePoint`):
 
 - `createEnvironmentSunRig({ scene, environmentBox })` — key directional
-  light plus visible sun disk, spill, beam, and shaft quads.
+  light plus visible sun disk, spill, beam, and shaft quads. Its public
+  `intensity` is expressed in ToonLab sun units: `1` means one sun and the rig
+  applies the required `PI` conversion at the Three light boundary.
 - `createEnvironmentLampRig({ scene, environmentBox, root, spot })` — lamp
   point/spot lights with optional shadowed downlight spots;
   `applyEnvironmentLampEmissive(root, multiplier)` couples fixture emissive

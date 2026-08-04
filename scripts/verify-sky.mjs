@@ -381,6 +381,8 @@ const skyShaderDocument = createSkyShaderPresetDocument('verification_sky', {
   },
 });
 assert.equal(skyShaderDocument.settings.atlasBrightness, 4);
+assert.equal(skyShaderDocument.version, 2);
+assert.ok(skyShaderDocument.timeKeyframes.length >= 2);
 assert.equal(skyShaderDocument.settings.starsDensity, 0.46);
 assert.deepEqual(skyShaderDocument.settings.sunColor, [0.6, 0.8, 1]);
 const parsedSkyShader = parseSkyShaderPresetDocument(
@@ -432,7 +434,7 @@ assert.equal(LOOK_DEVELOPMENT_LABS_SHOWCASE[skyIndex].i, 'L10a');
 assert.equal(LOOK_DEVELOPMENT_LABS_SHOWCASE[waterIndex].i, 'L09');
 assert.equal(DEMOS_SHOWCASE[0].i, 'V01');
 
-assert.match(readRepositoryFile('sky-lab/index.html'), /labs\/sky-lab\/ui\/main\.jsx/);
+assert.match(readRepositoryFile('sky-lab/index.html'), /labs\/sky-cloud-lab\/ui\/main\.jsx/);
 assert.match(readRepositoryFile('vite.config.js'), /skyLab:\s*resolve\(__dirname, 'sky-lab\/index\.html'\)/);
 assert.match(readRepositoryFile('labs/shared/sceneHub.js'), /id:\s*'skyLab'[\s\S]*path:\s*'\/sky-lab\/'/);
 assert.match(

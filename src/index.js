@@ -1,3 +1,4 @@
+export * from './version.js';
 export * from './toon/toonMaterialAdapter.js';
 export * from './toon/toonSettings.js';
 export * from './toon/characterRenderPasses.js';
@@ -19,9 +20,12 @@ export * from './post/postGenerator.js';
 export * from './water/water.js';
 export * from './sky/stylizedSky.js';
 export * from './sky/skyShaderSettings.js';
+export * from './sky/skyTimeKeyframes.js';
+export * from './sky/atmosphereSky.js';
 export * from './sky/skyDayCycle.js';
 export * from './cloud/index.js';
 export * from './styles/index.js';
+export * from './asset-policy/index.js';
 export * from './weather/index.js';
 export * from './climate/index.js';
 export * from './vegetation/index.js';

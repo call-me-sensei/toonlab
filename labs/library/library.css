@@ -1,0 +1,164 @@
+.lib-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.lib-heading .gal-toolbar {
+  margin-bottom: 0;
+}
+
+.lib-tools {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.lib-grid {
+  margin-top: 20px;
+}
+
+.lib-card-link {
+  cursor: pointer;
+}
+
+.lib-empty-icon {
+  font-size: 40px;
+}
+
+.lib-detail {
+  max-width: 760px;
+}
+
+.lib-detail[hidden] {
+  display: none;
+}
+
+.lib-back {
+  display: inline-flex;
+  font-family: var(--tl-font-mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--tl-ink-3);
+}
+
+.lib-back:hover {
+  color: var(--tl-ink-1);
+}
+
+.lib-hero {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.lib-preview {
+  display: grid;
+  place-items: center;
+  width: 280px;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--tl-radius-m);
+  border: 1px solid var(--tl-line);
+  background: var(--tl-gradient-soft);
+  background-position: center;
+  background-size: cover;
+  font-size: 44px;
+}
+
+.lib-hero-copy {
+  flex: 1;
+  min-width: 260px;
+}
+
+.lib-hero-copy h1 {
+  margin: 8px 0;
+  font-family: var(--tl-font-display);
+  font-size: 26px;
+}
+
+.lib-actions,
+.lib-form-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.lib-card {
+  display: grid;
+  gap: 12px;
+  margin-top: 24px;
+  padding: 22px;
+  border: 1px solid var(--tl-line-bright);
+  border-radius: var(--tl-radius-m);
+  background: var(--tl-bg-1);
+}
+
+.lib-field {
+  display: grid;
+  gap: 6px;
+  color: var(--tl-ink-2);
+  font-size: 13px;
+}
+
+.lib-field textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.lib-form-actions {
+  justify-content: space-between;
+}
+
+.tl-btn--primary {
+  --btn-bg: var(--tl-accent);
+  border-color: var(--tl-accent);
+  color: #fff;
+}
+
+.lib-danger {
+  color: #ff7771;
+}
+
+.lib-status {
+  min-height: 1.2em;
+  color: var(--tl-ink-2);
+  font-size: 11px;
+}
+
+.lib-json {
+  margin-top: 20px;
+  color: var(--tl-ink-2);
+}
+
+.lib-json summary {
+  cursor: pointer;
+}
+
+.lib-json pre {
+  max-height: 400px;
+  margin-top: 10px;
+  padding: 16px;
+  overflow: auto;
+  border: 1px solid var(--tl-line);
+  border-radius: var(--tl-radius-m);
+  background: var(--tl-bg-1);
+  color: var(--tl-ink-1);
+  font-size: 12px;
+}
+
+@media (max-width: 620px) {
+  .lib-tools,
+  .lib-tools .gal-search {
+    width: 100%;
+  }
+
+  .lib-preview {
+    width: 100%;
+  }
+}

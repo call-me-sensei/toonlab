@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ToonLab · P18 Grass Clump Parity</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main id="stage" aria-label="P18 grass clump parity scene"></main>
+  <header class="bar">
+    <div>
+      <strong>P18 Grass Parity</strong>
+      <span>Only the grass asset changes</span>
+    </div>
+    <nav aria-label="Grass comparison mode">
+      <button type="button" data-mode="source">P18 SM_Grass1</button>
+      <button type="button" data-mode="clump" class="active">ToonLab Clump</button>
+    </nav>
+  </header>
+  <aside class="panel" aria-live="polite">
+    <div class="eyebrow">Frozen comparison</div>
+    <h1 id="mode-title">ToonLab Clump</h1>
+    <p id="mode-description">Our reusable clump geometry and Grass Shader in the accepted P18 scene.</p>
+    <dl>
+      <div><dt>Placements</dt><dd id="placement-count">—</dd></div>
+      <div><dt>Class</dt><dd id="grass-class">—</dd></div>
+      <div><dt>LOD0 / 1 / 2</dt><dd id="lod-counts">—</dd></div>
+      <div><dt>Visible blades</dt><dd id="blade-count">—</dd></div>
+      <div><dt>Visible triangles</dt><dd id="triangle-count">—</dd></div>
+      <div><dt>Ground color</dt><dd id="ground-color">—</dd></div>
+      <div><dt>Assets</dt><dd id="asset-paths">—</dd></div>
+    </dl>
+    <div class="view-buttons" aria-label="Camera framing">
+      <button type="button" data-view="composition" class="active">Composition</button>
+      <button type="button" data-view="close">Grass close</button>
+    </div>
+    <p class="note">Terrain, placements, scale, surface alignment, lighting, sky, fog, trees, flowers, props, rock, camera framing, and post remain P18-owned. ToonLab geometry, all LODs, and the procedural material come from the installed package; the clump has no texture or binary-media dependency.</p>
+  </aside>
+  <div id="status" role="status">Loading accepted P18 scene…</div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

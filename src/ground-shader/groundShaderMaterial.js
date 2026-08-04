@@ -26,6 +26,7 @@ import {
 } from 'three/tsl';
 
 import { worldFbm2 } from '../shaders-tsl/chunks/world-noise.js';
+import { sampleEnvironmentSunShadow } from '../shaders-tsl/chunks/environment-sun-shadow.js';
 import {
   createGroundShaderSettings,
   GROUND_SHADER_FIELD_SCHEMA,
@@ -126,7 +127,7 @@ function layerTintOverrides(layers) {
  * `field` owns the RGBA splat brick. `layers` may provide asset textures and
  * compatibility tints. `settings` is the reusable Ground Shader profile.
  */
-export function createCompatibilityGroundShaderMaterial({
+export function createGroundShaderMaterial({
   field,
   layers = [],
   settings = {},
@@ -169,6 +170,7 @@ export function createCompatibilityGroundShaderMaterial({
   const material = new MeshBasicNodeMaterial({ side: THREE.DoubleSide });
   material.name = 'ToonLab Ground Shader';
   material.uniforms = { ...styleUniforms, ...sceneUniforms };
+  let groundColorVariant = null;
 
   function sampleProjectedLayer(index, scale) {
     const map = layerTextures[index];
@@ -203,8 +205,18 @@ export function createCompatibilityGroundShaderMaterial({
     );
   }
 
-  function rebuildNodes() {
-    material.colorNode = Fn(() => {
+  function sampleWorldFbmTriplanar(scale) {
+    const safeScale = max(scale, 0.0001);
+    const weights = pow(abs(normalWorldGeometry), vec3(u('projection', 'triplanarSharpness'))).toVar();
+    const total = max(weights.x.add(weights.y).add(weights.z), 0.0001);
+    return worldFbm2(positionWorld.zy.mul(safeScale)).mul(weights.x)
+      .add(worldFbm2(positionWorld.xz.mul(safeScale)).mul(weights.y))
+      .add(worldFbm2(positionWorld.xy.mul(safeScale)).mul(weights.z))
+      .div(total);
+  }
+
+  function buildGroundColorNode({ includeLighting = true } = {}) {
+    return Fn(() => {
     const weights = texture(splatTexture, uv());
     const total = max(weights.r.add(weights.g).add(weights.b).add(weights.a), 0.0001);
     const channels = [weights.r, weights.g, weights.b, weights.a];
@@ -291,6 +303,26 @@ export function createCompatibilityGroundShaderMaterial({
       macroPrimary.mul(u('macro', 'tintStrength')).mul(detailRetention).clamp(0, 1),
     ));
 
+    // A camera-visible cliff must never collapse to a flat tint merely
+    // because the consumer omitted optional authored layer maps. Add a
+    // triplanar geological breakup plus predominantly horizontal strata,
+    // limited to steep surfaces and faded with the normal detail budget.
+    const rockDetail = sampleWorldFbmTriplanar(u('macro', 'rockDetailScale')).toVar();
+    const rockStrata = worldFbm2(vec2(
+      positionWorld.y.mul(u('macro', 'rockStrataScale')),
+      positionWorld.x.add(positionWorld.z).mul(0.075),
+    )).toVar();
+    const geologicalDelta = rockDetail.sub(0.5).mul(u('macro', 'rockDetailAmount'))
+      .add(rockStrata.sub(0.5).mul(u('macro', 'rockStrataAmount')))
+      .mul(steepMask)
+      .mul(detailRetention);
+    groundColor.mulAssign(vec3(1).add(geologicalDelta));
+    groundColor.assign(mix(
+      groundColor,
+      groundColor.mul(mix(vec3(0.72, 0.79, 0.86), vec3(1.08, 1.02, 0.92), rockDetail)),
+      steepMask.mul(0.18).mul(detailRetention),
+    ));
+
     const luminance = dot(groundColor, vec3(0.2126, 0.7152, 0.0722));
     groundColor.assign(mix(vec3(luminance), groundColor, u('layers', 'saturation')));
     groundColor.assign(
@@ -324,8 +356,16 @@ export function createCompatibilityGroundShaderMaterial({
       .clamp(0, 1);
     groundColor.assign(mix(groundColor, u('weatherResponse', 'snowTint'), snowMask));
 
+    // Ground-field writers need the same splat/detail/weather albedo without
+    // the view-dependent sun, sky, rim, or specular response. The reference
+    // virtual-texture path provides surface color here; consumers light that
+    // color for themselves.
+    if (!includeLighting) return groundColor.clamp(0, 4);
+
     const normal = normalize(normalWorldGeometry);
-    const direct = clamp(dot(normal, normalize(sceneUniforms.uSceneGroundSunDirection)), 0, 1);
+    const sceneShadow = sampleEnvironmentSunShadow(positionWorld).toVar();
+    const direct = clamp(dot(normal, normalize(sceneUniforms.uSceneGroundSunDirection)), 0, 1)
+      .mul(sceneShadow).toVar();
     const shade = smoothstep(0.06, 0.72, direct).oneMinus().toVar();
     const shadowColor = groundColor.mul(mix(
       vec3(1),
@@ -337,7 +377,15 @@ export function createCompatibilityGroundShaderMaterial({
       groundColor.mul(0.82).add(sceneUniforms.uSceneGroundSkyColor.mul(0.18)),
       u('lighting', 'shadowLift'),
     );
-    groundColor.assign(mix(groundColor, liftedShadow, shade));
+    const directionalBackShadow = liftedShadow.mul(
+      vec3(1).sub(shade.mul(u('lighting', 'backShadowStrength'))),
+    );
+    groundColor.assign(mix(groundColor, directionalBackShadow, shade));
+    groundColor.mulAssign(mix(
+      1,
+      u('lighting', 'sunIntensity'),
+      smoothstep(0.06, 0.72, direct),
+    ));
     groundColor.assign(mix(
       groundColor,
       groundColor.mul(sceneUniforms.uSceneGroundSunColor),
@@ -364,7 +412,9 @@ export function createCompatibilityGroundShaderMaterial({
     const specularAmount = pow(
       clamp(dot(normal, halfVector), 0, 1),
       specularPower,
-    ).mul(mix(0.04, 1, u('material', 'metalness')));
+    ).mul(mix(0.04, 1, u('material', 'metalness')))
+      .mul(sceneShadow)
+      .mul(u('lighting', 'sunIntensity'));
     const specularColor = mix(
       sceneUniforms.uSceneGroundSunColor,
       groundColor.mul(sceneUniforms.uSceneGroundSunColor),
@@ -383,6 +433,14 @@ export function createCompatibilityGroundShaderMaterial({
 
     return groundColor.clamp(0, 4);
     })();
+  }
+
+  function rebuildNodes() {
+    material.colorNode = buildGroundColorNode();
+    if (groundColorVariant) {
+      groundColorVariant.colorNode = buildGroundColorNode({ includeLighting: false });
+      groundColorVariant.needsUpdate = true;
+    }
     material.needsUpdate = true;
   }
 
@@ -440,13 +498,57 @@ export function createCompatibilityGroundShaderMaterial({
     styleUniforms,
     version: GROUND_SHADER_SCHEMA_VERSION,
   };
+  material.userData.createGroundColorVariant = () => {
+    if (!groundColorVariant) {
+      groundColorVariant = new MeshBasicNodeMaterial({ side: THREE.DoubleSide });
+      groundColorVariant.name = 'ToonLab Ground Shader — Ground Field Albedo';
+      groundColorVariant.colorNode = buildGroundColorNode({ includeLighting: false });
+      groundColorVariant.isShadowPassMaterial = true;
+    }
+    return groundColorVariant;
+  };
+  material.addEventListener('dispose', () => {
+    groundColorVariant?.dispose();
+    groundColorVariant = null;
+  });
 
   rebuildNodes();
   return material;
 }
 
+/**
+ * Creates a production-safe ground mesh around the canonical material.
+ * Shadow casting/reception and ground-field participation are defaults so a
+ * consumer cannot accidentally ship a bright, unshadowed terrain shell.
+ */
+export function createGroundShaderMesh({
+  geometry,
+  name = 'ToonLab Ground',
+  castShadow = true,
+  receiveShadow = true,
+  groundFieldWrite = true,
+  frustumCulled = false,
+  ...materialOptions
+} = {}) {
+  if (!geometry?.isBufferGeometry) {
+    throw new TypeError('createGroundShaderMesh needs a BufferGeometry.');
+  }
+  const mesh = new THREE.Mesh(geometry, createGroundShaderMaterial(materialOptions));
+  mesh.name = name;
+  mesh.castShadow = Boolean(castShadow);
+  mesh.receiveShadow = Boolean(receiveShadow);
+  mesh.frustumCulled = Boolean(frustumCulled);
+  mesh.userData.groundFieldWrite = Boolean(groundFieldWrite);
+  mesh.userData.toonlabGroundShaderMesh = {
+    castShadow: mesh.castShadow,
+    groundFieldWrite: mesh.userData.groundFieldWrite,
+    receiveShadow: mesh.receiveShadow,
+  };
+  return mesh;
+}
+
 /** Applies a Ground Shader profile only to explicitly compatible materials. */
-export function applyCompatibilityGroundShader(target, profile = {}) {
+export function applyGroundShader(target, profile = {}) {
   const settings = createGroundShaderSettings(profile);
   const materials = collectMaterials(target);
   const report = {
@@ -472,7 +574,7 @@ export function applyCompatibilityGroundShader(target, profile = {}) {
 }
 
 /** Updates current scene inputs without modifying the portable profile. */
-export function setCompatibilityGroundShaderSceneState(target, state = {}) {
+export function setGroundShaderSceneState(target, state = {}) {
   const materials = collectMaterials(target);
   let updated = 0;
   for (const material of materials) {
@@ -484,7 +586,14 @@ export function setCompatibilityGroundShaderSceneState(target, state = {}) {
   return updated;
 }
 
-export function disposeCompatibilityGroundShaderMaterial(material) {
+export function disposeGroundShaderMaterial(material) {
   material?.userData?.toonlabGroundShader?.splatTexture?.dispose?.();
   material?.dispose?.();
 }
+
+// Repository-only Landscape and lab code used these names while the canonical
+// implementation was being promoted. They do not refer to a different graph.
+export const createCompatibilityGroundShaderMaterial = createGroundShaderMaterial;
+export const applyCompatibilityGroundShader = applyGroundShader;
+export const setCompatibilityGroundShaderSceneState = setGroundShaderSceneState;
+export const disposeCompatibilityGroundShaderMaterial = disposeGroundShaderMaterial;

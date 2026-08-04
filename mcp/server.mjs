@@ -1,35 +1,60 @@
 #!/usr/bin/env node
 
-import { basename, extname } from 'node:path';
-import { builtinCatalogEntries } from '../src/catalog/builtinEntries.js';
+import { readFileSync } from 'node:fs';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { basename, dirname, extname, join } from 'node:path';
+import { publicMcpCatalogEntries } from './public-catalog.mjs';
 import {
   fetchPolyhavenFiles,
   fetchPolyhavenIndex,
-  filterAssetRefs,
   resolvePolyhavenModelDownload,
   resolvePolyhavenTextureDownload,
-  searchAmbientcg,
-  resolveAmbientcgDownload,
-} from '../src/assetlib/index.js';
+} from '../src/assetlib/polyhaven.js';
+import { filterAssetRefs } from '../src/assetlib/assetRef.js';
 import {
-  getWorkspaceInfo,
-  listLibraryEntries,
-  listStorageDocuments,
-  listWorkspaceFiles,
+  resolveAmbientcgDownload,
+  searchAmbientcg,
+} from '../src/assetlib/ambientcg.js';
+import {
+  getWorkspaceInfo as getLegacyWorkspaceInfo,
+  listLibraryEntries as listLegacyLibraryEntries,
+  listStorageDocuments as listLegacyStorageDocuments,
+  listWorkspaceFiles as listLegacyWorkspaceFiles,
   matchesText,
-  readWorkspaceFile,
+  readWorkspaceFile as readLegacyWorkspaceFile,
   resolveWorkspacePath,
-  saveCreation,
-  writeWorkspaceFile,
+  saveCreation as saveLegacyCreation,
+  writeWorkspaceFile as writeLegacyWorkspaceFile,
 } from './workspace.mjs';
 import {
-  STYLE_LAB_TOOLS,
-  callStyleLabTool,
-  isStyleLabTool,
-} from './style-lab-tools.mjs';
+  databaseInfo,
+  getCatalogAsset as getDatabaseCatalogAsset,
+  listCatalogAssets as listDatabaseCatalogAssets,
+  listLibraryEntries as listDatabaseLibraryEntries,
+  listObjects,
+  readLabState,
+  readObject,
+  saveCreationDocument,
+  saveObject,
+} from '../database/repository.mjs';
+import {
+  ASSET_POLICY_MODES,
+  ASSET_SOURCE_CLASSES,
+  createAssetGapRecord,
+  evaluateAssetCandidate,
+  renderAssetGapReport,
+  validateAssetSourcingPolicy,
+} from '../src/asset-policy/index.js';
+import {
+  CALL_ME_SENSEI_STYLE_BUNDLE,
+  STYLE_DOMAIN_SLOT_ROUTES,
+  TOONLAB_ANIME_GAME_PROFILE,
+} from '../src/styles/index.js';
 
 const SERVER_NAME = 'toonlab-oss';
-const SERVER_VERSION = '0.2.0';
+const SERVER_VERSION = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+).version;
 const LATEST_PROTOCOL_VERSION = '2025-11-25';
 const SUPPORTED_PROTOCOL_VERSIONS = new Set([
   LATEST_PROTOCOL_VERSION,
@@ -51,6 +76,81 @@ function parseArguments(argv) {
 }
 
 const { workspace } = parseArguments(process.argv.slice(2));
+const legacyWorkspace = process.env.TOONLAB_LEGACY_WORKSPACE === '1';
+
+async function getWorkspaceInfo() {
+  if (legacyWorkspace) return getLegacyWorkspaceInfo(workspace);
+  return {
+    database: await databaseInfo(),
+    mode: 'postgres',
+    path: workspace,
+  };
+}
+
+async function listLibraryEntries() {
+  if (legacyWorkspace) return listLegacyLibraryEntries(workspace);
+  return listDatabaseLibraryEntries();
+}
+
+async function listStorageDocuments() {
+  if (legacyWorkspace) return listLegacyStorageDocuments(workspace);
+  const entries = await readLabState();
+  const documents = [];
+  for (const [key, raw] of Object.entries(entries)) {
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { continue; }
+    const values = Array.isArray(parsed) ? parsed : [parsed];
+    values.forEach((document, index) => {
+      if (!document || typeof document !== 'object') return;
+      documents.push({
+        cluster: key.match(/^toonlab\.([a-z0-9-]+)/i)?.[1] ?? 'lab',
+        document,
+        id: `state:${key}:${document.id ?? document.presetId ?? index}`,
+        key,
+        kind: Array.isArray(parsed) ? 'preset' : 'document',
+        label: String(document.label ?? document.name ?? document.id ?? `Document ${index + 1}`),
+        source: 'workspace-storage',
+      });
+    });
+  }
+  return documents;
+}
+
+async function listWorkspaceFiles() {
+  if (legacyWorkspace) return listLegacyWorkspaceFiles(workspace);
+  return listObjects(workspace);
+}
+
+async function readWorkspaceFile(_workspace, relativePath) {
+  if (legacyWorkspace) return readLegacyWorkspaceFile(workspace, relativePath);
+  return readObject(workspace, relativePath);
+}
+
+async function saveCreation(_workspace, options) {
+  if (legacyWorkspace) return saveLegacyCreation(workspace, options);
+  return saveCreationDocument(options);
+}
+
+const MIME_BY_EXTENSION = {
+  '.bin': 'application/octet-stream',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.zip': 'application/zip',
+};
+
+async function writeWorkspaceFile(_workspace, relativePath, data) {
+  if (legacyWorkspace) return writeLegacyWorkspaceFile(workspace, relativePath, data);
+  const bytes = typeof data === 'string' ? Buffer.from(data) : data;
+  return saveObject(workspace, bytes, {
+    contentType: MIME_BY_EXTENSION[extname(relativePath).toLowerCase()] ?? 'application/octet-stream',
+    name: basename(relativePath),
+  });
+}
 
 function jsonContent(value) {
   return {
@@ -84,7 +184,57 @@ function withSeed(recipe, seed) {
   return next;
 }
 
+const SOURCE_CLASS_BY_SOURCE = Object.freeze({
+  builtin: 'procedural',
+  library: 'toonlab-library',
+  official: 'toonlab-library',
+  workspace: 'project-library',
+  'workspace-storage': 'project-library',
+});
+
+function sourceClassFor(entry) {
+  return entry.sourceClass
+    ?? SOURCE_CLASS_BY_SOURCE[entry.source]
+    ?? 'project-library';
+}
+
+function animeStyleSupport(entry) {
+  const tags = (entry.tags ?? []).map((tag) => String(tag).toLowerCase());
+  const explicit = entry.animeStyleSupport ?? entry.supportLevel;
+  if (explicit) return explicit;
+  if (tags.some((tag) => ['anime', 'cel-shaded', 'toon', 'stylized'].includes(tag))) {
+    return 'reviewed-candidate';
+  }
+  return 'needs-in-scene-review';
+}
+
+function normalizeDiscovery(entry, summary, { domain = '', policy = null } = {}) {
+  const sourceClass = sourceClassFor(entry);
+  return {
+    ...summary,
+    animeStyleSupport: animeStyleSupport(entry),
+    assetKind: entry.kind ?? entry.assetKind ?? null,
+    license: entry.license ?? entry.attribution?.license ?? null,
+    policyDecision: evaluateAssetCandidate(policy, { domain, sourceClass }),
+    provenance: entry.provenance ?? entry.attribution ?? null,
+    sourceClass,
+  };
+}
+
 function summarizeCatalogEntry(entry) {
+  const metadata = entry.metadata && typeof entry.metadata === 'object' && !Array.isArray(entry.metadata)
+    ? entry.metadata
+    : {};
+  const searchableMetadata = Object.fromEntries([
+    'catalog',
+    'dimensionsMeters',
+    'familyId',
+    'profileId',
+    'taxonomy',
+    'releaseWave',
+    'revision',
+    'recipeHash',
+  ].flatMap((key) => metadata[key] == null ? [] : [[key, metadata[key]]]));
   return {
     cluster: entry.cluster,
     description: entry.description ?? null,
@@ -94,6 +244,7 @@ function summarizeCatalogEntry(entry) {
     source: entry.source ?? 'builtin',
     tags: entry.tags ?? [],
     thumbnail: entry.thumbnail ?? null,
+    ...(Object.keys(searchableMetadata).length > 0 ? { metadata: searchableMetadata } : {}),
   };
 }
 
@@ -108,22 +259,68 @@ function summarizeStorageDocument(entry) {
   };
 }
 
-async function allAssets() {
-  const [library, storage, files] = await Promise.all([
-    listLibraryEntries(workspace),
-    listStorageDocuments(workspace),
-    listWorkspaceFiles(workspace),
+function normalizeOfficialCatalogAsset(asset) {
+  const metadata = asset.metadata && typeof asset.metadata === 'object' && !Array.isArray(asset.metadata)
+    ? asset.metadata
+    : {};
+  return {
+    catalogProvider: asset.source,
+    cluster: metadata.catalog ?? 'official',
+    description: asset.description ?? null,
+    downloadUrl: asset.download_url ?? null,
+    files: asset.files ?? [],
+    id: asset.id,
+    kind: asset.kind,
+    label: asset.name,
+    license: asset.license,
+    metadata,
+    provenance: {
+      attribution: asset.attribution ?? null,
+      provider: asset.source,
+      sourceId: asset.source_id ?? null,
+      sourceUrl: asset.source_url ?? null,
+    },
+    source: 'official',
+    sourceClass: 'toonlab-library',
+    tags: asset.tags ?? [],
+    thumbnail: asset.thumbnail_url ?? null,
+  };
+}
+
+async function listOfficialCatalogEntries() {
+  if (legacyWorkspace) return [];
+  const entries = [];
+  let offset = 0;
+  let total = 1;
+  while (offset < total) {
+    const page = await listDatabaseCatalogAssets({ limit: 100, offset });
+    entries.push(...page.items.map(normalizeOfficialCatalogAsset));
+    total = page.total;
+    offset += page.items.length;
+    if (page.items.length === 0) break;
+  }
+  return entries;
+}
+
+async function allAssets(source = null) {
+  const includes = (candidate) => source == null || source === candidate;
+  const [library, official, storage, files] = await Promise.all([
+    includes('library') ? listLibraryEntries(workspace) : [],
+    includes('official') ? listOfficialCatalogEntries() : [],
+    includes('workspace-storage') ? listStorageDocuments(workspace) : [],
+    includes('workspace') ? listWorkspaceFiles(workspace) : [],
   ]);
   return [
-    ...builtinCatalogEntries().map((entry) => ({ ...entry, source: 'builtin' })),
+    ...(includes('builtin') ? publicMcpCatalogEntries().map((entry) => ({ ...entry, source: 'builtin' })) : []),
     ...library.map((entry) => ({ ...entry, source: 'library' })),
+    ...official,
     ...storage,
     ...files,
   ];
 }
 
 async function findAsset(id, source = null) {
-  const assets = await allAssets();
+  const assets = await allAssets(source);
   return assets.find((entry) => entry.id === id && (!source || entry.source === source)) ?? null;
 }
 
@@ -134,30 +331,50 @@ function matchesTags(entry, tags) {
 }
 
 async function searchAssets(args) {
-  const assets = await allAssets();
-  const results = assets.filter((entry) => {
+  const assets = await allAssets(args.source ?? null);
+  const matched = assets.filter((entry) => {
     if (args.source && entry.source !== args.source) return false;
     if (args.cluster && entry.cluster !== args.cluster) return false;
     if (args.kind && entry.kind !== args.kind) return false;
     if (!matchesTags(entry, args.tags)) return false;
     return matchesText(entry, args.query);
-  }).slice(0, limitValue(args.limit));
+  });
+  const offset = Math.max(0, Math.floor(Number(args.offset) || 0));
+  const limit = limitValue(args.limit);
+  const results = matched.slice(offset, offset + limit);
   return {
     count: results.length,
+    total: matched.length,
+    offset,
+    limit,
+    nextOffset: offset + limit < matched.length ? offset + limit : null,
     items: results.map((entry) => {
-      if (entry.source === 'workspace') return entry;
-      if (entry.source === 'workspace-storage') return summarizeStorageDocument(entry);
-      return summarizeCatalogEntry(entry);
+      const summary = entry.source === 'workspace'
+        ? entry
+        : entry.source === 'workspace-storage'
+          ? summarizeStorageDocument(entry)
+          : summarizeCatalogEntry(entry);
+      return normalizeDiscovery(entry, summary, args);
     }),
   };
 }
 
 async function getAsset(args) {
+  if (args.source === 'official' && !legacyWorkspace) {
+    const complete = await getDatabaseCatalogAsset(args.id);
+    if (!complete) throw new Error(`Official asset "${args.id}" was not found.`);
+    const normalized = normalizeOfficialCatalogAsset(complete);
+    return normalizeDiscovery(normalized, normalized, args);
+  }
   const asset = await findAsset(args.id, args.source);
   if (!asset) throw new Error(`Asset "${args.id}" was not found.`);
-  if (asset.source === 'workspace') return asset;
-  if (asset.source === 'workspace-storage') return asset;
-  return asset;
+  if (asset.source === 'official' && !legacyWorkspace) {
+    const complete = await getDatabaseCatalogAsset(asset.id);
+    if (!complete) throw new Error(`Official asset "${args.id}" was not found.`);
+    const normalized = normalizeOfficialCatalogAsset(complete);
+    return normalizeDiscovery(normalized, normalized, args);
+  }
+  return normalizeDiscovery(asset, asset, args);
 }
 
 async function listMyCreations(args) {
@@ -190,8 +407,13 @@ async function getMyCreation(args) {
 }
 
 async function generateAsset(args) {
-  const entry = builtinCatalogEntries().find((item) => item.id === args.catalog_id);
+  const entry = publicMcpCatalogEntries().find((item) => item.id === args.catalog_id);
   if (!entry) throw new Error(`Unknown built-in catalog asset "${args.catalog_id}".`);
+  const policyDecision = evaluateAssetCandidate(args.policy ?? null, {
+    domain: args.domain ?? entry.domain ?? entry.cluster ?? '',
+    sourceClass: 'procedural',
+  });
+  if (!policyDecision.allowed) throw new Error(policyDecision.reason);
   const seed = Number.isFinite(Number(args.seed)) ? Number(args.seed) : Math.floor(Math.random() * 1_000_000);
   const name = String(args.name ?? `${entry.label} ${seed}`);
   const document = {
@@ -216,6 +438,7 @@ async function generateAsset(args) {
   return {
     document,
     file,
+    policyDecision,
     next: entry.cluster === 'water' || entry.cluster === 'sky' || entry.cluster === 'post' || entry.cluster === 'toon'
       ? 'Use the spawn snippet in your project; this is a settings preset.'
       : 'Open the matching ToonLab lab to preview or export this recipe as GLB.',
@@ -234,6 +457,11 @@ function compactCc0Ref(ref) {
     source: ref.source,
     tags: ref.tags,
     thumbnailUrl: ref.thumbnailUrl,
+    animeStyleSupport: 'needs-in-scene-review',
+    assetKind: ref.kind,
+    license: ref.attribution?.license ?? 'CC0',
+    provenance: ref.attribution ?? null,
+    sourceClass: 'external-cc0',
   };
 }
 
@@ -267,15 +495,37 @@ async function searchCc0Assets(args) {
   const settled = await Promise.allSettled(searches);
   const results = settled.flatMap((result) => result.status === 'fulfilled' ? result.value : []);
   const errors = settled.flatMap((result) => result.status === 'rejected' ? [result.reason?.message ?? String(result.reason)] : []);
-  return { count: Math.min(results.length, limit), errors, items: results.slice(0, limit).map(compactCc0Ref) };
+  return {
+    count: Math.min(results.length, limit),
+    errors,
+    items: results.slice(0, limit).map((ref) => ({
+      ...compactCc0Ref(ref),
+      policyDecision: evaluateAssetCandidate(args.policy ?? null, {
+        domain: args.domain ?? '',
+        sourceClass: 'external-cc0',
+      }),
+    })),
+  };
 }
 
-async function getCc0AssetDetails({ id, kind = 'model', provider, resolution = '1k' }) {
+async function getCc0AssetDetails(args) {
+  const {
+    domain = '',
+    id,
+    kind = 'model',
+    policy = null,
+    provider,
+    resolution = '1k',
+  } = args;
+  const policyDecision = evaluateAssetCandidate(policy, {
+    domain,
+    sourceClass: 'external-cc0',
+  });
   if (provider === 'ambientcg') {
     const [ref] = await searchAmbientcg({ id });
     if (!ref) throw new Error(`ambientCG asset "${id}" was not found.`);
     const download = resolveAmbientcgDownload(ref, { resolution: resolution.toUpperCase() });
-    return { download, ref: compactCc0Ref(ref) };
+    return { download, policyDecision, ref: compactCc0Ref(ref) };
   }
   if (provider === 'polyhaven') {
     const refs = await fetchPolyhavenIndex({ type: polyhavenType(kind) });
@@ -287,7 +537,7 @@ async function getCc0AssetDetails({ id, kind = 'model', provider, resolution = '
       : kind === 'texture'
         ? resolvePolyhavenTextureDownload(files, { resolution })
         : null;
-    return { download, ref: compactCc0Ref(ref) };
+    return { download, policyDecision, ref: compactCc0Ref(ref) };
   }
   throw new Error('provider must be polyhaven or ambientcg.');
 }
@@ -307,6 +557,11 @@ function filenameFromUrl(url, fallback) {
 }
 
 async function importCc0Asset(args) {
+  const policyDecision = evaluateAssetCandidate(args.policy ?? null, {
+    domain: args.domain ?? '',
+    sourceClass: 'external-cc0',
+  });
+  if (!policyDecision.allowed) throw new Error(policyDecision.reason);
   const details = await getCc0AssetDetails(args);
   if (!details.download) {
     throw new Error('This asset kind does not yet expose a direct downloadable bundle. Use get_cc0_asset for its source page.');
@@ -332,10 +587,45 @@ async function importCc0Asset(args) {
     importedAt: new Date().toISOString(),
     ...details,
   }, null, 2)}\n`);
-  return { ...details, files: [...files, manifest], workspace };
+  return { ...details, files: [...files, manifest], policyDecision, workspace };
+}
+
+async function recordAssetGap(args) {
+  const record = createAssetGapRecord(args);
+  const reportsDirectory = join(workspace, 'reports');
+  const jsonPath = join(reportsDirectory, 'style-asset-gaps.json');
+  const projectDirectory = basename(workspace) === '.toonlab'
+    ? dirname(workspace)
+    : workspace;
+  const markdownPath = join(projectDirectory, 'TOONLAB_ASSET_GAPS.md');
+  let records = [];
+  try {
+    const existing = JSON.parse(await readFile(jsonPath, 'utf8'));
+    records = Array.isArray(existing.records) ? existing.records : [];
+  } catch {
+    records = [];
+  }
+  const next = records.filter((entry) => entry.id !== record.id);
+  next.push(record);
+  next.sort((left, right) => left.id.localeCompare(right.id));
+  await mkdir(reportsDirectory, { recursive: true });
+  await writeFile(jsonPath, `${JSON.stringify({
+    records: next,
+    schema: 'toonlab/asset-gap-report',
+    version: 1,
+  }, null, 2)}\n`, 'utf8');
+  await writeFile(markdownPath, renderAssetGapReport(next), 'utf8');
+  return { jsonPath, markdownPath, record, total: next.length };
 }
 
 const TOOLS = [
+  {
+    annotations: { readOnlyHint: true },
+    description: 'Return ToonLab\'s anime-game art direction, canonical Call Me Sensei bundle, and explicit shader-routing table.',
+    inputSchema: { additionalProperties: false, properties: {}, type: 'object' },
+    name: 'get_anime_game_profile',
+    title: 'Get ToonLab anime-game profile',
+  },
   {
     annotations: { readOnlyHint: true },
     description: 'Show the local .toonlab workspace path, migration status, and item counts.',
@@ -345,15 +635,18 @@ const TOOLS = [
   },
   {
     annotations: { readOnlyHint: true },
-    description: 'Search built-in procedural assets, saved library entries, lab presets, and files on disk.',
+    description: 'Search built-in procedural assets, the paginated complete official Gallery catalog, saved library entries, lab presets, and files on disk. Official rock summaries include compact dimensions and taxonomy metadata; follow nextOffset until null.',
     inputSchema: {
       additionalProperties: false,
       properties: {
         cluster: { type: 'string' },
+        domain: { type: 'string' },
         kind: { type: 'string' },
         limit: { maximum: 100, minimum: 1, type: 'integer' },
+        offset: { minimum: 0, type: 'integer' },
+        policy: { type: 'object' },
         query: { type: 'string' },
-        source: { enum: ['builtin', 'library', 'workspace', 'workspace-storage'], type: 'string' },
+        source: { enum: ['builtin', 'official', 'library', 'workspace', 'workspace-storage'], type: 'string' },
         tags: { items: { type: 'string' }, type: 'array' },
       },
       type: 'object',
@@ -366,7 +659,12 @@ const TOOLS = [
     description: 'Get a complete asset, recipe, preset, library entry, or workspace file descriptor by id.',
     inputSchema: {
       additionalProperties: false,
-      properties: { id: { type: 'string' }, source: { type: 'string' } },
+      properties: {
+        domain: { type: 'string' },
+        id: { type: 'string' },
+        policy: { type: 'object' },
+        source: { type: 'string' },
+      },
       required: ['id'],
       type: 'object',
     },
@@ -415,7 +713,9 @@ const TOOLS = [
       additionalProperties: false,
       properties: {
         catalog_id: { type: 'string' },
+        domain: { type: 'string' },
         name: { type: 'string' },
+        policy: { type: 'object' },
         save: { default: true, type: 'boolean' },
         seed: { type: 'integer' },
       },
@@ -431,8 +731,10 @@ const TOOLS = [
     inputSchema: {
       additionalProperties: false,
       properties: {
+        domain: { type: 'string' },
         kind: { enum: ['model', 'texture', 'hdri'], type: 'string' },
         limit: { maximum: 50, minimum: 1, type: 'integer' },
+        policy: { type: 'object' },
         provider: { enum: ['all', 'polyhaven', 'ambientcg'], type: 'string' },
         query: { type: 'string' },
       },
@@ -447,8 +749,10 @@ const TOOLS = [
     inputSchema: {
       additionalProperties: false,
       properties: {
+        domain: { type: 'string' },
         id: { type: 'string' },
         kind: { enum: ['model', 'texture', 'hdri'], type: 'string' },
+        policy: { type: 'object' },
         provider: { enum: ['polyhaven', 'ambientcg'], type: 'string' },
         resolution: { default: '1k', type: 'string' },
       },
@@ -464,8 +768,10 @@ const TOOLS = [
     inputSchema: {
       additionalProperties: false,
       properties: {
+        domain: { type: 'string' },
         id: { type: 'string' },
         kind: { enum: ['model', 'texture', 'hdri'], type: 'string' },
+        policy: { type: 'object' },
         provider: { enum: ['polyhaven', 'ambientcg'], type: 'string' },
         resolution: { default: '1k', type: 'string' },
       },
@@ -477,16 +783,69 @@ const TOOLS = [
   },
   {
     annotations: { readOnlyHint: true },
+    description: 'Validate a strict, advisory, or open sourcing policy and evaluate whether one candidate may be selected.',
+    inputSchema: {
+      additionalProperties: false,
+      properties: {
+        candidate: {
+          additionalProperties: false,
+          properties: {
+            domain: { type: 'string' },
+            sourceClass: { enum: ASSET_SOURCE_CLASSES, type: 'string' },
+          },
+          required: ['domain', 'sourceClass'],
+          type: 'object',
+        },
+        policy: { type: 'object' },
+      },
+      required: ['candidate'],
+      type: 'object',
+    },
+    name: 'validate_asset_candidate',
+    title: 'Validate an asset candidate',
+  },
+  {
+    annotations: { destructiveHint: false, idempotentHint: true },
+    description: 'Record why a custom shader or asset was required and regenerate JSON plus Markdown feedback reports.',
+    inputSchema: {
+      additionalProperties: false,
+      properties: {
+        approvedBy: { type: ['string', 'null'] },
+        attempts: { items: { type: 'object' }, type: 'array' },
+        bundleSlot: { type: ['string', 'null'] },
+        customImplementation: {},
+        domain: { type: 'string' },
+        feedbackNeeded: { type: 'string' },
+        id: { type: 'string' },
+        kind: { type: 'string' },
+        provenance: {},
+        reason: { type: 'string' },
+        status: { type: 'string' },
+        targetId: { type: ['string', 'null'] },
+      },
+      required: ['id', 'domain', 'kind', 'reason'],
+      type: 'object',
+    },
+    name: 'record_asset_gap',
+    title: 'Record a custom asset or shader gap',
+  },
+  {
+    annotations: { readOnlyHint: true },
     description: 'Explain what asset generation is available in the open-source local server.',
     inputSchema: { additionalProperties: false, properties: {}, type: 'object' },
     name: 'get_generation_capabilities',
     title: 'Get local generation capabilities',
   },
-  ...STYLE_LAB_TOOLS,
 ];
 
 async function callTool(name, args = {}) {
   switch (name) {
+    case 'get_anime_game_profile': return {
+      artDirection: TOONLAB_ANIME_GAME_PROFILE,
+      defaultStyleBundle: CALL_ME_SENSEI_STYLE_BUNDLE,
+      product: 'Anime-style game, character, and environment development for Three.js',
+      routing: STYLE_DOMAIN_SLOT_ROUTES,
+    };
     case 'get_workspace_info': return getWorkspaceInfo(workspace);
     case 'search_assets': return searchAssets(args);
     case 'get_asset': return getAsset(args);
@@ -497,14 +856,27 @@ async function callTool(name, args = {}) {
     case 'search_cc0_assets': return searchCc0Assets(args);
     case 'get_cc0_asset': return getCc0AssetDetails(args);
     case 'import_cc0_asset': return importCc0Asset(args);
+    case 'validate_asset_candidate': {
+      const policyValidation = args.policy
+        ? validateAssetSourcingPolicy(args.policy)
+        : { ok: true, value: null };
+      return {
+        availableModes: ASSET_POLICY_MODES,
+        policyValidation,
+        result: policyValidation.ok
+          ? evaluateAssetCandidate(policyValidation.value, args.candidate)
+          : { allowed: false, decision: 'deny', reason: policyValidation.errors.join(' ') },
+      };
+    }
+    case 'record_asset_gap': return recordAssetGap(args);
     case 'get_generation_capabilities': return {
       available: [
-        'Generate deterministic recipes from every built-in ToonLab catalog entry.',
-        'Author, validate, and batch-resolve open-domain recipes for the generative style domains (post, camera, game feel, lighting styles, light fixtures).',
+        'Generate deterministic recipes from the stable public ToonLab catalog entries.',
         'Save and retrieve editable lab documents through the shared .toonlab workspace.',
         'Search and import CC0 assets from Poly Haven and ambientCG.',
         'Use each recipe\'s spawn snippet to integrate it into a Three.js project.',
       ],
+      unsupportedStyleDomains: ['lighting', 'vfx', 'renderer'],
       hostedProAdds: [
         'Managed image and 3D model generation providers',
         'Cloud library and cross-device sync',
@@ -512,11 +884,7 @@ async function callTool(name, args = {}) {
       ],
       mode: 'open-source-local',
     };
-    default:
-      if (isStyleLabTool(name)) {
-        return callStyleLabTool(name, args, { saveCreation, workspace });
-      }
-      throw new Error(`Unknown tool "${name}".`);
+    default: throw new Error(`Unknown tool "${name}".`);
   }
 }
 
@@ -555,7 +923,7 @@ async function handleRequest(message) {
       jsonrpc: '2.0',
       result: {
         capabilities: { resources: {}, tools: {} },
-        instructions: 'Use ToonLab to search public and private assets, create deterministic recipes, import CC0 files, and work with the local .toonlab workspace.',
+        instructions: 'ToonLab builds anime-style games, characters, and environments for Three.js. Load the selected style bundle first. If no asset-sourcing policy exists, ask the developer, then continue with library-first advisory discovery while recording the unresolved decision. Search the project and ToonLab libraries before public sources; generate or hand-author only when policy permits. Validate every candidate, preserve provenance, evaluate anime-fit in scene, and record a gap before adding a custom shader, texture, model, or adapter.',
         protocolVersion: SUPPORTED_PROTOCOL_VERSIONS.has(requested) ? requested : LATEST_PROTOCOL_VERSION,
         serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
       },

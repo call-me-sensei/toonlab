@@ -6,6 +6,17 @@ function setSrgbColor(color, rgb) {
   color.setRGB(rgb[0], rgb[1], rgb[2], THREE.SRGBColorSpace);
 }
 
+function mulberry32(seed) {
+  let state = (Math.trunc(seed) || 1) >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let value = state;
+    value = Math.imul(value ^ (value >>> 15), value | 1);
+    value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+    return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 // Instanced underwater kelp blades that sway with the water flow — a scale
 // and motion reference for underwater camera work. Fully procedural.
 //
@@ -24,6 +35,7 @@ export class WaterKelpField extends THREE.Mesh {
     kelpColor = [0.32, 0.7, 0.42],
     kelpShadeColor = [0.1, 0.36, 0.28],
     shadowStrength = 0.55,
+    seed = 1,
   } = {}) {
     const count = Math.max(placements.length, 1);
     const blade = new THREE.PlaneGeometry(1, 1, 1, 6);
@@ -36,16 +48,17 @@ export class WaterKelpField extends THREE.Mesh {
 
     const origins = new Float32Array(count * 3);
     const infos = new Float32Array(count * 4);
+    const random = mulberry32(seed);
     placements.forEach((placement, i) => {
       origins[i * 3] = placement.x ?? 0;
       origins[i * 3 + 1] = placement.y ?? 0;
       origins[i * 3 + 2] = placement.z ?? 0;
       infos[i * 4] = placement.height ??
-        THREE.MathUtils.lerp(heightRange[0], heightRange[1], Math.random());
-      infos[i * 4 + 1] = Math.random();
+        THREE.MathUtils.lerp(heightRange[0], heightRange[1], random());
+      infos[i * 4 + 1] = random();
       infos[i * 4 + 2] = placement.width ??
-        THREE.MathUtils.lerp(widthRange[0], widthRange[1], Math.random());
-      infos[i * 4 + 3] = Math.random() * Math.PI * 2;
+        THREE.MathUtils.lerp(widthRange[0], widthRange[1], random());
+      infos[i * 4 + 3] = random() * Math.PI * 2;
     });
     geometry.setAttribute('iOrigin', new THREE.InstancedBufferAttribute(origins, 3));
     geometry.setAttribute('iInfo', new THREE.InstancedBufferAttribute(infos, 4));
@@ -60,6 +73,7 @@ export class WaterKelpField extends THREE.Mesh {
 
     super(geometry, material);
     this.name = 'WaterKelpField';
+    this.castShadow = true;
     this.frustumCulled = false;
     this.receiveShadow = true;
   }

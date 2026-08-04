@@ -71,7 +71,7 @@ export const DEFAULT_POST_PROCESSING_PARAMETERS = Object.freeze({
   saturation: 1.0,
   strength: 1.0,
   topLight: 0.0,
-  vignetteRadius: 0.72,
+  vignetteRadius: 0.55,
   vignetteSoftness: 0.34,
   vignetteStrength: 0.0,
   warmth: 0.0,
@@ -933,6 +933,7 @@ function applyCompositeSettings(material, settings, camera, depthTexture, width,
 
 export function createPostProcessingPipeline({
   camera,
+  ownsRenderer = false,
   renderer,
   scene,
   settings: settingsInput = {},
@@ -1076,6 +1077,7 @@ export function createPostProcessingPipeline({
   }
 
   return {
+    compositeCamera,
     compositeMaterial,
     compositeScene,
     get enabled() {
@@ -1165,8 +1167,10 @@ export function createPostProcessingPipeline({
       currentWidth = nextWidth;
       currentHeight = nextHeight;
       currentPixelRatio = nextPixelRatio;
-      renderer.setPixelRatio(nextPixelRatio);
-      renderer.setSize(nextWidth, nextHeight);
+      if (ownsRenderer) {
+        renderer.setPixelRatio(nextPixelRatio);
+        renderer.setSize(nextWidth, nextHeight);
+      }
       target.setSize(nextWidth * nextPixelRatio, nextHeight * nextPixelRatio);
       sceneDepthColorTarget.setSize(nextWidth * nextPixelRatio, nextHeight * nextPixelRatio);
       disposeBloomChain();

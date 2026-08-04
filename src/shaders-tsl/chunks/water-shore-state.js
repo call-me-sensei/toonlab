@@ -27,5 +27,12 @@ export function createWaterShoreStateChunk({ u }) {
       .toVar();
   };
 
-  return { shoreStateSample, shoreStateUv };
+  const shoreStateCoverage = (worldXZ) => {
+    const fieldUv = shoreStateUv(worldXZ).toVar();
+    const border = smoothstep(vec2(0.0), vec2(0.02), fieldUv)
+      .mul(smoothstep(vec2(0.98), vec2(1.0), fieldUv).oneMinus());
+    return border.x.mul(border.y).mul(u.uUseShoreState).toVar();
+  };
+
+  return { shoreStateCoverage, shoreStateSample, shoreStateUv };
 }

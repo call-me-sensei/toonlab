@@ -240,9 +240,9 @@ const GROUP_DEFINITIONS = Object.freeze({
     label: 'Grass',
     fields: Object.freeze({
       styleColorStrength: field({ defaultValue: 0, description: 'Blend from asset-authored blade color to the style-owned root and tip treatment.', label: 'Style Color Strength', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
-      baseColor: field({ defaultValue: [0.172518, 0.317708, 0.052621], description: 'Style-owned grass-root color. Call Me Sensei uses the accepted P18 MI_Grass Base Color.', label: 'Root Color', type: 'color', roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
+      baseColor: field({ defaultValue: [0.16, 0.34, 0.08], description: 'Style-owned anime grass-root color.', label: 'Root Color', type: 'color', roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
       tipBrightness: field({ defaultValue: 0.1, description: 'Brightness added to root color before the blade-tip saturation and hue treatment.', label: 'Tip Brightness', range: { max: 1, min: -1, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
-      tipDesaturation: field({ defaultValue: -0.5, description: 'Tip desaturation. Negative values increase saturation, matching the accepted P18 graph convention.', label: 'Tip Desaturation', range: { max: 1, min: -1, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
+      tipDesaturation: field({ defaultValue: -0.35, description: 'Tip desaturation. Negative values increase saturation for a graphic anime gradient.', label: 'Tip Desaturation', range: { max: 1, min: -1, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
       tipHueShift: field({ defaultValue: -0.06, description: 'Normalized HSV hue rotation applied to blade tips.', label: 'Tip Hue Shift', range: { max: 1, min: -1, step: 0.005 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
       roughness: field({ defaultValue: 0.5, description: 'Grass surface roughness used by the stylized highlight response.', label: 'Roughness', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
       specularStrength: field({ defaultValue: 0.04, description: 'Grass direct-light highlight strength.', label: 'Specular', range: { max: 1, min: 0, step: 0.01 }, roles: [VEGETATION_MATERIAL_ROLES.grassBlade] }),
@@ -950,7 +950,7 @@ registerVegetationShaderPreset('default', {
   label: 'Default',
 });
 registerVegetationShaderPreset('call_me_sensei', {
-  description: 'Studio-managed signature vegetation treatment, initialized from the accepted P18 tree, grass, and daisy material inputs.',
+  description: 'Studio-managed anime vegetation treatment coordinated across trees, grass, and flowers.',
   label: 'Call Me Sensei',
   settings: {
     bark: {
@@ -998,19 +998,21 @@ registerVegetationShaderPreset('call_me_sensei', {
       subsurfaceStrength: 0.48,
     },
     grass: {
-      backlitStrength: 0.52,
-      baseColor: [0.172518, 0.317708, 0.052621],
-      cloudShadowResponse: 0.62,
-      emissiveStrength: 0,
-      rootOcclusionStrength: 0.27,
+      backlitStrength: 0.76,
+      baseColor: [0.28, 0.52, 0.14],
+      bendExponent: 1.3,
+      cloudShadowResponse: 0.28,
+      colorVariationStrength: 0.08,
+      emissiveStrength: 0.16,
+      rootOcclusionStrength: 0,
       roughness: 0.5,
-      sceneShadowResponse: 0.56,
-      shadowFloor: 0.52,
+      sceneShadowResponse: 0.12,
+      shadowFloor: 0.92,
       specularStrength: 0.04,
       styleColorStrength: 1,
-      tipBrightness: 0.1,
-      tipDesaturation: -0.5,
-      tipHueShift: -0.06,
+      tipBrightness: 0.25,
+      tipDesaturation: 0,
+      tipHueShift: 0,
     },
     lighting: {
       rimStrength: 0.16,

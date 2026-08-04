@@ -1,0 +1,248 @@
+{
+  "schema": "treeRecipe",
+  "version": 3,
+  "type": "tree",
+  "options": {
+    "seed": 7,
+    "geometrySeed": 7,
+    "age": 0.65,
+    "heightScale": 1,
+    "woodyBaseline": {
+      "schemaVersion": 1,
+      "speciesProfileVersion": 1,
+      "inheritedControls": {
+        "form.seed": 4996,
+        "form.curvePreviewOnly": false,
+        "trunk.tipProfile": "linear",
+        "dimensions.height": 12.6283,
+        "dimensions.baseRadius": 0.4202,
+        "trunk.surfaceSmoothness": 0,
+        "trunk.leaderCount": 1,
+        "trunk.helicalSpan": 0.0976,
+        "trunk.helicalTurns": 0.5442,
+        "axisNoise.scale": 0.3818,
+        "axisNoise.roughness": 0.0394,
+        "axisNoise.strength": 1.1134,
+        "axisNoise.trunkWeight": 0.0905,
+        "axisNoise.branchWeight": 2.1829,
+        "branching.crownProfile": "soft-linear",
+        "branching.orderCount": 3,
+        "branching.evenDistribution": false,
+        "branching.seed": 54883,
+        "branching.orderWidthDecay": 0.8656,
+        "branching.width": 0.8441,
+        "branching.length": 7.3244,
+        "branching.childLengthBoost": 0.42,
+        "branching.density": 7.2,
+        "branching.densityExponent": 1,
+        "branching.spawnStart": 50.76,
+        "branching.spawnEnd": 18,
+        "branching.verticalAngle": 0.7866,
+        "branching.lateralAngle": 2.3998,
+        "branching.angleJitter": 19.707,
+        "branching.uniformTips": false,
+        "branching.tipAngle": 0.304,
+        "foliage.seed": 34823,
+        "foliage.density": 5.3698,
+        "foliage.weldDistance": 0.0435,
+        "foliage.cullInterior": false,
+        "foliage.interiorThreshold": 0,
+        "foliage.cullExterior": false,
+        "foliage.exteriorThreshold": 0,
+        "foliage.dispersion": 0.19,
+        "foliage.firstBranchOrder": 0,
+        "foliage.geometryVariant": "single",
+        "foliage.preserveCustomMaterials": false,
+        "foliage.centerOnBranches": true,
+        "foliage.subdivisions": 1,
+        "foliage.rotationJitter": 0.1191,
+        "foliage.rotationOffset": 0,
+        "foliage.scale": 0.9788,
+        "foliage.deformation": 0.9,
+        "foliage.scaleJitter": 0.9863,
+        "foliage.heightScaleBias": 0.2462,
+        "foliage.width": 1,
+        "reproductive.distribution": "clustered",
+        "reproductive.density": 0,
+        "reproductive.useCustomGeometry": false,
+        "reproductive.scale": 0.1,
+        "reproductive.coreForm": "pistil",
+        "reproductive.coreRadius": 0.45,
+        "reproductive.coreWidth": 0.8,
+        "reproductive.petalForm": "outward",
+        "reproductive.petalScale": 1,
+        "reproductive.petalCount": 7,
+        "reproductive.petalInclination": 0,
+        "reproductive.petalLateralInclination": 0,
+        "reproductive.petalBelly": 0.55,
+        "reproductive.petalWidth": 1.77,
+        "reproductive.petalEdge": -0.4,
+        "reproductive.extraPetalLayers": 2,
+        "reproductive.extraPetalAngle": -14.9,
+        "reproductive.stamenCount": 18,
+        "reproductive.stamenLength": 0.8,
+        "reproductive.petalResolution": 8,
+        "reproductive.coreResolution": 8,
+        "reproductive.stamenResolution": 8,
+        "output.realizeInstances": true,
+        "roots.scale": 0.44121000000000005,
+        "roots.shape": 0,
+        "roots.complexity": 1.15,
+        "roots.verticalComplexity": 0,
+        "motion.enabled": false,
+        "motion.seamless": true,
+        "motion.loopFrames": 120,
+        "motion.useDirectionObject": false,
+        "motion.speed": 1,
+        "motion.strength": 0.25,
+        "motion.heading": 0,
+        "shedding.enabled": false,
+        "shedding.scale": 1,
+        "shedding.geometryVariant": "single",
+        "shedding.preserveCustomMaterials": false,
+        "shedding.burstCount": 12,
+        "shedding.burstInterval": 8,
+        "shedding.fallSpeed": 1,
+        "shedding.windInfluence": 0.5,
+        "shedding.fade": true,
+        "shedding.lifetime": 120,
+        "appearance.barkColor": [
+          0.2,
+          0.105,
+          0.045
+        ],
+        "appearance.mossEnabled": false,
+        "appearance.mossColor": [
+          0.18,
+          0.32,
+          0.12
+        ],
+        "appearance.mossScale": 1,
+        "appearance.leafTextureDensity": 1,
+        "appearance.leafColorA": [
+          0.2822,
+          0.5831,
+          0.3043
+        ],
+        "appearance.leafColorB": [
+          0.2032,
+          0.4198,
+          0.2191
+        ],
+        "appearance.leafGradientEnabled": true,
+        "appearance.leafGradientMode": "position",
+        "appearance.leafTranslucency": 0.24,
+        "appearance.leafEmission": 0,
+        "appearance.flowerColorA": [
+          0.86,
+          0.52,
+          0.62
+        ],
+        "appearance.flowerColorB": [
+          0.98,
+          0.78,
+          0.82
+        ],
+        "appearance.flowerCoreColor": [
+          0.92,
+          0.68,
+          0.12
+        ],
+        "appearance.flowerStamenColor": [
+          0.96,
+          0.82,
+          0.28
+        ],
+        "appearance.outlineEnabled": false,
+        "appearance.outlineWidth": 0.015,
+        "appearance.outlineColor": [
+          0.04,
+          0.035,
+          0.03
+        ],
+        "mapping.trunkTileScale": 1.5785,
+        "mapping.trunkStretch": 1,
+        "mapping.branchTileScale": 1.0897,
+        "mapping.branchStretch": 1,
+        "mapping.leafTileScale": 1.3793,
+        "mapping.debugChecker": false,
+        "resolution.trunkPathSteps": 36,
+        "resolution.trunkRadialSegments": 12,
+        "resolution.branchRadialSegments": 6,
+        "resolution.branchPathSteps": 16
+      },
+      "ageProfile": {
+        "juvenile": {
+          "height": 0.26,
+          "width": 0.3,
+          "orderDelta": -2,
+          "branching": 0.27,
+          "roots": 0.3,
+          "bend": 0.52
+        },
+        "young": {
+          "height": 0.56,
+          "width": 0.62,
+          "orderDelta": -1,
+          "branching": 0.58,
+          "roots": 0.62,
+          "bend": 0.74
+        },
+        "mature": {
+          "height": 1,
+          "width": 1,
+          "orderDelta": 0,
+          "branching": 1,
+          "roots": 1,
+          "bend": 1
+        },
+        "old": {
+          "height": 1.07,
+          "width": 1.16,
+          "orderDelta": 1,
+          "branching": 1.14,
+          "roots": 1.16,
+          "bend": 1.1
+        },
+        "ancient": {
+          "height": 1.1,
+          "width": 1.3,
+          "orderDelta": 1,
+          "branching": 1.16,
+          "roots": 1.3,
+          "bend": 1.2
+        }
+      },
+      "controls": {}
+    },
+    "speciesProfileId": "fraxinus-excelsior",
+    "lifeStage": "mature",
+    "foliageState": "leaf-on",
+    "foliage": {
+      "leafDensity": 1,
+      "leafScale": 1
+    }
+  },
+  "architecture": {
+    "id": "high-crown-excurrent",
+    "engine": "woody-axis",
+    "version": 2
+  },
+  "speciesProfileId": "fraxinus-excelsior",
+  "lifeStageSlot": "mature",
+  "rootProfile": "standard-flare",
+  "organProfiles": [
+    "broad-leaf"
+  ],
+  "taxonomy": {
+    "acceptedScientificName": "Fraxinus excelsior",
+    "aliases": [
+      "European ash"
+    ],
+    "commonName": "European ash",
+    "family": "Oleaceae",
+    "genus": "Fraxinus",
+    "powoTaxonId": "369664",
+    "backboneVersion": "2026-06-04"
+  }
+}

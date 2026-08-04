@@ -5,7 +5,7 @@
 // { unit, display, control } extensions.
 
 import {
-  ColorWell, SegmentedControl, Select, TextField, Toggle,
+  ColorWell, SearchSelect, SegmentedControl, Select, TextField, Toggle,
 } from '../components/primitives.jsx';
 import { ScrubValue, Slider } from '../components/Slider.jsx';
 import { Tooltip } from '../components/overlays.jsx';
@@ -51,12 +51,29 @@ export function SchemaField({
         value={value}
       />
     );
+  } else if (field.type === 'select' && field.control === 'search-select') {
+    control = (
+      <SearchSelect
+        disabled={disabled}
+        onChange={(next) => onChange(typeof field.defaultValue === 'number' ? Number(next) : next)}
+        options={(field.options ?? []).map((option) => ({
+          disabled: Boolean(field.optionDisabled?.[String(option)]),
+          disabledReason: field.optionDisabled?.[String(option)] ?? null,
+          label: field.optionLabels?.[String(option)] ?? String(option),
+          value: option,
+        }))}
+        testId={testId}
+        value={value}
+      />
+    );
   } else if (field.type === 'select') {
     control = (
       <Select
         disabled={disabled}
         onChange={(next) => onChange(typeof field.defaultValue === 'number' ? Number(next) : next)}
         options={(field.options ?? []).map((option) => ({
+          disabled: Boolean(field.optionDisabled?.[String(option)]),
+          disabledReason: field.optionDisabled?.[String(option)] ?? null,
           label: field.optionLabels?.[String(option)] ?? String(option),
           value: option,
         }))}
@@ -143,7 +160,7 @@ export function SchemaField({
         disabled={disabled}
         max={displayValue(field, range.max)}
         min={displayValue(field, range.min)}
-        onChange={(shown) => onChange(storedValue(field, shown))}
+        onChange={(shown, interaction) => onChange(storedValue(field, shown), interaction)}
         step={range.step * scale}
         unit={field.unit ?? null}
         value={displayValue(field, value)}

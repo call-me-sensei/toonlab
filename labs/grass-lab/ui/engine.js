@@ -1,16 +1,16 @@
-// Grass Lab engine: a ground patch of StylizedGrassField instances. The
-// preview mode chooses the planting — a single blade, a tuft, a patch, or a
-// meadow — so blade shape reads at every scale. Blade-geometry settings
-// rebuild the field (per-instance heights bake at construction); everything
-// else is an authored asset value. The preview rig supplies current light,
-// wind, cloud shadow, and interaction independently. The walk mannequin
-// doubles as the grass push target, so blades part around it.
+// Grass Lab engine: a ground patch of procedural blades or first-party grass
+// clumps. Large, wide presets preview through StylizedGrassClumpField so the
+// same reusable static-mesh/material/LOD unit used by Landscape is visible in
+// the authoring lab instead of being expanded into unrelated blade records.
+// The preview rig supplies current light, wind, cloud shadow, and interaction
+// independently. The walk mannequin doubles as the grass push target.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
 import { StylizedGrassField } from '../../../src/vegetation/stylizedGrass.js';
+import { StylizedGrassClumpField } from '../../../src/vegetation/grassClump.js';
 import { createLabRenderer, whenRendererReady } from '../../shared/rendererFactory.js';
 import {
   createWalkPreviewActions,
@@ -43,15 +43,24 @@ function mulberry32(seed) {
   };
 }
 
-function placementsForMode(mode) {
+function placementsForMode(mode, { clumpAsset = false } = {}) {
   const spec = GRASS_PREVIEW_MODES.find((entry) => entry.id === mode) ?? GRASS_PREVIEW_MODES[2];
   if (spec.id === 'blade') return [{ phase: 0.5, x: 0, y: 0, z: 0 }];
   const random = mulberry32(1337);
   const placements = [];
-  for (let index = 0; index < spec.count; index += 1) {
+  const count = clumpAsset
+    ? ({ meadow: 350, patch: 32, tuft: 1 }[spec.id] ?? 1)
+    : spec.count;
+  for (let index = 0; index < count; index += 1) {
     const angle = random() * Math.PI * 2;
     const radius = Math.sqrt(random()) * spec.radius;
-    placements.push({ x: Math.cos(angle) * radius, y: 0, z: Math.sin(angle) * radius });
+    placements.push({
+      scale: clumpAsset ? 0.9 + random() * 0.2 : 1,
+      x: Math.cos(angle) * radius,
+      y: 0,
+      yaw: clumpAsset ? random() * Math.PI * 2 : 0,
+      z: Math.sin(angle) * radius,
+    });
   }
   return placements;
 }
@@ -91,6 +100,12 @@ export function createGrassLabEngine({ mount, store }) {
   // Retired fields dispose a couple frames later — destroying buffers the
   // renderer already submitted this frame trips WebGPU validation.
   const retired = [];
+
+  function retireGrass(field) {
+    if (!field) return;
+    scene.remove(field);
+    retired.push({ field, frames: 0 });
+  }
 
   // Walkable mannequin — also the grass push target so blades part.
   let mannequin = null;
@@ -164,17 +179,20 @@ export function createGrassLabEngine({ mount, store }) {
 
   function rebuildGrass() {
     const state = store.getState();
-    if (grass) {
-      scene.remove(grass);
-      retired.push({ frames: 0, geometry: grass.geometry, material: grass.material });
-    }
-    const placements = placementsForMode(state.view.mode);
-    grass = new StylizedGrassField({ ...state.settings, placements });
+    retireGrass(grass);
+    const clumpAsset = state.settings.bladesPerClump >= 12
+      && state.settings.clumpRadius >= 0.2;
+    const placements = placementsForMode(state.view.mode, { clumpAsset });
+    grass = clumpAsset
+      ? new StylizedGrassClumpField({ ...state.settings, groundField: false, placements })
+      : new StylizedGrassField({ ...state.settings, groundField: false, placements });
     if (mannequin) grass.setPushTarget?.(mannequin);
     scene.add(grass);
     applySceneLightToGrass();
     applySceneStateToGrass();
-    store.actions.adoptEngineState({ bladeCount: grass.geometry.instanceCount });
+    store.actions.adoptEngineState({
+      bladeCount: grass.bladeCount ?? grass.geometry.instanceCount,
+    });
     document.body.dataset.modelReady = 'true';
   }
 
@@ -223,7 +241,7 @@ export function createGrassLabEngine({ mount, store }) {
     timer.update(timestamp);
     const delta = Math.min(timer.getDelta(), 0.05);
     if (store.getState().view.walkPreview) mixer?.update(delta);
-    grass?.update?.(delta);
+    grass?.update?.(delta, camera);
     for (const callback of frameCallbacks) callback(delta);
     controls.update();
     renderer.render(scene, camera);
@@ -231,8 +249,7 @@ export function createGrassLabEngine({ mount, store }) {
       const entry = retired[index];
       entry.frames += 1;
       if (entry.frames > 3) {
-        entry.geometry?.dispose?.();
-        entry.material?.dispose?.();
+        entry.field.dispose?.();
         retired.splice(index, 1);
       }
     }
@@ -251,6 +268,9 @@ export function createGrassLabEngine({ mount, store }) {
       disposed = true;
       window.removeEventListener('resize', handleResize);
       timer.dispose();
+      grass?.dispose?.();
+      for (const entry of retired) entry.field.dispose?.();
+      retired.length = 0;
       renderer.dispose?.();
     },
     resetCamera,

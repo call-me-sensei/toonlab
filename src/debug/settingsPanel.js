@@ -43,6 +43,9 @@ function createFieldControl(field, options) {
       const element = document.createElement('option');
       element.value = String(option);
       element.textContent = field.optionLabels?.[String(option)] ?? String(option);
+      const disabledReason = field.optionDisabled?.[String(option)];
+      element.disabled = Boolean(disabledReason);
+      if (typeof disabledReason === 'string') element.title = disabledReason;
       control.append(element);
     }
   } else if (field.type === 'color') {

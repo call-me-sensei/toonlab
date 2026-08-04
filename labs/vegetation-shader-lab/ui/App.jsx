@@ -38,10 +38,12 @@ import {
 } from '../../../src/vegetation/vegetationShaders.js';
 import {
   isP18VegetationFieldSupported,
+} from '../../../src/vegetation/p18VegetationShaderMaterial.js';
+import {
   isRetainedGrassShaderV2FieldSupported,
   RETAINED_GRASS_SHADER_V2_FALLBACK_ID,
   RETAINED_GRASS_SHADER_V2_ID,
-} from '../../../src/vegetation/index.js';
+} from '../../../src/vegetation/retainedGrassShaderV2.js';
 import {
   getFlowerShaderPreviewAssets,
   getTreeShaderPreviewAssets,

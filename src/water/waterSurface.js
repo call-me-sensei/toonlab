@@ -20,6 +20,7 @@ import { WaterScenePasses } from './waterScenePasses.js';
 import { WaterShoreStateField } from './waterShoreStateField.js';
 import { updateWaterShoreMaterial } from './waterShoreMaterial.js';
 import { WaterSplashSystem } from './waterSplashSystem.js';
+import { WaterUnderwaterAtmosphere } from './waterUnderwaterAtmosphere.js';
 import {
   WATER_SCENE_OVERRIDE_KEYS,
   WATER_SCENE_OVERRIDE_PRIORITIES,
@@ -95,6 +96,7 @@ export class WaterSurface extends THREE.Mesh {
     currentField = null,
     nearshorePhase = false,
     shoreState = false,
+    underwaterAtmosphere = true,
     follow = null,
     bedHeight = null,
     ...settingsOptions
@@ -129,6 +131,11 @@ export class WaterSurface extends THREE.Mesh {
     this.frustumCulled = false;
     // Scene shadows from rocks, trees, and the character darken the surface.
     this.receiveShadow = true;
+    // Default scene adapter: restore the host's air scene for transmission /
+    // reflection captures, then apply Water Lab's proven body-color fog and
+    // background when the main camera is below this finite water surface.
+    this.underwaterAtmosphere = new WaterUnderwaterAtmosphere(underwaterAtmosphere);
+    this.underwaterAtmosphereState = this.underwaterAtmosphere.state;
 
     // Optional terrain sampler (x, z) => world-space bed height. Enables
     // shoaling: waves flatten in shallow water instead of clipping through
@@ -1136,6 +1143,9 @@ export class WaterSurface extends THREE.Mesh {
 
   // Call once per frame before rendering the scene.
   update(renderer, scene, camera, delta) {
+    // A preceding frame's underwater atmosphere must never leak into the
+    // refraction/reflection inputs rendered during this update.
+    this.underwaterAtmosphere.beginFrame(scene);
     const clampedDelta = Math.min(Math.max(delta ?? 0.016, 0), 0.1);
     this.time += clampedDelta;
 
@@ -1226,14 +1236,21 @@ export class WaterSurface extends THREE.Mesh {
     // setDistanceFog adds the environment-matching exponential layer).
     if (scene?.fog?.isFog) {
       uniforms.uSceneFogColor.value.copy(scene.fog.color);
+      uniforms.uSceneFogDensity.value = 0;
       uniforms.uSceneFogNear.value = scene.fog.near;
       uniforms.uSceneFogFar.value = scene.fog.far;
+    } else if (scene?.fog?.isFogExp2) {
+      uniforms.uSceneFogColor.value.copy(scene.fog.color);
+      uniforms.uSceneFogDensity.value = scene.fog.density;
+      uniforms.uSceneFogFar.value = 0;
     } else {
+      uniforms.uSceneFogDensity.value = 0;
       uniforms.uSceneFogFar.value = 0;
     }
     updateWaterMaterialCamera(this.material, renderer, camera);
     this.getWorldPosition(worldPositionScratch);
-    const cameraBelow = camera.getWorldPosition(followScratch).y < worldPositionScratch.y;
+    const cameraPosition = camera.getWorldPosition(followScratch);
+    const cameraBelow = cameraPosition.y < worldPositionScratch.y;
     uniforms.uCameraBelow.value = cameraBelow ? 1 : 0;
     const renderedSettings = this.renderedSettings ?? this.settings;
     updateProjectedWaterCaustics({
@@ -1268,6 +1285,18 @@ export class WaterSurface extends THREE.Mesh {
       this.passes.render(renderer, scene, camera, this);
       this.passes.bindToMaterial(this.material);
     }
+    this.underwaterAtmosphereState = this.underwaterAtmosphere.update(scene, {
+      camera,
+      cameraX: cameraPosition.x,
+      cameraY: cameraPosition.y,
+      cameraZ: cameraPosition.z,
+      waterX: worldPositionScratch.x,
+      waterY: worldPositionScratch.y,
+      waterZ: worldPositionScratch.z,
+      width: this.width,
+      depth: this.depth,
+      settings: renderedSettings,
+    });
     return this;
   }
 
@@ -1281,5 +1310,6 @@ export class WaterSurface extends THREE.Mesh {
     this.splashSystem?.dispose();
     this.breakers?.dispose();
     this.passes?.dispose();
+    this.underwaterAtmosphere.dispose();
   }
 }

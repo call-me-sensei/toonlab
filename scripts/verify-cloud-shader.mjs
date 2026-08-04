@@ -29,6 +29,14 @@ const rendererSource = await readFile(
   new URL('../labs/shared/p18/referenceSky.js', import.meta.url),
   'utf8',
 );
+const cardRendererSource = await readFile(
+  new URL('../src/cloud/cloudCard.js', import.meta.url),
+  'utf8',
+);
+const volumeRendererSource = await readFile(
+  new URL('../src/cloud/cloudVolume.js', import.meta.url),
+  'utf8',
+);
 const appSource = await readFile(
   new URL('../labs/cloud-shader-lab/ui/App.jsx', import.meta.url),
   'utf8',
@@ -56,7 +64,7 @@ const docs = await readFile(
 
 assert.equal(DEFAULT_CLOUD_SHADER_PRESET, 'call_me_sensei');
 assert.equal(CLOUD_SHADER_DOCUMENT_TYPE, 'toonlab/cloud-shader-preset');
-assert.equal(CLOUD_SHADER_FIELD_COUNT, 16);
+assert.equal(CLOUD_SHADER_FIELD_COUNT, 31);
 assert.deepEqual(
   CLOUD_SHADER_SETTING_GROUPS.map((group) => group.id),
   ['composition', 'shape', 'lighting', 'motion'],
@@ -69,22 +77,39 @@ assert.equal(
 );
 
 const settings = createCloudShaderSettings();
-assert.equal(settings.backgroundCloudStrength, 0.30000001192092896);
-assert.equal(settings.cloudShellStrength, 2);
-assert.equal(settings.cloudShellVerticalOffset, -0.07199999690055847);
-assert.equal(settings.cloudShellVerticalStretch, 0.42399999499320984);
+assert.equal(settings.backgroundCloudStrength, 0.34);
+assert.equal(settings.cloudShellStrength, 1.85);
+assert.equal(settings.cloudShellVerticalOffset, -0.06);
+assert.equal(settings.cloudShellVerticalStretch, 0.5);
 assert.equal(Object.keys(settings).length, CLOUD_SHADER_FIELD_COUNT);
 assert.equal(getCloudShaderPresetOptions()[1].id, 'call_me_sensei');
+assert.deepEqual(
+  createCloudShaderSettings({ litColor: [1.8, 1.4, 1.1] }).litColor,
+  [1.8, 1.4, 1.1],
+  'cloud colors need linear HDR headroom for tone mapping',
+);
+assert.match(cardRendererSource, /material\.fog = false/);
+assert.match(volumeRendererSource, /material\.fog = false/);
 
 for (const field of Object.values(CLOUD_SHADER_FIELD_SCHEMA)
   .flatMap((group) => Object.values(group))) {
-  assert.match(rendererSource, new RegExp(`const ${field.key} = uniform`));
-  assert.match(
-    rendererSource,
-    field.type === 'color'
-      ? new RegExp(`${field.key}\\.value\\.fromArray\\(settings\\.${field.key}\\)`)
-      : new RegExp(`${field.key}\\.value = settings\\.${field.key}`),
-  );
+  const generatedCardField = [
+    'opacity', 'worldShadowStrength', 'worldShadowSoftness', 'edgeSoftness',
+    'erosion', 'litColor', 'shadeColor', 'shadowStrength', 'normalStrength',
+    'depthStrength', 'translucencyStrength', 'rimColor', 'rimStrength',
+    'rimPower', 'windResponse',
+  ].includes(field.key);
+  if (generatedCardField) {
+    assert.match(cardRendererSource, new RegExp(field.key));
+  } else {
+    assert.match(rendererSource, new RegExp(`const ${field.key} = uniform`));
+    assert.match(
+      rendererSource,
+      field.type === 'color'
+        ? new RegExp(`${field.key}\\.value\\.fromArray\\(settings\\.${field.key}\\)`)
+        : new RegExp(`${field.key}\\.value = settings\\.${field.key}`),
+    );
+  }
   assert.equal(field.serializable, true);
 }
 
@@ -102,6 +127,7 @@ assert.deepEqual(document.settings.cloudShellTint, [0.6, 0.8, 1]);
 const parsed = parseCloudShaderPresetDocument(serializeCloudShaderPreset(document));
 assert.equal(parsed.ok, true, parsed.errors.join(' '));
 assert.deepEqual(parsed.value, document);
+assert.equal(document.version, 2);
 
 const unknown = parseCloudShaderPresetDocument({
   ...document,

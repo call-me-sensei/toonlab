@@ -8,9 +8,13 @@ import {
 import { resolveEnvironmentPreset } from './environment/environmentPresets.js';
 import { createEnvironmentSunRig } from './environment/environmentRigs.js';
 import { createEnvironmentSunShadowPass } from './environment/environmentSunShadowPass.js';
+import { createEnvironmentGroundFieldPass } from './environment/environmentGroundFieldPass.js';
 import { WaterSurface } from './water/waterSurface.js';
 import { StylizedSky } from './sky/stylizedSky.js';
-import { StylizedGrassField } from './vegetation/stylizedGrass.js';
+import { AtmosphereSky } from './sky/atmosphereSky.js';
+import { createCloudField } from './cloud/cloudCard.js';
+import { StylizedGrassClumpField } from './vegetation/grassClump.js';
+import { createCallMeSenseiGrassField } from './vegetation/callMeSenseiGrass.js';
 import { StylizedFlowerField } from './vegetation/stylizedFlowers.js';
 import { StylizedForest } from './vegetation/stylizedForest.js';
 import { StylizedUnderstory, scatterUnderstory } from './vegetation/stylizedUnderstory.js';
@@ -149,6 +153,9 @@ function collectRockContactPlacements(root, heightAt) {
  *   window + interactor splashes/wakes, grass push-away.
  * @param {Object|false} [options.cloudShadows] `{ strength, coverage, scale,
  *   velocity }` legacy override merged into the weather cloud field.
+ * @param {Object} [options.documents] Separate durable `{ sky, cloudSource,
+ *   cloudSources, cloudShader, cloudComposition }` documents. These are
+ *   referenced runtime inputs and are never embedded into the world preset.
  * @param {Object|false} [options.weather] `{ preset, settings, seed }` builds
  *   the shared weather coordinator. `false` keeps the legacy static cloud
  *   shadow path. Defaults to the world preset's Call Me Sensei weather.
@@ -189,11 +196,20 @@ export async function createStylizedWorld({
   sun = true,
   applyCamera = true,
   environment = {},
+  groundField = {},
+  documents = {},
 } = {}) {
   if (!renderer || !scene) throw new Error('createStylizedWorld needs { renderer, scene }.');
   const terrainRoot = terrain?.root ?? null;
   if (!terrainRoot) throw new Error('createStylizedWorld needs terrain.root (the Object3D to shade).');
   const heightAt = typeof terrain?.heightAt === 'function' ? terrain.heightAt : null;
+  // A direct mesh is unambiguously the supplied terrain. Group-based hosts
+  // can tag writers themselves or pass terrain.groundWriters explicitly;
+  // ToonLab terrain and path builders already carry the tag.
+  if (terrainRoot.isMesh) terrainRoot.userData.groundFieldWrite = true;
+  for (const writer of terrain?.groundWriters ?? []) {
+    if (writer?.isMesh) writer.userData.groundFieldWrite = true;
+  }
 
   const worldPreset = resolveWorldPreset(preset);
   if (!worldPreset) throw new Error(`Unknown world preset "${preset}".`);
@@ -512,21 +528,65 @@ export async function createStylizedWorld({
     flowerField?.setSun?.(current);
     forest?.setSun?.(current);
     ambientFx?.setSun?.({ direction: current.direction });
+    cloudField?.setSunDirection?.(current.direction);
     return current;
   };
   const setSunDirection = (value) => setSun({ direction: value }).direction;
 
   // Sky dome — the water's reflection fallback, so it comes before water.
-  const sky = new StylizedSky({
-    preset: cleanObject(skyOptions).style
-      ?? cleanObject(skyOptions).preset
+  // Passing a v2 Sky Shader document opts into the Three.js Preetham base;
+  // historical world presets retain StylizedSky byte-for-byte.
+  const runtimeDocuments = cleanObject(documents);
+  const skyOptionRecord = cleanObject(skyOptions);
+  const skyDocument = cleanObject(runtimeDocuments.sky ?? skyOptionRecord.document);
+  const usesAtmosphereDocument = skyDocument.type === 'toonlab/sky-shader-preset'
+    || skyOptionRecord.atmosphere
+    || skyOptionRecord.timeKeyframes;
+  const sky = usesAtmosphereDocument
+    ? new AtmosphereSky({
+      atmosphere: skyDocument.atmosphere ?? skyOptionRecord.atmosphere,
+      hour: skyOptionRecord.hour ?? 13,
+      radius: skyOptionRecord.radius ?? 10_000,
+      settings: skyDocument.settings ?? skyOptionRecord.settings,
+      timeKeyframes: skyDocument.timeKeyframes ?? skyOptionRecord.timeKeyframes,
+    })
+    : new StylizedSky({
+    preset: skyOptionRecord.style
+      ?? skyOptionRecord.preset
       ?? worldPreset.sky?.style
       ?? worldPreset.sky?.preset,
-    scenario: cleanObject(skyOptions).scenario ?? worldPreset.sky?.scenario,
+    scenario: skyOptionRecord.scenario ?? worldPreset.sky?.scenario,
     ...cleanObject(worldPreset.sky?.settings),
-    ...cleanObject(cleanObject(skyOptions).settings),
+    ...cleanObject(skyOptionRecord.settings),
   });
   scene.add(sky);
+  let cloudField = null;
+  const cloudSources = runtimeDocuments.cloudSources
+    ?? (runtimeDocuments.cloudSource ? [runtimeDocuments.cloudSource] : null)
+    ?? skyOptionRecord.cloudSources;
+  const cloudComposition = runtimeDocuments.cloudComposition
+    ?? skyOptionRecord.cloudComposition;
+  if (cloudSources && cloudComposition) {
+    cloudField = createCloudField({
+      composition: cloudComposition,
+      mapResolution: skyOptionRecord.cloudMapResolution ?? 256,
+      shader: runtimeDocuments.cloudShader ?? skyOptionRecord.cloudShader,
+      sources: cloudSources,
+      sunDirection: sunDirectionState.toArray(),
+    });
+    scene.add(cloudField);
+    sky.setSceneOverrideLayer?.('cloudField', { cloudOpacity: 0 }, { priority: 80 });
+  }
+  if (usesAtmosphereDocument) {
+    const initialTime = sky.setTime(skyOptionRecord.hour ?? 13);
+    sunDirectionState.fromArray(initialTime.sunDirection).normalize();
+    sunRig?.setDirection?.(sunDirectionState);
+    if (sunShadowOffset) {
+      sunShadowOffset.copy(sunDirectionState).multiplyScalar(shadowArea * 3 + 120);
+      followSunShadow();
+    }
+    cloudField?.setSunDirection(initialTime.sunDirection);
+  }
 
   // Water with the terrain as its bed: waves shoal and break on real shores.
   const waterLevel = Number(cleanObject(water).level) || 0;
@@ -731,7 +791,7 @@ export async function createStylizedWorld({
   let grassField = null;
   let weatherSystem = null;
   const grassState = { center: null, options: cleanObject(grass), radius: 0 };
-  const buildGrassAt = (center) => {
+  const buildGrassAt = async (center) => {
     const grassOptions = grassState.options;
     const scatterSpec = {
       ...cleanObject(worldPreset.grass?.scatter),
@@ -745,39 +805,61 @@ export async function createStylizedWorld({
       mask: withWorldMask(grassOptions.mask),
     });
     if (placements.length === 0) return null;
-    const field = new StylizedGrassField({
-      preset: worldPreset.grass?.preset,
-      ...cleanObject(worldPreset.grass?.settings),
-      ...cleanObject(grassOptions.settings),
-      vegetationShader: vegetationShaderSettingsByFamily.grass,
-      placements,
-    });
-    field.setDistanceFade({ end: grassState.radius * 0.98, start: grassState.radius * 0.62 });
+    const authoredGrass = grassOptions.mode !== 'procedural'
+      && worldPreset.grass?.mode !== 'procedural';
+    const field = authoredGrass
+      ? await createCallMeSenseiGrassField({
+          ...cleanObject(worldPreset.grass?.settings),
+          ...cleanObject(grassOptions.settings),
+          placements,
+          variant: grassOptions.variant ?? worldPreset.grass?.variant ?? 'primary',
+        })
+      : new StylizedGrassClumpField({
+          preset: worldPreset.grass?.preset,
+          ...cleanObject(worldPreset.grass?.settings),
+          ...cleanObject(grassOptions.settings),
+          vegetationShader: vegetationShaderSettingsByFamily.grass,
+          placements,
+        });
+    field.setDistanceFade?.({ end: grassState.radius * 0.98, start: grassState.radius * 0.62 });
     // 300k blades re-rendered into the water reflection, refraction grab,
     // and depth passes is pure cost — grass sits above the waterline, so
     // its contribution to all three is invisible at gameplay angles.
     // (waterExclude hides from every water scene pass.)
     field.userData.waterExclude = true;
     scene.add(field);
-    if (followTarget) field.setPushTarget(followTarget);
+    if (followTarget) field.setPushTarget?.(followTarget);
     grassState.center = { x: Number(center.x) || 0, z: Number(center.z) || 0 };
     return field;
   };
   if (grass !== false) {
-    grassField = buildGrassAt(cleanObject(grass).center ?? defaultCenter);
+    grassField = await buildGrassAt(cleanObject(grass).center ?? defaultCenter);
   }
+  let grassBuildPromise = null;
   const refreshGrassWindow = () => {
-    if (grass === false || !followTarget || !grassState.center) return;
+    if (grass === false || !followTarget || !grassState.center || grassBuildPromise) return;
     const dx = followTarget.position.x - grassState.center.x;
     const dz = followTarget.position.z - grassState.center.z;
     if (dx * dx + dz * dz < (grassState.radius * 0.5) ** 2) return;
-    const previous = grassField;
-    grassField = buildGrassAt(followTarget.position) ?? previous;
-    if (previous && grassField !== previous) {
-      scene.remove(previous);
-      previous.dispose();
-      weatherSystem?.refresh();
-    }
+    const nextCenter = followTarget.position.clone();
+    grassBuildPromise = buildGrassAt(nextCenter)
+      .then((next) => {
+        if (!next || disposed) {
+          if (next?.parent) next.parent.remove(next);
+          next?.dispose();
+          return;
+        }
+        const previous = grassField;
+        grassField = next;
+        if (previous && grassField !== previous) {
+          scene.remove(previous);
+          previous.dispose();
+          weatherSystem?.refresh();
+        }
+      })
+      .finally(() => {
+        grassBuildPromise = null;
+      });
   };
 
   let flowerField = null;
@@ -889,12 +971,21 @@ export async function createStylizedWorld({
 
   // One cloud-shadow field across terrain shader, water, grass, and canopies.
   const applyCloudShadow = (field) => {
-    setEnvironmentCloudShadow(field);
-    waterSurface?.setCloudShadow(field);
-    grassField?.setCloudShadow(field);
-    flowerField?.setCloudShadow(field);
-    forest?.setCloudShadow(field);
-    faunaSystem?.setCloudShadow?.(field);
+    const authored = cloudField?.getWorldShadowField?.();
+    const resolvedField = authored ? {
+      ...field,
+      coverage: authored.coverage,
+      scale: authored.scale,
+      softness: authored.softness,
+      strength: authored.strength * (Number.isFinite(field?.strength) ? field.strength : 1),
+      velocity: authored.velocity,
+    } : field;
+    setEnvironmentCloudShadow(resolvedField);
+    waterSurface?.setCloudShadow(resolvedField);
+    grassField?.setCloudShadow(resolvedField);
+    flowerField?.setCloudShadow(resolvedField);
+    forest?.setCloudShadow(resolvedField);
+    faunaSystem?.setCloudShadow?.(resolvedField);
   };
   if (weather === false) {
     if (cloudShadows !== false) applyCloudShadow(
@@ -953,6 +1044,14 @@ export async function createStylizedWorld({
     });
   }
 
+  const groundFieldPass = groundField === false
+    ? null
+    : createEnvironmentGroundFieldPass({
+      renderer,
+      resolution: finiteOr(cleanObject(groundField).resolution, 2048),
+      scene,
+    });
+
   let disposed = false;
   return {
     classification,
@@ -960,6 +1059,7 @@ export async function createStylizedWorld({
     dispose() {
       if (disposed) return;
       disposed = true;
+      groundFieldPass?.dispose();
       sunShadowPass?.dispose();
       forest?.dispose();
       understoryLayer?.dispose();
@@ -969,7 +1069,9 @@ export async function createStylizedWorld({
       faunaSystem?.dispose();
       ambientFx?.dispose();
       weatherSystem?.dispose();
-      for (const object of [sky, waterSurface, forest, understoryLayer, contactShadowField, grassField, flowerField,
+      cloudField?.dispose();
+      sky?.dispose?.();
+      for (const object of [sky, cloudField, waterSurface, forest, understoryLayer, contactShadowField, grassField, flowerField,
         faunaSystem?.root, ambientFx?.root, sunRig?.group ?? sunRig]) {
         if (object?.parent) object.parent.remove(object);
       }
@@ -979,7 +1081,10 @@ export async function createStylizedWorld({
     forest,
     understory: understoryLayer,
     contactShadows: contactShadowField,
+    cloudField,
+    documents: runtimeDocuments,
     environmentRoot: terrainRoot,
+    groundField: groundFieldPass,
     get grass() { return grassField; },
     ambientFx,
     fauna: faunaSystem,
@@ -989,6 +1094,13 @@ export async function createStylizedWorld({
     setCloudShadow: applyCloudShadow,
     setSun,
     setSunDirection,
+    setTime(hour) {
+      const timeState = sky?.setTime?.(hour);
+      if (Array.isArray(timeState?.sunDirection)) {
+        setSun({ direction: timeState.sunDirection });
+      }
+      return timeState ?? null;
+    },
     setVegetationShader(profile) {
       vegetationShaderSettings = createVegetationShaderSettings(profile);
       vegetationShaderSettingsByFamily = {
@@ -1075,6 +1187,7 @@ export async function createStylizedWorld({
       // force every frame).
       shadowFrame += 1;
       if (sunShadowPass && shadowFrame % shadowInterval === 0) sunShadowPass.update();
+      groundFieldPass?.update();
       refreshGrassWindow();
       weatherSystem?.update(delta);
       for (const poi of poiList) poi.update(delta, camera);
@@ -1082,7 +1195,8 @@ export async function createStylizedWorld({
       ambientFx?.update(delta, camera);
       waterSurface?.update(renderer, scene, camera, delta);
       sky.update(delta, camera);
-      grassField?.update(delta);
+      cloudField?.update(delta, camera);
+      grassField?.update(delta, camera);
       flowerField?.update(delta);
       forest?.update(delta, camera);
       understoryLayer?.update(camera);

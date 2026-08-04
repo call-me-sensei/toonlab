@@ -373,6 +373,9 @@ export async function loadCompiledTreeAsset(manifestOrUrl, {
     })),
   ]);
   const textures = Object.fromEntries(textureEntries);
+  const materialDescriptors = Object.fromEntries(
+    (manifest.materials ?? []).map((entry) => [entry.id, entry]),
+  );
   const levels = manifest.lods.map((lod) => gltf.scene.getObjectByName(lod.node));
   if (levels.some((level) => !level)) {
     ktx2Loader?.dispose();
@@ -384,9 +387,20 @@ export async function loadCompiledTreeAsset(manifestOrUrl, {
     entries.forEach((material) => {
       const role = material.userData?.treeMaterialRole
         ?? (/bark|trunk/i.test(material.name) ? 'bark' : /single|proxy/i.test(material.name) ? 'surface' : 'leaf');
+      const descriptor = materialDescriptors[role] ?? {};
       material.userData.treeMaterialRole = role;
       material.userData.treeBaseColor = material.color.toArray();
-      if (role === 'bark' && textures.bark) material.map = textures.bark;
+      if (role === 'bark' && textures.bark) {
+        material.map = textures.bark;
+        material.map.wrapS = THREE.RepeatWrapping;
+        material.map.wrapT = THREE.RepeatWrapping;
+        if (Array.isArray(descriptor.uvRepeat) && descriptor.uvRepeat.length >= 2) {
+          material.map.repeat.set(
+            Math.max(finite(descriptor.uvRepeat[0], 1), 0.01),
+            Math.max(finite(descriptor.uvRepeat[1], 1), 0.01),
+          );
+        }
+      }
       if (role === 'surface' && textures.surface) material.map = textures.surface;
       if (role === 'leaf') {
         if (textures.leaf) material.map = textures.leaf;

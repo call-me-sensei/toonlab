@@ -1,5 +1,10 @@
 # Ambient VFX — integration snippets
 
+> **Historical repository integration record:** Ambient FX is already exported
+> as `@call-me-sensei/toonlab/ambientfx` in 0.4.10. Do not reapply the
+> package/index edits below. References to the repository world-composition
+> helper are internal wiring notes, not a stable npm API.
+
 The `src/ambientfx/` cluster is self-contained; these are the EXACT edits to
 shared files that wire it into the library. Apply verbatim.
 
@@ -127,7 +132,7 @@ Add to the `MODULES` array (after the Paths entry):
     module: '/src/ambientfx/ambientFxSettings.js',
     groups: 'AMBIENTFX_SETTING_GROUPS',
     schema: 'AMBIENTFX_SETTING_FIELD_SCHEMA',
-    note: 'Settings are nested per group: `createAmbientFx({ settings: { fireflies: { blinkSpeed: 0.8 } } })`. Effect entries in `effects` override their group; `density` there is a multiplier.',
+    note: 'Settings are nested per group: `createAmbientFx({ settings: { fireflies: { blinkSpeed: 0.8 } } })`. Effect entries in `effects` override their group; `densityScale` multiplies the authored per-m³ density (`density` remains a compatibility alias). Call `emitNow(camera)` when build-time stats or a settled first capture are required before the first update.',
   },
 ```
 

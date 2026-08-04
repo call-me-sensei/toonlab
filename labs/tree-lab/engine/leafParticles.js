@@ -7,7 +7,9 @@
 import * as THREE from 'three';
 import {
   deriveCanopyPalette, resolveCanopyColor, traceLeafShapePath,
-} from '../../../src/vegetation/index.js';
+} from '../../../src/vegetation/experimental.js';
+import { TREE_SPECIES_PROFILE_BY_ID } from '../../../src/vegetation/treeSpeciesProfiles.js';
+import { woodyBaselineInheritedControlsForSpecies } from '../../../src/vegetation/woodyBaselineControls.js';
 
 const MAX_PARTICLES = 240;
 
@@ -56,7 +58,7 @@ function leafTexture(leafShape) {
 
 const LEAF_ANIMATION_MAP = new Map(LEAF_ANIMATION_PRESETS.map((preset) => [preset.id, preset]));
 
-export class TreeDesignerLeafParticleLayer extends THREE.InstancedMesh {
+export class ToonlabLeafParticleLayer extends THREE.InstancedMesh {
   constructor({
     animation,
     canopyColor,
@@ -69,12 +71,15 @@ export class TreeDesignerLeafParticleLayer extends THREE.InstancedMesh {
     space = 'world',
   } = {}) {
     const preset = LEAF_ANIMATION_MAP.get(animation?.preset);
+    const physics = animation?.physics ?? preset?.physics ?? null;
     const intensity = animation?.intensity ?? 0.5;
-    const count = preset ? Math.max(8, Math.round(MAX_PARTICLES * intensity)) : 0;
+    const count = physics ? Math.max(8, Math.round(MAX_PARTICLES * intensity)) : 0;
     // World-space layers live directly in the scene and need the tree size
     // baked into their quads. Local-space layers are parented to the scaled
     // plant, so baking size would scale leaves twice.
-    const particleSize = (space === 'local' ? 1 : size) * 0.085;
+    const particleSize = (space === 'local' ? 1 : size)
+      * 0.085
+      * Math.max(0.05, Number(animation?.scale) || 1);
     const geometry = new THREE.PlaneGeometry(particleSize, particleSize);
     const material = new THREE.MeshBasicMaterial({
       alphaTest: 0.4,
@@ -83,11 +88,15 @@ export class TreeDesignerLeafParticleLayer extends THREE.InstancedMesh {
       transparent: true,
     });
     super(geometry, material, count);
-    this.name = 'TreeDesignerLeafParticles';
+    this.name = 'ToonlabLeafParticles';
     this.frustumCulled = false;
     this.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.groundY = groundY;
-    this.physics = preset?.physics ?? null;
+    this.physics = physics;
+    this.burstInterval = Math.max(0.05, Number(animation?.burstInterval) || 6);
+    this.fade = animation?.fade !== false;
+    // The source control expresses lifetime in animation frames.
+    this.lifetime = Math.max(0.25, (Number(animation?.lifetime) || 120) / 60);
     this.rng = rng;
     this.space = space;
     this.spawnPoints = [];
@@ -139,7 +148,10 @@ export class TreeDesignerLeafParticleLayer extends THREE.InstancedMesh {
     if (!this.spawnPoints.length) return;
     const source = this.spawnPoints[Math.floor(this.rng() * this.spawnPoints.length)];
     particle.position.copy(source);
-    particle.delay = initial ? this.rng() * 6 : this.rng() * 1.5;
+    particle.delay = initial
+      ? this.rng() * this.burstInterval
+      : this.rng() * this.burstInterval * 0.25;
+    particle.age = 0;
     particle.phase = this.rng() * Math.PI * 2;
     particle.spinAxis = new THREE.Vector3(
       this.rng() - 0.5, this.rng() - 0.5, this.rng() - 0.5).normalize();
@@ -158,6 +170,11 @@ export class TreeDesignerLeafParticleLayer extends THREE.InstancedMesh {
         this.setMatrixAt(index, this.matrixScratch);
         return;
       }
+      particle.age += dt;
+      if (particle.age >= this.lifetime) {
+        this.respawn(particle, false);
+        return;
+      }
       particle.position.y -= this.physics.fall * particle.speed * dt;
       particle.position.x += (this.physics.wind * 0.6
         + Math.sin(this.time * 1.7 + particle.phase) * this.physics.sway * 0.4) * dt;
@@ -165,6 +182,10 @@ export class TreeDesignerLeafParticleLayer extends THREE.InstancedMesh {
       if (particle.position.y <= this.groundY) this.respawn(particle, false);
       this.quaternionScratch.setFromAxisAngle(
         particle.spinAxis, this.time * this.physics.spin * particle.speed + particle.phase);
+      const fadeScale = this.fade
+        ? THREE.MathUtils.clamp(1 - particle.age / this.lifetime, 0.05, 1)
+        : 1;
+      this.scaleVector.setScalar(fadeScale);
       this.matrixScratch.compose(particle.position, this.quaternionScratch, this.scaleVector);
       this.setMatrixAt(index, this.matrixScratch);
     });
@@ -193,9 +214,34 @@ export function createLeafParticles({ engine, store }) {
   function rebuildParticles() {
     dispose();
     const { animation, leafShape, settings } = store.getState();
-    if (!animation || animation.preset === 'none') return;
-    mesh = new TreeDesignerLeafParticleLayer({
-      animation,
+    const profile = TREE_SPECIES_PROFILE_BY_ID[settings.plant.speciesProfileId];
+    const inherited = woodyBaselineInheritedControlsForSpecies(profile);
+    const effectiveBaseline = inherited ? {
+      ...inherited,
+      ...(settings.baselineControls ?? {}),
+    } : null;
+    const sheddingEnabled = Boolean(effectiveBaseline?.['shedding.enabled']);
+    const resolvedAnimation = sheddingEnabled ? {
+      burstInterval: Number(effectiveBaseline['shedding.burstInterval']) || 8,
+      fade: effectiveBaseline['shedding.fade'] !== false,
+      intensity: THREE.MathUtils.clamp(
+        (Number(effectiveBaseline['shedding.burstCount']) || 12) / MAX_PARTICLES,
+        0.04,
+        1,
+      ),
+      lifetime: Number(effectiveBaseline['shedding.lifetime']) || 120,
+      physics: {
+        fall: (Number(effectiveBaseline['shedding.fallSpeed']) || 1) * 0.55,
+        spin: 1.5,
+        sway: 0.3 + (Number(effectiveBaseline['shedding.windInfluence']) || 0) * 0.5,
+        wind: Number(effectiveBaseline['shedding.windInfluence']) || 0,
+      },
+      preset: 'baseline-shedding',
+      scale: Number(effectiveBaseline['shedding.scale']) || 1,
+    } : animation;
+    if (!resolvedAnimation || resolvedAnimation.preset === 'none') return;
+    mesh = new ToonlabLeafParticleLayer({
+      animation: resolvedAnimation,
       canopyColor:
         Array.isArray(settings.color.canopy) ? [...settings.color.canopy] : settings.color.canopy,
       leafShape,
@@ -213,7 +259,14 @@ export function createLeafParticles({ engine, store }) {
   let lastAnimation = store.getState().animation;
   store.subscribe(() => {
     const { animation, leafShape, settings } = store.getState();
-    const key = JSON.stringify([animation, leafShape, settings.color.canopy, settings.plant.size]);
+    const key = JSON.stringify([
+      animation,
+      leafShape,
+      settings.color.canopy,
+      settings.plant.size,
+      settings.plant.speciesProfileId,
+      settings.baselineControls,
+    ]);
     if (animation !== lastAnimation || key !== lastKey) {
       lastAnimation = animation;
       lastKey = key;

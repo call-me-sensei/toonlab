@@ -40,6 +40,16 @@ const ignoredDirectories = new Set([
   'node_modules',
   'public',
 ]);
+// Licensed/internal comparison fixtures and the release tests that assert
+// their exclusion are intentionally outside the public product boundary.
+// The npm tarball verifier remains the authoritative zero-leak gate.
+const ignoredInternalPaths = [
+  resolve(root, 'labs', 'rock-catalog-preview', 'material-config.generated.js'),
+  resolve(root, 'labs', 'shared', 'p18'),
+  resolve(root, 'scripts', 'build-rock-reference-profiles.mjs'),
+  resolve(root, 'scripts', 'verify-ground-shader.mjs'),
+  resolve(root, 'scripts', 'verify-package-boundary.mjs'),
+];
 const producerTerms = [
   ['so', 'stylized'].join('[\\s_-]*'),
   [...[117, 110, 105, 116, 121]].map((code) => String.fromCharCode(code)).join(''),
@@ -89,6 +99,9 @@ function inspectFile(filePath) {
 
 function inspectPath(path) {
   if (!existsSync(path)) return;
+  if (ignoredInternalPaths.some((ignoredPath) => (
+    path === ignoredPath || path.startsWith(`${ignoredPath}/`)
+  ))) return;
   if (forbidden.test(path.split('/').at(-1) ?? '')
     || retiredScaleLabelForbidden.test(path.split('/').at(-1) ?? '')) {
     violations.push(`${displayPath(path)}: retired namespace path`);

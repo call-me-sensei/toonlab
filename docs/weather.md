@@ -1,5 +1,11 @@
 # Weather system
 
+> **Experimental composed-world workflow.** The Weather API is available for
+> focused qualification, but coordinating it with Sky, Cloud, Lighting,
+> Water, vegetation, terrain, and gameplay is not currently a recommended
+> one-shot scene workflow. The host must integrate and art-direct every
+> adapter explicitly. See [What ToonLab is ready for today](capability-status.md).
+
 Weather is a separate, reusable world system rather than an environment
 shader preset. The environment cluster still owns how a surface is shaded;
 weather coordinates the temporary state that many systems must share:
@@ -15,51 +21,44 @@ Open the standalone editor at `/weather-lab/`. It exposes the complete
 schema, smooth preset transitions, a lightning test, local saves, and
 portable JSON import/export.
 
-## Composed-world usage
+## Package usage in 0.4.10
 
-`createStylizedWorld` creates the weather coordinator with separate condition
-and IP-style axes:
+ToonLab 0.4.10 does not export a full-world coordinator. Construct Weather
+directly and provide only the stable adapters your host scene uses:
 
 ```js
-const world = await createStylizedWorld({
+import { createWeatherSystem } from '@call-me-sensei/toonlab/weather';
+
+const weather = createWeatherSystem({
   renderer,
   scene,
   camera,
-  terrain: { root: terrainRoot, heightAt, size: 1000 },
-  water: { level: 0 },
   followTarget: character,
-  weather: { preset: 'partlyCloudy', seed: 42, style: 'call_me_sensei' },
+  groundHeightAt: terrain.heightAt,
+  preset: 'partlyCloudy',
+  seed: 42,
+  style: 'call_me_sensei',
+  sky,
+  sunRig,
+  water,
+  grass,
+  forest,
 });
 
-// Smoothly change the whole world, not just the particle effect.
-world.setWeather('thunderstorm', { duration: 5 });
+weather.transitionTo('thunderstorm', { duration: 5 });
 
-// Keep calling the normal composed-world update.
-world.update(delta);
-
-// Optional authored day cycle. This binds Sky, Water, the world-owned sun
-// direction, environment materials, and Weather's modulation bridge.
-const lighting = createLightingSystem({ renderer, scene, style: 'call-me-sensei' });
-lighting.attachWorld(world);
+// Before the host renders:
+weather.update(delta);
 ```
 
-The coordinator automatically adapts the world sky, sun rig, scene fog,
-ambient lights, cloud shadows, grass, flowers, trees, fauna, ambient VFX,
-and water when those systems are present. The visible weather fields follow
-the render camera; `followTarget` supplies the local ground/impact center when
-present.
+Weather adapts only the consumers passed to it. The visible fields follow the
+render camera; `followTarget` supplies the local ground/impact center. Host
+lighting remains authoritative, so connect `getSun`/`setSun` and surface
+callbacks explicitly when the scene needs those responses.
 
-Without a Lighting system, Weather writes the world sun/ambient/fog fallback
-directly. `lighting.attachWorld(world)` calls `weather.setLightingSystem()`
-automatically; from then on Lighting is the sole writer and Weather supplies
-sun tint/intensity, ambient, and fog-color modulation. Detaching Lighting hands
-the same current condition back to Weather without a visible ownership race.
-
-Pass `weather: false` for an indoor or fully host-managed scene. Indoor and
-outdoor are not separate weather implementations: a building, cave, or
-vehicle can instead decide how much outside weather reaches its visible
-surfaces and audio. Weather remains one source of truth across transitions
-between spaces.
+For an indoor or fully host-managed scene, do not construct Weather. Indoor
+and outdoor are not separate implementations: a building, cave, or vehicle
+can decide how much outside weather reaches visible surfaces and audio.
 
 ## Styles and built-in conditions
 
@@ -165,8 +164,7 @@ state is `{ direction, color, sky }`; Weather captures the getter once, applies
 temporary tint/darkening through the setter, and restores that baseline on
 teardown. `setCloudShadow` and `onSurfaceChange` are write-only adapters, so
 pass `cloudShadowBaseline` / `surfaceBaseline` when their current values are
-not otherwise inspectable. `createStylizedWorld` wires these responsibilities
-for its own systems.
+not otherwise inspectable. In 0.4.10 the host wires these responsibilities.
 
 ## Settings groups
 

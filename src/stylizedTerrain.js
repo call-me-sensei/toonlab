@@ -46,10 +46,8 @@ import { createHorizonCastle } from './worldLandmarks.js';
 //     depth: 60,                  // ← deeper basins
 //     floatingIslands: { count: 4 },
 //   });
-//   const world = await createStylizedWorld({
-//     terrain: { heightAt: terrain.heightAt, root: terrain.root, size: terrain.meshExtent },
-//     water: { level: terrain.waterLevel },
-//   });
+//   scene.add(terrain.root);
+//   const collision = createWorldCollision({ heightAt: terrain.heightAt });
 //   character.position.copy(terrain.spawn);
 
 // Morphology + paint bundles. Amplitudes are meters; band values are
@@ -620,6 +618,10 @@ export function createStylizedTerrain({
   // Displaced world-scale geometry misjudges its bounding volume — never cull.
   mesh.frustumCulled = false;
   mesh.name = 'terrain';
+  // The environment ground-field pass is ToonLab's RVT equivalent. Grass
+  // clumps sample this writer at each blade root so their lower color follows
+  // the painted terrain while their tips retain the authored palette.
+  mesh.userData.groundFieldWrite = true;
   const root = new THREE.Group();
   root.name = 'StylizedTerrain';
   root.add(mesh);

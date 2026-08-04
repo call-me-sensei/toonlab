@@ -1,33 +1,38 @@
 ---
 name: weather
-description: Help developers use ToonLab weather — 21 shared conditions rendered through an independent IP-wide style, smooth transitions, GPU-instanced rain/snow/sleet/hail/dust, lightning and thunder events, wind, and surface wetness/snow outputs.
+description: Experimentally qualify or integrate ToonLab weather in a host-authored scene, including conditions, transitions, precipitation, lightning, wind, and surface-state outputs. Use for a bounded weather test or explicit host integration, not automatic full-world composition.
 ---
 
 # Weather
 
-Use this skill when a developer wants weather: rain, snow, sleet, hail, or
-dust precipitation, smooth condition transitions, lightning flashes with
-distance-delayed thunder, wind that drives vegetation, fog/sky adaptation, or
-normalized wetness/snow/ice values for surface response.
+Use this skill for an explicit weather experiment or a bounded integration
+into a host-authored scene: rain, snow, sleet, hail, or dust precipitation;
+smooth condition transitions; lightning flashes with distance-delayed
+thunder; wind; or normalized wetness/snow/ice outputs. Do not present this
+public API as proof that ToonLab can automatically compose Sky, Cloud,
+Lighting, terrain, Water, vegetation, gameplay, and weather into a polished
+world.
 
 Public imports:
 - `@call-me-sensei/toonlab/weather`
 
 Read first:
-- `docs/weather.md`
+- `agents/references/anime-art-direction.md`
+- `agents/references/style-bundles.md`
+- `agents/references/runtime-entry-points.md`
 
 Developer guidance:
-- Inside a ToonLab composed world, do not construct weather directly — pass
-  `weather: { preset, style, seed }` to `createStylizedWorld` and call
-  `world.setWeather('thunderstorm', { duration: 5 })`; the coordinator drives
-  sky, sun, fog, vegetation, and water through their public adapters.
-- Standalone, `createWeatherSystem({ renderer, scene, camera, followTarget,
-  groundHeightAt, preset, style })` owns only precipitation and lightning;
+- ToonLab 0.4.10 has no stable full-world coordinator. Construct the weather
+  controller with `createWeatherSystem({ renderer, scene, camera, followTarget,
+  groundHeightAt, preset, style })`. It owns only precipitation and lightning;
   `preset` selects the condition and `style` selects its IP-wide rendition;
-  every
-  other target (`sky`, `sunRig`, `water`, `grass`, `forest`) is optional and
+  every other target (`sky`, `sunRig`, `water`, `grass`, `forest`) is optional and
   only adapted if provided. Do not pass non-ToonLab objects as targets unless
   they implement the same public methods (e.g. `applySettings`, `setWind`).
+- Keep the returned weather controller in the host render loop. Use its public
+  transition method for condition changes and update it before rendering.
+  Connect sky, sun, fog, vegetation, water, and surface responses explicitly;
+  do not invent a composed-world import or assume implicit coordination.
 - Precipitation is one GPU-instanced draw with trajectories computed in the
   shader; control density through the condition/intensity, never by spawning
   extra systems.

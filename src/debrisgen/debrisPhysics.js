@@ -18,13 +18,29 @@ const HULL_POINT_BUDGET = 30000;
 
 let rapierPromise = null;
 
+// Optional peer dependency. The specifier is kept out of the import call so
+// bundlers (vite/esbuild/rollup/webpack) do not try to resolve it at build
+// time — consumers who never enable physics settling must not need the
+// package installed just to bundle debrisgen.
+const RAPIER_SPECIFIER = '@dimforge/rapier3d-compat';
+
 function getRapier() {
   if (!rapierPromise) {
-    rapierPromise = import('@dimforge/rapier3d-compat').then(async (module) => {
-      const RAPIER = module.default ?? module;
-      await RAPIER.init();
-      return RAPIER;
-    });
+    rapierPromise = import(/* @vite-ignore */ /* webpackIgnore: true */ RAPIER_SPECIFIER)
+      .then(async (module) => {
+        const RAPIER = module.default ?? module;
+        await RAPIER.init();
+        return RAPIER;
+      })
+      .catch((error) => {
+        rapierPromise = null;
+        throw new Error(
+          'Debris physics settling needs the optional peer dependency '
+          + '"@dimforge/rapier3d-compat". Install it (npm install '
+          + '@dimforge/rapier3d-compat) or disable physics settling.',
+          { cause: error },
+        );
+      });
   }
   return rapierPromise;
 }

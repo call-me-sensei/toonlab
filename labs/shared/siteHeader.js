@@ -2,7 +2,10 @@ import './siteHeader.css';
 
 const NAV_ITEMS = Object.freeze([
   { id: 'labs', label: 'Labs', href: '/' },
+  { id: 'generate', label: 'Generate', href: '/generate/' },
   { id: 'gallery', label: 'Gallery', href: '/gallery/' },
+  { id: 'library', label: 'Library', href: '/library/' },
+  { id: 'styles', label: 'Styles', href: '/styles/' },
   { id: 'settings', label: 'Settings', href: '/settings/' },
   { id: 'docs', label: 'Docs', href: '/docs/' },
   {

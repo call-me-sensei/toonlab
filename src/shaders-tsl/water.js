@@ -156,6 +156,7 @@ export function createWaterNodeMaterial({
     // haze as everything else instead of cutting sharp against fogged
     // terrain. far <= near disables.
     uSceneFogColor: uniform(new THREE.Color(0.72, 0.83, 0.94)),
+    uSceneFogDensity: uniform(0),
     uSceneFogFar: uniform(0),
     uSceneFogNear: uniform(0),
     // Exponential distance fog matching the environment shader's height fog
@@ -175,6 +176,10 @@ export function createWaterNodeMaterial({
     uSceneDepth: texture(holders.depth),
     uUseSceneColor: uniform(0),
     uUseSceneDepth: uniform(0),
+    // WaterScenePasses writes a canonical forward [0 near, 1 far] float
+    // color target. When the host renderer uses reversed depth, remap that
+    // sample before Three's projection-aware depth helpers consume it.
+    uDepthTargetNeedsReverse: uniform(0),
 
     uReflectionMap: texture(holders.reflection),
     uReflectionMatrix: uniform(new THREE.Matrix4()),
@@ -769,6 +774,9 @@ export function createWaterNodeMaterial({
       const persistentShoreState = flags.shoaling
         ? shoreState.shoreStateSample(vRestWorldXZ)
         : vec4(0.0);
+      const persistentShoreCoverage = flags.shoaling
+        ? shoreState.shoreStateCoverage(vRestWorldXZ)
+        : float(0.0);
       if (flags.shoaling) {
         // The temporal shore field owns transport, decay, breakup, and
         // event-to-event variation. Keep this main material deliberately
@@ -797,7 +805,7 @@ export function createWaterNodeMaterial({
           swashFoamRaw.assign(
             max(
               storedFoam,
-              fallbackBand.mul(u.uUseShoreState.oneMinus()),
+              fallbackBand.mul(persistentShoreCoverage.oneMinus()),
             ).mul(vSwashZone),
           );
         });
@@ -894,6 +902,14 @@ export function createWaterNodeMaterial({
           0.0,
           1.0,
         );
+        litColor.assign(mix(litColor, u.uSceneFogColor, fogAmount));
+      });
+      If(u.uSceneFogDensity.greaterThan(0.0), () => {
+        const fogExponent = u.uSceneFogDensity
+          .mul(u.uSceneFogDensity)
+          .mul(viewDistance)
+          .mul(viewDistance);
+        const fogAmount = clamp(exp(fogExponent.negate()).oneMinus(), 0.0, 1.0);
         litColor.assign(mix(litColor, u.uSceneFogColor, fogAmount));
       });
 

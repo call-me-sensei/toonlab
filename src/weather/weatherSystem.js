@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 
+import { setEnvironmentState } from '../environment/environmentState.js';
 import { setEnvironmentCloudShadow } from '../environment/environmentShaderMaterials.js';
 import { environmentSharedUniformNodes } from '../shaders-tsl/environment.js';
 import {
@@ -579,6 +580,13 @@ export class WeatherSystem extends THREE.EventDispatcher {
     const atmosphere = settings.atmosphere;
     const wind = settings.wind;
     const lighting = this.lightingSystem;
+    setEnvironmentState({
+      weatherCloudFade: atmosphere.skyDarkening,
+      weatherOvercast: THREE.MathUtils.clamp((atmosphere.cloudCoverage - 0.08) / 0.92, 0, 1),
+      weatherPrecipitation: settings.precipitation.intensity,
+      weatherThunder: settings.lightning.enabled ? 1 : 0,
+      weatherWindMultiplier: wind.speed,
+    });
     for (const target of this._currentTransientTargets()) this._rememberTarget(target);
     const sky = resolveTarget(this.targets.sky);
     if (sky?.setSceneOverrideLayer) {
@@ -849,6 +857,13 @@ export class WeatherSystem extends THREE.EventDispatcher {
   dispose() {
     if (this._disposed) return;
     this._disposed = true;
+    setEnvironmentState({
+      weatherCloudFade: 0,
+      weatherOvercast: 0,
+      weatherPrecipitation: 0,
+      weatherThunder: 0,
+      weatherWindMultiplier: 1,
+    });
     this.precipitation.dispose();
     this.root.parent?.remove(this.root);
     const lighting = this.lightingSystem;

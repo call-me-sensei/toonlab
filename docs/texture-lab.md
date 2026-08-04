@@ -133,3 +133,9 @@ yourself, use `keywordTextureRecipe(prompt)` (offline) or
 Settings documents are versioned (`kind: "toonlab.textureRecipe"`,
 `version: 1`) and validated/clamped by `createTextureSettings` — unknown
 keys are ignored, colors accept hex strings or `[r, g, b]` triplets.
+
+The generated color ramp is authored in display space. When a consuming
+material multiplies it by an HDR tint above `1.0`, upper stops can clip together
+and erase cel banding or vertex shading after tone mapping. Keep the material
+tint at or below `1.0` when the ramp must remain legible, or author the desired
+headroom into the ramp and verify under the application's actual tone mapper.

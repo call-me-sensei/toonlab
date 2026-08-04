@@ -154,7 +154,7 @@ const textureLoader = new THREE.TextureLoader();
 const barkTextureCache = new Map();
 
 function configureBarkTexture(texture, id) {
-  texture.name = `TreeDesignerBark.${id}`;
+  texture.name = `ToonlabBark.${id}`;
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;

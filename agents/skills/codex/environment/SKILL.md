@@ -13,10 +13,10 @@ Public imports:
 - `@call-me-sensei/toonlab/environment`
 
 Read first:
-- `docs/environment.md`
-- `docs/urban-prop-surface-roles.md` when applying or authoring a reusable
-  shader for imported urban props. If the repo copy is unavailable, use
-  `https://toonlab.io/docs/urban-prop-roles.md`.
+- `agents/references/anime-art-direction.md`
+- `agents/references/style-bundles.md`
+- `agents/references/runtime-entry-points.md`
+- the exported `environment` material-role schema and guidance below.
 
 Developer guidance:
 - Apply environment materials to app-owned meshes and scenes.
@@ -33,6 +33,11 @@ Developer guidance:
   Apply durable corrections with `applyManufacturedMaterialManifest`; do not
   infer semantic material from base-color pixels alone. A visual model is an
   optional offline assistant for mixed atlases, never a runtime dependency.
+- For an imported hero vehicle or ship, preserve the complete pre-conversion
+  audit and the `applyEnvironmentShader()` classification report. Report every
+  generic fallback, low-confidence assignment, transparent surface, and mixed
+  atlas; do not call the result contract-ready until a reviewed sidecar or
+  embedded material contract removes those warnings.
 - Treat global environment settings as the catch-all, then resolve sparse
   `materialLook` profiles by base material, finish, render mode, structural
   role, content flags, object class, and stable asset id. Do not implement a
@@ -49,3 +54,6 @@ Developer guidance:
 
 Verify:
 - Run the consumer app's normal build and visual smoke check.
+- For a vessel, inspect above-water, shoreline, and reflected/refracted views;
+  verify sails/windows keep their intended render mode and the hull crosses the
+  waterline without being excluded from required water scene passes.

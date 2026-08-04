@@ -22,6 +22,9 @@ import { StylizedSky } from '@call-me-sensei/toonlab/sky';
 
 const water = new WaterSurface({
   width: 200, depth: 200, preset: 'lake',
+  // Enabled by default: WaterSurface applies body-color fog/background when
+  // the camera is below and inside this finite surface's XZ footprint.
+  underwaterAtmosphere: true,
   // Optional terrain sampler enabling surf mechanics: waves shoal, break,
   // and wash a swash film up the beach. breakerAmount > 0 adds plunging
   // breaker shells that ride each set wave to the break line.
@@ -67,6 +70,26 @@ reflection and scene-depth pass are skipped. Exclude objects with
 (above-water grab only), or `userData.waterReflectionExclude` (reflection
 only).
 
+Camera-facing meshes can opt into the offscreen cameras without becoming
+inside-out billboards in reflections:
+
+```js
+billboard.userData.onWaterPass = function onWaterPass(passCamera, passKind) {
+  orientBillboardToCamera(this, passCamera);
+  return () => restoreAnyNonTransformState(); // optional
+};
+```
+
+`passKind` is `grab` or `reflection`. The hook is synchronous; ToonLab restores
+the object's transform and visibility after each pass even if rendering throws.
+Use the returned cleanup only for other host-owned state.
+
+These passes are real scene renders, not a free material feature. Above water,
+the default maximum is three offscreen renders per update (grab, depth, and
+reflection); below water the inactive depth/reflection work is skipped. Inspect
+`water.passes.stats` for `configuredMaximumSceneRenders`, the actual last-frame
+pass list/count, and every render-target size before accepting a scene budget.
+
 ## Settings, presets, tones
 
 Water settings are flat (`createWaterSettings({ preset: 'ocean',
@@ -83,7 +106,13 @@ foam, lighting, ripples, splashes, quality) are in the
 - **Body color** — three-stop absorption (`shallowColor → midColor →
   deepColor`), separate from wave motion. `colorTone` picks a named palette
   from `WATER_COLOR_TONES`: `classic`, `anime`, `teal`, `caribbean`,
-  `lagoon`, `deepOcean`.
+  `lagoon`, `deepOcean`. Every non-`classic` tone owns the coherent palette,
+  depth-fade, Fresnel, reflection, caustic, and detail-normal block; values for
+  those individual keys passed alongside it are intentionally replaced. Use
+  `classic` when the caller needs full per-key control.
+- **Opacity** — controls the fallback material path when no scene-color target
+  is bound. The normal `WaterSurface` capture path composites an integrated
+  refractive body and does not use the standalone `opacity` setting.
 - **Underwater transmission** — `indexOfRefraction` anchors the Snell window
   and total internal reflection; `underwaterTransmission` controls how much
   of the captured air-side scene comes through; `underwaterTintStrength`
@@ -304,11 +333,24 @@ constructing the surface.
   receiver angle, and the active water region. This is the shimmering light
   commonly mistaken for a floor reflection; it is not mirror reflection.
 
-Full-screen underwater fog, image distortion, waterline meniscus, and sun
-shafts remain scene/post-processing responsibilities rather than surface
-material features. The Water Lab changes scene fog and background below the
-surface, but the water module does not force those artistic choices on every
-host application.
+`WaterSurface` applies the Water Lab's proven full-screen underwater
+atmosphere by default: when the camera is below and inside the finite surface,
+it replaces the main render's background and distance fog with a dense color
+derived from `midColor`. Before transmission/reflection capture passes it
+restores the host's original air-side background, `scene.fog`, and
+`scene.fogNode`, then reapplies the submerged state for the host render. A
+capture-excluded fullscreen color veil also grades custom TSL materials that
+intentionally opt out of Three's scene fog, preventing mixed ToonLab scenes
+from looking like clear air beneath a dark plane. The current result is
+inspectable at `water.underwaterAtmosphereState`. Disable it with
+`underwaterAtmosphere: false`, or pass an object with `fogNear`, `fogFar`,
+`color`, `colorScale`, `overlayOpacity`, `boundsMargin`, or
+`clipToSurfaceBounds` overrides.
+
+Advanced image distortion, a waterline meniscus, and volumetric sun shafts
+remain optional scene/post-processing effects. They are not required to avoid
+the hollow, clear-air-under-a-plane failure that the default atmosphere now
+prevents.
 
 Scene shadowing and cloud shadows: the surface darkens under cast shadows
 (`sceneShadowStrength`) and shares the global cloud-shadow field

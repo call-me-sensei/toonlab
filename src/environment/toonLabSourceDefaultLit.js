@@ -31,9 +31,8 @@ export const TOONLAB_SOURCE_DEFAULT_LIT_SOURCE = Object.freeze({
   brdf: 'Engine/Shaders/Private/BRDF.ush',
   brdfSha256:
     '0de81cc25c9b035a77aeb0e2f1be3e730c0f117f9250fe365104f30119b5e906',
-  capture: 'assets-local/reference-materials/demo-scenes/Demonstration_ToonLabShowcase.json',
-  captureSha256:
-    '63479d0a49a2e134d722fc1634879dec87eb3304035b0aea9337a60a95c65bf2',
+  capture: null,
+  captureSha256: null,
   deferredLighting: 'Engine/Shaders/Private/DeferredLightingCommon.ush',
   deferredLightingSha256:
     'd3bcd5cf9c36cab57c281f6cad447816891836e3c05a67c8808cbb9ad83e2c46',

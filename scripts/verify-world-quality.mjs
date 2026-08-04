@@ -11,16 +11,20 @@ import { createStylizedTerrain } from '../src/stylizedTerrain.js';
 import {
   CONTACT_SHADOW_AERIAL_FADE,
   combineMasks,
+  createDensityWeightMask,
   createSlopeMask,
   createSurfaceWeightMask,
   createStylizedTreeSettings,
   deriveCanopyPalette,
   resolveVegetationShaderPreset,
   STYLIZED_FOREST_IMPOSTOR_QUALITY,
-  TREE_LOD_TRIANGLE_CAPS,
   TREE_RUNTIME_QUALITY_PROFILES,
   UNDERSTORY_AERIAL_FADE,
 } from '../src/vegetation/index.js';
+// The LOD compiler is repository-only in 0.4.7. Keep this internal regression
+// guard pointed at its owner instead of leaking the compiler through the
+// stable public vegetation barrel.
+import { TREE_LOD_TRIANGLE_CAPS } from '../src/vegetation/treeLodCompiler.js';
 import { resolveWeatherPreset } from '../src/weather/weatherPresets.js';
 import { resolveWorldPreset } from '../src/worldPresets.js';
 
@@ -45,8 +49,10 @@ assert.ok(world.trees.lod.detailCount >= 120, 'near trees need a high-detail poo
 assert.ok(world.trees.lod.detailDistance >= 150, 'tree LOD must hold through gameplay range');
 assert.ok(world.trees.scatter.spacing <= 7, 'forest canopy density must survive aerial views');
 assert.ok(world.trees.scatter.radius >= 160, 'forest layering needs world-scale coverage');
-assert.ok(world.grass.scatter.density >= 16, 'close grass should read as a dense meadow');
-assert.ok(world.grass.scatter.maxCount >= 120000, 'dense grass needs a bounded high-quality budget');
+assert.ok(world.grass.scatter.density * world.grass.settings.bladesPerClump >= 32,
+  'close clump coverage must retain a dense effective blade count');
+assert.ok(world.grass.scatter.maxCount * world.grass.settings.bladesPerClump >= 120000,
+  'the bounded clump budget must retain the former meadow blade capacity');
 assert.ok(world.grass.settings.bladeHeightRange[1] <= 0.55,
   'gameplay grass must not swallow a human character');
 assert.equal(world.understory.enabled, true, 'signature world needs a middle vegetation layer');
@@ -75,6 +81,22 @@ assert.equal(placementMask(-1, 0), false,
   'surface classification must remain authoritative on otherwise flat terrain');
 assert.equal(placementMask(2, 0), false,
   'slope rejection must remain active even where a grass layer is painted');
+
+const densityMask = createDensityWeightMask({
+  seed: 8045,
+  weightAt: (x) => (x < -1 ? 0 : x > 1 ? 1 : 0.5),
+});
+assert.equal(densityMask(-2, 0), false,
+  'density-weight masks must keep zero-coverage biome regions empty');
+assert.equal(densityMask(2, 0), true,
+  'density-weight masks must retain full-coverage biome regions');
+const halfDensity = Array.from({ length: 400 }, (_, index) => densityMask(0, index / 7));
+const retainedHalfDensity = halfDensity.filter(Boolean).length;
+assert.ok(retainedHalfDensity > 150 && retainedHalfDensity < 250,
+  'density-weight masks must turn a half-weight transition into natural thinning');
+assert.deepEqual(halfDensity,
+  Array.from({ length: 400 }, (_, index) => densityMask(0, index / 7)),
+  'density-weight masks must be deterministic for repeatable captures');
 
 assert.equal(STYLIZED_FOREST_IMPOSTOR_QUALITY.representation, 'instanced-low-poly',
   'far trees must use camera-independent volumetric proxies, never flat color billboards');

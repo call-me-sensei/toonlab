@@ -4,10 +4,10 @@ The rock shader is a reusable material system for rocks, boulders, cliffs, and
 mountain surfaces. It is intentionally separate from procedural rock asset
 generation.
 
-The default profile is `call_me_sensei`. Its starting values are the connected
-inputs of the accepted P18 spire material—not a generic approximation. Rock
-Shader Lab evaluates that live material on the original, non-baked Spire 05
-LOD0 geometry in the copied P18 outdoor scene.
+The default profile is `call_me_sensei`. In 0.4.10 it is an independently
+authored first-party anime-rock treatment with macro projection, metre-scale
+near detail, HDR headroom, readable shaded faces, and a waterline response.
+Rock Shader Lab evaluates the same public preset used by package consumers.
 
 ## Architecture decision
 
@@ -62,24 +62,25 @@ starts with these values:
 
 | Group | Accepted starting values |
 | --- | --- |
-| Base Projection | Scale `64`; saturation `0.5`; contrast `0.4`; brightness `0.06`; projection contrast `2`; side-only off |
-| Material Response | Tint `[1, 1, 1]`; metallic `0.1`; smoothness `0.1`; smoothness texture off; smoothness contrast `1`; emission `0.02` |
-| Distance Tint | Start `500`; end `15000`; color `[0.7882354, 0.7882354, 0.7882354]`; strength `0.5` |
+| Base Projection | Macro scale `48`; saturation `0.72`; contrast `0.55`; brightness `0.04`; projection contrast `2`; side-only off; near detail scale `1.2`, strength `0.34`, fade `70 m` |
+| Material Response | Tint `[0.92, 0.94, 0.98]`; metallic `0`; smoothness `0.07`; smoothness texture off; smoothness contrast `1`; emission `0` |
+| Shared Lighting | HDR exposure `1.12`; albedo-relative ambient floor `0.08` |
+| Shoreline Response | Wet-band width `1 m`; darkening `0.28`; wet roughness `0.22` |
+| Distance Tint | Start `500`; end `15000`; color `[0.74, 0.78, 0.82]`; strength `0.42` |
 | Normal Detail | Fade distance `30000`; near flatten `0`; far flatten `1`; smoothed normal on; normal-Y sign `1` |
 | Striping | Off; dormant scale `2500`; contrast `0.25`; color `[1, 0, 1]` |
-| Moss Response | Off; dormant size `25`; sharpness `1.92`; offset `-0.15`; gain `1.94`; color power `1.3`; low `[0.3019608, 0.48235294, 0.11764706]`; high `[0.47058824, 0.6509804, 0.2627451]` |
+| Moss Response | Off; dormant size `25`; sharpness `1.92`; offset `-0.15`; gain `1.94`; color power `1.3`; low `[0.24, 0.42, 0.12]`; high `[0.46, 0.68, 0.24]` |
 | Top-Layer Mask | Asset-mask behavior on; sharpness `1.77`; offset `0.48`; the accepted source has no mask texture, so the graph uses white |
 | Grass Layer | Off; dormant scale `10`; tint `[0.89100975, 1, 0.8066038]`; saturation `1`; emission `0` |
 | Snow Layer | Off; dormant scale `11.51`; tint `[1, 1, 1]`; saturation `1`; emission `0.03` |
 | Sand Layer | Off; dormant scale `5`; tint `[0.9150943, 0.9150943, 0.9150943]`; saturation `1`; emission `0.1`; normal scale `20`; strength `0.5`; rotation `30°` |
 | Asset Integration | Source albedo Replace; source blend `0`; vertex color `0`; vertex AO `0` |
 
-The three active authored texture inputs are the projected rock color,
-projected crack normal, and UV smoothed normal. The lab also preloads authored
-moss, grass, snow, sand, and sand-normal inputs so enabling those dormant
-layers remains an editable live-graph operation. Where the accepted material
-has no authored texture slot, the UI may use an explicitly identified
-fallback only after the developer enables that optional feature.
+Callers may provide projected rock color, crack normal, smoothed normal, moss,
+grass, snow, sand, sand-normal, smoothness, stripe, and top-mask textures.
+When they omit maps, the runtime creates an explicitly reported first-party
+procedural texture set. That generated set is a distributable safety default,
+not an authored catalog texture and not proof of hero-asset visual approval.
 
 Changing any field makes a derived profile; Reset returns to this exact
 baseline. A coding agent must not replace the baseline with visually similar
@@ -174,8 +175,10 @@ module; the lab does not keep a private configuration list.
 
 | Group | Portable responsibility |
 | --- | --- |
-| Base Projection | Triplanar scale, saturation, color contrast, brightness, axis blend, and side-only projection |
+| Base Projection | Macro triplanar scale, saturation, color contrast, brightness, axis blend, side-only projection, and close-detail scale/strength/fade |
 | Material Response | Stone tint, metallic, smoothness, smoothness texture behavior, and emission |
+| Shared Lighting | HDR exposure and shaded-face ambient floor |
+| Shoreline Response | Wet-band width, darkening, and roughness; current water level remains scene state |
 | Distance Tint | Start/end distance, far color, and blend strength |
 | Normal Detail | Fade distance, near/far flattening, smoothed-normal use, and normal-Y convention |
 | Striping | Optional side-projected geological/mineral stripe treatment |
@@ -209,14 +212,18 @@ import {
   applyRockShader,
   createRockShaderSettings,
   restoreRockShader,
+  setRockShaderSceneState,
 } from '@call-me-sensei/toonlab/rock-shader';
 
 const rockSettings = createRockShaderSettings({
   preset: 'call_me_sensei',
 });
 
-const report = applyRockShader(rockRoot, rockSettings);
-console.log(report); // { preset, matched, applied, skipped }
+const report = applyRockShader(rockRoot, rockSettings, { textures });
+console.log(report);
+// Includes textureSource, usedGeneratedTextures, and shadowDefaultsApplied.
+
+setRockShaderSceneState(rockRoot, { waterLevel });
 
 // Restore the exact material objects that were present before assignment.
 restoreRockShader(rockRoot);
@@ -227,15 +234,16 @@ restoreRockShader(rockRoot);
 `include(mesh)` predicate. The runtime marks assigned materials with
 `environmentShaderExclude` so a later generic environment traversal does not
 silently replace the domain-specific rock material.
+It sets matched meshes to cast and receive shadows by default; explicit
+`castShadow`/`receiveShadow` options can override that policy. `restoreRockShader()`
+restores both the original materials and the original shadow flags.
 
 ## Supplying authored texture maps
 
-The OSS runtime includes a deterministic neutral fallback texture set so the
-public graph remains runnable without private or licensed files. The accepted
-lab appearance, however, depends on the reference texture inputs described
-above. The npm library cannot be marked visually Ready until equivalent
-owned, CC0, CC-BY-compatible, or otherwise distributable resources are
-packaged and their provenance is recorded. A host can replace individual maps:
+The runtime includes a deterministic 256×256 first-party generated texture set
+so the public graph remains runnable without private or licensed files. The
+application report identifies this as `first-party-generated`. Hero assets may
+replace individual maps with owned or distributable authored resources:
 
 ```js
 applyRockShader(rockRoot, settings, {

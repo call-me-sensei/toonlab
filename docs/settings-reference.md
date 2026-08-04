@@ -12,6 +12,7 @@ the **Portable** column makes that ownership explicit.
 - [Character toon shading](#character-toon-shading)
 - [Environment shading](#environment-shading)
 - [Rock shader profile](#rock-shader-profile)
+- [Ground shader profile](#ground-shader-profile)
 - [Water](#water)
 - [Post-processing](#post-processing)
 - [Vegetation shader family](#vegetation-shader-family)
@@ -593,7 +594,7 @@ Overrides numeric environment shader uniforms. Auto values preserve material def
 
 ## Rock shader profile
 
-Module: `toonlab/rock-shader` — 11 groups, 58 fields.
+Module: `toonlab/rock-shader` — 13 groups, 68 fields.
 
 Reusable grouped material settings consumed by `applyRockShader(root, settings)`. Rock geometry, erosion, seed, LOD, collision, and current scene conditions remain separate.
 
@@ -609,6 +610,9 @@ World-space base projection and graphic texture treatment.
 | `brightness` | number | `0.015` | -1 – 1 | Yes | Linear brightness offset applied after saturation and contrast. |
 | `projectionContrast` | number | `0.62` | 0.05 – 4 | Yes | Sharpness of the triplanar blend between projection axes. |
 | `sideOnly` | boolean | `false` | — | Yes | Restricts the base projection to side-oriented axes. |
+| `nearDetailScale` | number | `1.4` | 0.05 – 32 | Yes | World-space size of the close-range detail octave in meters. |
+| `nearDetailStrength` | number | `0.24` | 0 – 1 | Yes | Strength of close-range geological value breakup. |
+| `nearDetailDistance` | number | `55` | 0.1 – 2000 | Yes | Camera distance in meters over which the close-range detail octave fades out. |
 
 ### Rock shader profile: Material Response
 
@@ -622,6 +626,25 @@ Shared stone tint and physically based response.
 | `useSmoothnessTexture` | boolean | `false` | — | Yes | Reads the optional smoothness texture instead of a constant source. |
 | `smoothnessContrast` | number | `1` | 0 – 4 | Yes | Contrast applied to the optional smoothness texture. |
 | `emissiveStrength` | number | `0` | 0 – 2 | Yes | Base emission multiplier for deliberately luminous stone styles. |
+
+### Rock shader profile: Shared Lighting
+
+Rock-specific exposure and shaded-face readability under the current scene lighting.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `exposure` | number | `1` | 0 – 4 | Yes | HDR albedo exposure before scene lighting and tone mapping. |
+| `ambientFloor` | number | `0.04` | 0 – 0.4 | Yes | Albedo-relative indirect floor that keeps downward-facing overhangs readable. |
+
+### Rock shader profile: Shoreline Response
+
+Portable wet-rock response around the current scene water level.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `wetBandWidth` | number | `0.8` | 0 – 20 | Yes | Meters around the current water level that receive the wet-rock treatment. |
+| `wetBandDarkening` | number | `0.22` | 0 – 1 | Yes | Maximum albedo darkening inside the wet band. |
+| `wetRoughness` | number | `0.26` | 0.02 – 1 | Yes | Roughness approached inside the wet band. |
 
 ### Rock shader profile: Distance Tint
 
@@ -689,6 +712,7 @@ Optional authored grass-over-rock layer, separate from current weather.
 | Field | Type | Default | Range / options | Portable | Description |
 |---|---|---|---|---|---|
 | `enabled` | boolean | `false` | — | Yes | Enables grass texture projection on the shared top-layer mask. |
+| `useGroundShader` | boolean | `false` | — | Yes | Uses the environment ground field for the grass cap color and surface response. |
 | `scale` | number | `1.8` | 0.05 – 50 | Yes | World-space size of the projected grass texture. |
 | `tint` | color | `[0.65, 0.78, 0.42]` (#a6c76b) | — | Yes | Style tint multiplied over the grass layer. |
 | `saturation` | number | `0.8` | 0 – 2 | Yes | Saturation retained from the grass texture. |
@@ -713,6 +737,7 @@ Optional authored sand-over-rock layer and its normal response.
 | Field | Type | Default | Range / options | Portable | Description |
 |---|---|---|---|---|---|
 | `enabled` | boolean | `false` | — | Yes | Enables sand projection on the shared top-layer mask. |
+| `useGroundShader` | boolean | `false` | — | Yes | Uses the environment ground field for the sand cap color and surface response. |
 | `scale` | number | `1.5` | 0.05 – 50 | Yes | World-space size of the projected sand texture. |
 | `tint` | color | `[0.82, 0.65, 0.4]` (#d1a666) | — | Yes | Style tint multiplied over the sand layer. |
 | `saturation` | number | `0.65` | 0 – 2 | Yes | Saturation retained from the sand texture. |
@@ -731,6 +756,134 @@ How stable asset-authored channels participate in the shared shader.
 | `sourceAlbedoStrength` | number | `0.2` | 0 – 1 | Yes | Imported-albedo influence when Source Albedo is Blend. Ignored by Replace and Retain. |
 | `vertexColorStrength` | number | `0.8` | 0 – 1 | Yes | Influence of asset-authored vertex color over projected rock detail. |
 | `vertexAoStrength` | number | `1` | 0 – 2 | Yes | Influence of the asset-authored envVertexAo channel. |
+
+## Ground shader profile
+
+Module: `toonlab/ground-shader` — 9 groups, 59 fields.
+
+Reusable grouped terrain-material settings consumed by `createGroundShaderMaterial(settings)` and `createGroundShaderMesh(geometry, settings)`. Terrain geometry, coverage, LOD, collision, and current scene conditions remain separate.
+
+### Ground shader profile: Ground Layers
+
+Coordinated base treatment for the four semantic ground layers.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `grassTint` | color | `[0.38, 0.61, 0.3]` (#619c4d) | — | Yes | Anime meadow tint for lawn and groundcover-painted terrain. |
+| `dirtTint` | color | `[0.48, 0.43, 0.37]` (#7a6e5e) | — | Yes | Warm anime-earth tint for trails and exposed soil. |
+| `rockTint` | color | `[0.58, 0.63, 0.69]` (#94a1b0) | — | Yes | Cool luminous stone tint for cliffs and embedded-rock layers. |
+| `sandTint` | color | `[0.88, 0.78, 0.52]` (#e0c785) | — | Yes | Graphic shoreline tint for beaches and dry sediment. |
+| `textureStrength` | number | `1` | 0 – 1 | Yes | Strength of authored layer textures relative to the graphic layer tints. |
+| `saturation` | number | `1` | 0 – 2 | Yes | Saturation applied after splat-layer composition. |
+| `contrast` | number | `1` | 0 – 2.5 | Yes | Contrast around the ground-color midpoint. |
+| `brightness` | number | `0` | -0.5 – 0.5 | Yes | Linear brightness offset after layer composition. |
+
+### Ground shader profile: Projection
+
+World-space layer scale and steep-surface projection.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `grassScale` | number | `16` | 0.05 – 64 | Yes | World-space repeat size in meters for the grass layer. |
+| `dirtScale` | number | `13` | 0.05 – 64 | Yes | World-space repeat size in meters for the dirt layer. |
+| `rockScale` | number | `25` | 0.05 – 128 | Yes | World-space repeat size in meters for rock and cliff detail. |
+| `sandScale` | number | `10` | 0.05 – 64 | Yes | World-space repeat size in meters for sand detail. |
+| `triplanarStrength` | number | `1` | 0 – 1 | Yes | Strength of triplanar projection on steep surfaces. |
+| `triplanarSharpness` | number | `2` | 0.25 – 12 | Yes | Sharpness of blending between triplanar projection axes. |
+
+### Ground shader profile: Macro Variation
+
+Large-scale color variation that prevents flat, repeating terrain.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `amount` | number | `0.16` | 0 – 1 | Yes | Primary world-space brightness variation. |
+| `scale` | number | `0.045` | 0.0005 – 0.5 | Yes | Primary macro-noise frequency in inverse meters. |
+| `secondaryAmount` | number | `0.08` | 0 – 1 | Yes | Secondary broad variation that breaks the primary pattern. |
+| `secondaryScale` | number | `0.012` | 0.0002 – 0.25 | Yes | Secondary macro-noise frequency in inverse meters. |
+| `tint` | color | `[0.74, 0.86, 0.58]` (#bddb94) | — | Yes | Graphic color introduced through macro variation. |
+| `tintStrength` | number | `0.12` | 0 – 1 | Yes | Maximum blend toward the macro tint. |
+| `rockDetailAmount` | number | `0.3` | 0 – 1 | Yes | Triplanar geological value variation applied to steep rock surfaces even when no authored layer map is supplied. |
+| `rockDetailScale` | number | `0.42` | 0.005 – 4 | Yes | World-space frequency for procedural triplanar cliff detail. |
+| `rockStrataAmount` | number | `0.2` | 0 – 1 | Yes | Horizontal geological band variation applied to steep cliff surfaces. |
+| `rockStrataScale` | number | `0.72` | 0.01 – 8 | Yes | Vertical frequency for procedural cliff strata. |
+
+### Ground shader profile: Slope Response
+
+How steep terrain transitions toward the rock treatment.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `autoRockStrength` | number | `0.82` | 0 – 1 | Yes | Maximum automatic rock-layer takeover on steep terrain. |
+| `start` | number | `0.18` | 0 – 1 | Yes | World-normal slope value where automatic rock begins. |
+| `fade` | number | `0.16` | 0.001 – 1 | Yes | Width of the grass-to-rock slope transition. |
+| `noiseStrength` | number | `0.08` | 0 – 0.5 | Yes | World-noise offset that prevents analytic contour bands. |
+| `noiseScale` | number | `0.035` | 0.0005 – 0.5 | Yes | Frequency of the slope-transition noise. |
+| `edgeHighlight` | number | `0.28` | 0 – 2 | Yes | Warm graphic lift along the flat-to-cliff transition. |
+
+### Ground shader profile: Shoreline Response
+
+Response to the current scene water level; the water level itself is never serialized.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `autoSandStrength` | number | `0.55` | 0 – 1 | Yes | Automatic blend toward the sand treatment near current water level. |
+| `bandWidth` | number | `3.5` | 0.05 – 40 | Yes | Meters around water level that can receive automatic sand. |
+| `softness` | number | `1.25` | 0.01 – 20 | Yes | Softness in meters of the automatic shoreline transition. |
+| `wetBandWidth` | number | `0.7` | 0 – 10 | Yes | Meters above water level that receive a damp shoreline response. |
+| `wetBandDarkening` | number | `0.18` | 0 – 1 | Yes | Maximum darkening in the damp shoreline band. |
+
+### Ground shader profile: Material Response
+
+Shared physically based response for the ground surface.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `roughness` | number | `0.9` | 0 – 1 | Yes | Dry ground roughness before current wetness. |
+| `metalness` | number | `0` | 0 – 1 | Yes | Metallic response for deliberately unusual ground styles. |
+| `microOcclusionStrength` | number | `0.16` | 0 – 1 | Yes | Subtle broad surface occlusion derived from terrain form and macro variation. |
+| `emissiveStrength` | number | `0` | 0 – 2 | Yes | Emission multiplier for deliberately luminous ground styles. |
+
+### Ground shader profile: Lighting
+
+Ground-specific response to the current scene sun and sky.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `sunIntensity` | number | `1` | 0 – 4 | Yes | Exposure of sun-facing ground after the graphic light/shade split. Values above one preserve HDR headroom for tone mapping. |
+| `backShadowStrength` | number | `0.38` | 0 – 0.8 | Yes | Directional value loss on terrain faces turned away from the current sun; keeps cliffs from reading as unlit flat color. |
+| `shadowTint` | color | `[0.68, 0.74, 0.94]` (#adbdf0) | — | Yes | Cool tint introduced on surfaces facing away from the current sun. |
+| `shadowTintStrength` | number | `0.34` | 0 – 1 | Yes | Strength of the cool ground-shadow treatment. |
+| `shadowLift` | number | `0.4` | 0 – 1 | Yes | Albedo-relative floor retained in shaded ground. |
+| `sunTintStrength` | number | `0.18` | 0 – 1 | Yes | Influence of current sun color on lit ground. |
+| `skyFillStrength` | number | `0.12` | 0 – 1 | Yes | Influence of current sky color on shaded ground. |
+| `rimStrength` | number | `0.06` | 0 – 1 | Yes | View-dependent grazing-angle color lift. |
+
+### Ground shader profile: Weather Response
+
+How ground responds to current wetness and snow coverage.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `wetDarkening` | number | `0.24` | 0 – 1 | Yes | Maximum albedo darkening at full wetness. |
+| `wetDesaturation` | number | `0.08` | 0 – 1 | Yes | Maximum color desaturation at full wetness. |
+| `wetRoughness` | number | `0.38` | 0 – 1 | Yes | Roughness approached at full wetness. |
+| `snowTint` | color | `[0.92, 0.96, 1]` (#ebf5ff) | — | Yes | Ground snow tint. |
+| `snowStrength` | number | `0.92` | 0 – 1 | Yes | Maximum visible snow coverage response. |
+| `snowSlopeStart` | number | `0.62` | -1 – 1 | Yes | Upward-normal threshold where snow begins to remain. |
+| `snowSoftness` | number | `0.22` | 0.001 – 1 | Yes | Softness of the snow slope transition. |
+
+### Ground shader profile: Distance Treatment
+
+Atmospheric recession and detail simplification over viewing distance.
+
+| Field | Type | Default | Range / options | Portable | Description |
+|---|---|---|---|---|---|
+| `start` | number | `500` | 0 – 10000 | Yes | Distance in meters where atmospheric ground tint begins. |
+| `end` | number | `15000` | 1 – 50000 | Yes | Distance in meters where atmospheric tint reaches full strength. |
+| `color` | color | `[0.59375, 0.59375, 0.59375]` (#979797) | — | Yes | Atmospheric ground color at long distance. |
+| `strength` | number | `0.5` | 0 – 1 | Yes | Maximum blend toward the far-distance color. |
+| `detailFade` | number | `1` | 0 – 1 | Yes | Amount of high-frequency texture and macro detail removed at range. |
 
 ## Water
 
@@ -928,7 +1081,7 @@ Tuning values used by the post-processing effects when their feature toggles are
 | `saturation` | number | `1` | 0 – 2 | Yes | Scales color saturation in the color grade. |
 | `strength` | number | `1` | 0 – 1 | Yes | Blends between the raw render and the full post-processing result. |
 | `topLight` | number | `0` | 0 – 1 | Yes | Adds warm light to the upper part of the frame in the vertical grade. |
-| `vignetteRadius` | number | `0.72` | 0 – 1 | Yes | Sets the distance from the frame center where the vignette starts. |
+| `vignetteRadius` | number | `0.55` | 0 – 1 | Yes | Sets the distance from the frame center where the vignette starts. |
 | `vignetteSoftness` | number | `0.34` | 0 – 1 | Yes | Controls the falloff width of the vignette edge. |
 | `vignetteStrength` | number | `0` | 0 – 1 | Yes | Controls how strongly the vignette darkens the frame edges. |
 | `warmth` | number | `0` | -1 – 1 | Yes | Shifts the color grade warmer (positive) or cooler (negative). |
@@ -985,9 +1138,9 @@ Grass-only color, surface, lighting, dense-field, gust, and bend treatment.
 | Field | Type | Default | Range / options | Portable | Description |
 |---|---|---|---|---|---|
 | `styleColorStrength` | number | `0` | 0 – 1 | Yes | Blend from asset-authored blade color to the style-owned root and tip treatment. |
-| `baseColor` | color | `[0.172518, 0.317708, 0.052621]` (#2c510d) | — | Yes | Style-owned grass-root color. Call Me Sensei uses the accepted P18 MI_Grass Base Color. |
+| `baseColor` | color | `[0.16, 0.34, 0.08]` (#295714) | — | Yes | Style-owned anime grass-root color. |
 | `tipBrightness` | number | `0.1` | -1 – 1 | Yes | Brightness added to root color before the blade-tip saturation and hue treatment. |
-| `tipDesaturation` | number | `-0.5` | -1 – 1 | Yes | Tip desaturation. Negative values increase saturation, matching the accepted P18 graph convention. |
+| `tipDesaturation` | number | `-0.35` | -1 – 1 | Yes | Tip desaturation. Negative values increase saturation for a graphic anime gradient. |
 | `tipHueShift` | number | `-0.06` | -1 – 1 | Yes | Normalized HSV hue rotation applied to blade tips. |
 | `roughness` | number | `0.5` | 0 – 1 | Yes | Grass surface roughness used by the stylized highlight response. |
 | `specularStrength` | number | `0.04` | 0 – 1 | Yes | Grass direct-light highlight strength. |
@@ -1101,7 +1254,7 @@ Smooth herbaceous stem surface and lighting treatment, intentionally separate fr
 
 ## Grass
 
-Module: `toonlab/vegetation` — 9 groups, 27 fields.
+Module: `toonlab/vegetation` — 9 groups, 30 fields.
 
 Flat settings consumed by `new StylizedGrassField(options)` and `grass.applySettings(options)`. Portable grass preset v2 stores asset geometry, palette/material, and `windResponse` / `gustResponse`; current light, wind/gust field, cloud field, and push radius are scene/runtime inputs.
 
@@ -1113,8 +1266,9 @@ Random blade dimensions baked into the instance attributes when the field is bui
 |---|---|---|---|---|---|
 | `bladeHeightRange` | vector2 | `[0.16, 0.42]` | — | Yes | Min/max blade height in meters for placements without an explicit height. Construction-only: baked into instance attributes. |
 | `bladeWidthRange` | vector2 | `[0.05, 0.085]` | — | Yes | Min/max blade width in meters for placements without an explicit width. Construction-only: baked into instance attributes. |
-| `bladesPerClump` | number | `1` | 1 – 16 | Yes | Blades grown from each placement. 1 keeps the classic lone-blade field; higher values build anime-style clumps whose blades share a base and splay apart. Construction-only. |
-| `clumpRadius` | number | `0.055` | 0 – 0.3 | Yes | Base scatter radius in meters for the extra blades of a clump. Small values read as one tuft; larger values loosen the clump. Construction-only. |
+| `bladesPerClump` | number | `1` | 1 – 64 | Yes | Blades grown from each placement or authored into each paintable clump mesh. 1 keeps the classic lone-blade field; the first-party meadow clump uses 40. Construction-only. |
+| `clumpRadius` | number | `0.055` | 0 – 1 | Yes | Base scatter radius in meters for the extra blades of a clump. Small values read as one tuft; larger values loosen the clump. Construction-only. |
+| `leanStrength` | number | `1` | 0 – 2 | Yes | Authored static splay of each blade before live wind and interaction. Low values form clean upright meadow strokes; high values form wild bent grass. |
 
 ### Grass: Motion
 
@@ -1136,6 +1290,8 @@ The blades' coordinated base, tip, and material shadow colors — the grass's id
 | `groundAdoptStrength` | number | `0` | 0 – 1 | Yes | How strongly blades adopt the terrain color under them from the scene ground field (0 keeps the authored palette). Needs a world running the ground-field pass. |
 | `groundAdoptHeight` | number | `0.85` | 0.01 – 1 | Yes | Blade fraction the adopted ground color reaches before fading back to the palette tips. |
 | `groundAdoptTint` | color | `[1, 1, 1]` (#ffffff) | — | Yes | Multiplier applied to the adopted ground color — lift or warm the sampled terrain albedo before it colors the blades. |
+| `washLift` | number | `0` | 0 – 1 | Yes | Procedural watercolor wash lift. Irregularly pulls blade strokes toward the active sun color without requiring a texture. |
+| `washOpacity` | number | `1` | 0.1 – 1 | Yes | Layer opacity of the procedural watercolor blade strokes. Values below 1 soften each stroke against the terrain and sky. |
 
 ### Grass: Lighting
 
@@ -1287,7 +1443,7 @@ Space-colonization limb growth and bark mesh controls. Construction-only.
 |---|---|---|---|---|---|
 | `generator` | select | `'limbs'` | `limbs` \| `branching` \| `drawn` | Yes | limbs: space-colonization growth toward the crown blobs (solid anime-style crowns). branching: recursive central-leader branching (open, realistic broadleaf/conifer silhouettes). drawn: no procedural wood at all — the tree is exactly the hand-drawn branchSpines (Tree Lab sketch mode). Construction-only. |
 | `levels` | number | `3` | 1 – 4 | Yes | Recursion depth of the branching generator; each level subdivides into thinner children. Branching generator only. Construction-only. |
-| `childrenCount` | number | `6` | 1 – 90 | Yes | Child branches sprouting along the trunk (deeper levels derive from it). Conifers use high counts (60-90) for dense whorled fronds. Branching generator only. Construction-only. |
+| `childrenCount` | number | `6` | 1 – 90 | Yes | Lateral child branches sprouting along the trunk (deeper levels derive from them). The central leader continues separately, so children=1 forms one lateral limb plus the leader. Conifers use high counts (60-90) for dense whorled fronds. Branching generator only. Construction-only. |
 | `branchAngle` | number | `55` | 10 – 130 | Yes | Child pitch away from the parent axis, in degrees. Past 90 points branches below horizontal (conifer fronds ~110). Branching generator only. Construction-only. |
 | `branchStart` | number | `0.4` | 0 – 0.9 | Yes | Fraction of the trunk kept bare before children begin — real trees hold their crown off the ground. Branching generator only. Construction-only. |
 | `lengthRatio` | number | `0.45` | 0.15 – 0.95 | Yes | Child branch length as a fraction of the trunk (deeper levels shorten from it). Branching generator only. Construction-only. |
@@ -1495,7 +1651,7 @@ Stepped stone segments swapped in where the route climbs steeply. Visual only �
 
 Module: `toonlab/ambientfx` — 6 groups, 54 fields.
 
-Settings are nested per group: `createAmbientFx({ settings: { fireflies: { blinkSpeed: 0.8 } } })`. Effect entries in `effects` override their group; `density` there is a multiplier.
+Settings are nested per group: `createAmbientFx({ settings: { fireflies: { blinkSpeed: 0.8 } } })`. Effect entries in `effects` override their group; `densityScale` multiplies the authored per-m³ density (`density` remains a compatibility alias). Call `emitNow(camera)` when build-time stats or a settled first capture are required before the first update.
 
 ### Ambient VFX: Shared
 

@@ -5,8 +5,8 @@
 
 export const STAGES = [
   {
-    description: 'Tree or bush, overall scale, and crown silhouette.',
-    groups: ['plant', 'canopy'],
+    description: 'Botanical identity, biological development, trained form, and crown silhouette.',
+    groups: ['plant', 'structure', 'canopy'],
     icon: 'stage-shape',
     id: 'shape',
     key: '1',
@@ -115,6 +115,15 @@ export const ADVANCED_FIELD_IDS = new Set([
   'canopy.coreRadius',
   'canopy.canopyScale',
   'skeleton.radiusRatio',
+  'skeleton.phyllotaxisAngle',
+  'skeleton.branchInternodeSpacing',
+  'skeleton.gravitropism',
+  'skeleton.phototropism',
+  'skeleton.branchSag',
+  'skeleton.tipUpturn',
+  'skeleton.windBias',
+  'skeleton.pipeExponent',
+  'skeleton.junctionBulge',
   'skeleton.attractionCount',
   'skeleton.segmentLength',
   'skeleton.killRadius',

@@ -18,9 +18,8 @@
 //   const camera = new THREE.PerspectiveCamera(world.camera.fov, aspect, world.camera.near, world.camera.far);
 //   const sky = new StylizedSky({ preset: world.sky.preset, ...world.sky.settings });
 //   const water = new WaterSurface({ preset: world.water.preset, width: 400, depth: 400 });
-//   const grass = new StylizedGrassField({
-//     preset: world.grass.preset,
-//     ...world.grass.settings,
+//   const grass = await createCallMeSenseiGrassField({
+//     variant: world.grass.variant,
 //     placements: scatterGrassAround({ ...world.grass.scatter, center, heightAt, mask }),
 //   });
 //   for (const p of scatterForest({ ...world.trees.scatter, center, heightAt, mask })) {
@@ -102,20 +101,27 @@ const WORLD_PRESET_DEFINITIONS = new Map([
       style: 'call_me_sensei',
     },
     grass: {
-      preset: 'call_me_sensei',
-      // Dense but gameplay-scaled: the old 0.7 m blades swallowed a human
-      // character and turned the foreground into high-frequency neon lines.
+      mode: 'authored',
+      preset: 'call_me_sensei_clump',
+      variant: 'primary',
+      // One placement is one low, composed tuft. This preserves readable
+      // meadow masses and makes painted/scattered grass use the same unit.
       settings: {
-        baseColor: [0.3, 0.55, 0.2],
-        bladeHeightRange: [0.22, 0.48],
-        bladeWidthRange: [0.045, 0.075],
+        baseColor: [0.172518, 0.317708, 0.052621],
+        bladeHeightRange: [0.14, 0.34],
+        bladeWidthRange: [0.035, 0.075],
+        bladesPerClump: 22,
+        clumpRadius: 0.52,
+        groundAdoptHeight: 0.82,
+        groundAdoptStrength: 0.86,
+        groundAdoptTint: [1.18, 1.26, 1.08],
         pushRadius: 1.2,
         shadowTint: [0.34, 0.49, 0.4],
-        tipColor: [0.56, 0.79, 0.32],
+        tipColor: [0.31, 0.47, 0.09],
       },
-      // A high-density moving window keeps close grass lush while preserving
-      // a bounded one-draw-call budget and a soft distance fade.
-      scatter: { density: 18, maxCount: 155000, radius: 55 },
+      // Source-style coverage is roughly 1.75 one-meter tufts per m². The
+      // clump LOD field keeps the near/mid/far triangle budget bounded.
+      scatter: { density: 1.75, maxCount: 18000, radius: 55 },
     },
     trees: {
       preset: 'call_me_sensei',

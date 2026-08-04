@@ -68,6 +68,24 @@ const GROUP_DEFINITIONS = Object.freeze({
         label: 'Side Projection Only',
         type: 'boolean',
       }),
+      nearDetailScale: field({
+        defaultValue: 1.4,
+        description: 'World-space size of the close-range detail octave in meters.',
+        label: 'Near Detail Scale',
+        range: { max: 32, min: 0.05, step: 0.05 },
+      }),
+      nearDetailStrength: field({
+        defaultValue: 0.24,
+        description: 'Strength of close-range geological value breakup.',
+        label: 'Near Detail Strength',
+        range: { max: 1, min: 0, step: 0.01 },
+      }),
+      nearDetailDistance: field({
+        defaultValue: 55,
+        description: 'Camera distance in meters over which the close-range detail octave fades out.',
+        label: 'Near Detail Distance',
+        range: { max: 2000, min: 0.1, step: 1 },
+      }),
     }),
   }),
   material: Object.freeze({
@@ -109,6 +127,48 @@ const GROUP_DEFINITIONS = Object.freeze({
         description: 'Base emission multiplier for deliberately luminous stone styles.',
         label: 'Emission',
         range: { max: 2, min: 0, step: 0.01 },
+      }),
+    }),
+  }),
+  lighting: Object.freeze({
+    description: 'Rock-specific exposure and shaded-face readability under the current scene lighting.',
+    label: 'Shared Lighting',
+    fields: Object.freeze({
+      exposure: field({
+        defaultValue: 1,
+        description: 'HDR albedo exposure before scene lighting and tone mapping.',
+        label: 'Exposure',
+        range: { max: 4, min: 0, step: 0.01 },
+      }),
+      ambientFloor: field({
+        defaultValue: 0.04,
+        description: 'Albedo-relative indirect floor that keeps downward-facing overhangs readable.',
+        label: 'Ambient Floor',
+        range: { max: 0.4, min: 0, step: 0.005 },
+      }),
+    }),
+  }),
+  shoreline: Object.freeze({
+    description: 'Portable wet-rock response around the current scene water level.',
+    label: 'Shoreline Response',
+    fields: Object.freeze({
+      wetBandWidth: field({
+        defaultValue: 0.8,
+        description: 'Meters around the current water level that receive the wet-rock treatment.',
+        label: 'Wet Band Width',
+        range: { max: 20, min: 0, step: 0.05 },
+      }),
+      wetBandDarkening: field({
+        defaultValue: 0.22,
+        description: 'Maximum albedo darkening inside the wet band.',
+        label: 'Wet Band Darkening',
+        range: { max: 1, min: 0, step: 0.01 },
+      }),
+      wetRoughness: field({
+        defaultValue: 0.26,
+        description: 'Roughness approached inside the wet band.',
+        label: 'Wet Roughness',
+        range: { max: 1, min: 0.02, step: 0.01 },
       }),
     }),
   }),
@@ -497,31 +557,43 @@ export const DEFAULT_ROCK_SHADER_SETTINGS = Object.freeze(Object.fromEntries(
   ]),
 ));
 
-// Exact editable inputs of the accepted P18 spire material. The preview lab
-// supplies the corresponding source texture set; this object keeps every
-// graph parameter visible, serializable, and independent from the fixture.
+// Independently authored Call Me Sensei rock inputs. Asset textures and baked
+// masks remain external; this object keeps the anime material treatment
+// visible, serializable, and independent from any preview fixture.
 export const CALL_ME_SENSEI_ROCK_SHADER_SETTINGS = Object.freeze({
   projection: Object.freeze({
-    scale: 64,
-    saturation: 0.5,
-    contrast: 0.4,
-    brightness: 0.06,
+    scale: 48,
+    saturation: 0.72,
+    contrast: 0.55,
+    brightness: 0.04,
     projectionContrast: 2,
     sideOnly: false,
+    nearDetailScale: 1.2,
+    nearDetailStrength: 0.34,
+    nearDetailDistance: 70,
   }),
   material: Object.freeze({
-    tint: Object.freeze([1, 1, 1]),
-    metallic: 0.1,
-    smoothness: 0.1,
+    tint: Object.freeze([0.92, 0.94, 0.98]),
+    metallic: 0,
+    smoothness: 0.07,
     useSmoothnessTexture: false,
     smoothnessContrast: 1,
-    emissiveStrength: 0.02,
+    emissiveStrength: 0,
+  }),
+  lighting: Object.freeze({
+    exposure: 1.12,
+    ambientFloor: 0.08,
+  }),
+  shoreline: Object.freeze({
+    wetBandWidth: 1,
+    wetBandDarkening: 0.28,
+    wetRoughness: 0.22,
   }),
   distanceTint: Object.freeze({
     closeDistance: 500,
     farDistance: 15000,
-    color: Object.freeze([0.7882354, 0.7882354, 0.7882354]),
-    strength: 0.5,
+    color: Object.freeze([0.74, 0.78, 0.82]),
+    strength: 0.42,
   }),
   normals: Object.freeze({
     distance: 30000,
@@ -543,8 +615,8 @@ export const CALL_ME_SENSEI_ROCK_SHADER_SETTINGS = Object.freeze({
     offset: -0.15,
     multiply: 1.94,
     colorPower: 1.3,
-    lowColor: Object.freeze([0.3019608, 0.48235294, 0.11764706]),
-    highColor: Object.freeze([0.47058824, 0.6509804, 0.2627451]),
+    lowColor: Object.freeze([0.24, 0.42, 0.12]),
+    highColor: Object.freeze([0.46, 0.68, 0.24]),
   }),
   layerMask: Object.freeze({
     useAssetMask: true,
@@ -731,7 +803,7 @@ export function serializeRockShaderPreset(document, { pretty = true } = {}) {
 }
 
 registerRockShaderPreset('call_me_sensei', {
-  description: 'First-party signature rock treatment using the accepted P18 spire graph parameters. Optional geological layers remain editable but disabled by default.',
+  description: 'First-party anime rock treatment with graphic projection, distance color, and optional geological layers.',
   label: 'Call Me Sensei',
   settings: CALL_ME_SENSEI_ROCK_SHADER_SETTINGS,
 });

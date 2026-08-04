@@ -111,7 +111,7 @@ export function createCanopyBlobs({
  * designer's shape previews, and the falling-leaf particles, so a shape
  * choice looks identical everywhere.
  *
- * @param {string} shape 'teardrop'|'round'|'maple'|'gingko'|'needle'|'custom'
+ * @param {string} shape 'teardrop'|'round'|'oak'|'maple'|'gingko'|'needle'|'custom'
  * @param {Array<[number, number]>|null} outline Normalized custom outline
  *   (points in -0.5..0.5 leaf-local space, y = tip direction).
  */
@@ -128,6 +128,23 @@ export function traceLeafShapePath(ctx, shape, length, width, outline = null) {
     ctx.moveTo(0, -length * 0.5);
     ctx.quadraticCurveTo(width * 0.16, 0, 0, length * 0.5);
     ctx.quadraticCurveTo(-width * 0.16, 0, 0, -length * 0.5);
+  } else if (shape === 'oak') {
+    // Rounded, alternating lobes and a short tapered base. This is drawn
+    // procedurally rather than sampled from any third-party alpha; keeping
+    // the sinuses shallow also survives the stylized card mip chain.
+    ctx.moveTo(0, -length * 0.5);
+    ctx.quadraticCurveTo(width * 0.2, -length * 0.46, width * 0.13, -length * 0.35);
+    ctx.quadraticCurveTo(width * 0.42, -length * 0.31, width * 0.22, -length * 0.17);
+    ctx.quadraticCurveTo(width * 0.5, -length * 0.11, width * 0.25, length * 0.01);
+    ctx.quadraticCurveTo(width * 0.48, length * 0.1, width * 0.2, length * 0.18);
+    ctx.quadraticCurveTo(width * 0.34, length * 0.3, width * 0.08, length * 0.39);
+    ctx.lineTo(0, length * 0.5);
+    ctx.lineTo(-width * 0.08, length * 0.39);
+    ctx.quadraticCurveTo(-width * 0.34, length * 0.3, -width * 0.2, length * 0.18);
+    ctx.quadraticCurveTo(-width * 0.48, length * 0.1, -width * 0.25, length * 0.01);
+    ctx.quadraticCurveTo(-width * 0.5, -length * 0.11, -width * 0.22, -length * 0.17);
+    ctx.quadraticCurveTo(-width * 0.42, -length * 0.31, -width * 0.13, -length * 0.35);
+    ctx.quadraticCurveTo(-width * 0.2, -length * 0.46, 0, -length * 0.5);
   } else if (shape === 'maple') {
     // Five-lobed star with pinched sinuses.
     const lobes = 5;
@@ -139,7 +156,7 @@ export function traceLeafShapePath(ctx, shape, length, width, outline = null) {
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
-  } else if (shape === 'gingko') {
+  } else if (shape === 'gingko' || shape === 'fan') {
     // Fan: narrow stem base opening to a wide notched top edge.
     ctx.moveTo(0, length * 0.5);
     ctx.quadraticCurveTo(width * 0.55, length * 0.25, width * 0.5, -length * 0.3);
@@ -155,7 +172,9 @@ export function traceLeafShapePath(ctx, shape, length, width, outline = null) {
   ctx.closePath();
 }
 
-export const LEAF_SHAPE_PRESETS = Object.freeze(['teardrop', 'round', 'maple', 'gingko', 'needle']);
+export const LEAF_SHAPE_PRESETS = Object.freeze([
+  'teardrop', 'round', 'oak', 'maple', 'gingko', 'needle',
+]);
 
 export function createLeafSpriteTexture({
   size = 512,
@@ -217,6 +236,197 @@ export function createLeafSpriteTexture({
   return texture;
 }
 
+const organLeafSprites = new Map();
+
+// Fronds and bamboo sprays need a single blade per card. Reusing the normal
+// canopy texture here would place an entire broadleaf cluster at every pinna
+// or bamboo-leaf position, turning those organs into fuzzy disks.
+export function createOrganLeafSpriteTexture({
+  shape = 'pinna',
+  size = 256,
+} = {}) {
+  const cacheKey = `${shape}:${size}`;
+  if (organLeafSprites.has(cacheKey)) return organLeafSprites.get(cacheKey);
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, size, size);
+  ctx.fillStyle = '#ffffff';
+  ctx.save();
+  ctx.translate(size * 0.5, size * 0.5);
+  if (shape === 'spruce-spray') {
+    // A deliberately original, procedural alpha mask for a short
+    // needle-bearing spruce branchlet. The geometry supplies its world
+    // orientation and proportions; the mask supplies readable serrated
+    // needle edges without using vendor or photographic texture pixels.
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = Math.max(2.5, size * 0.022);
+    ctx.beginPath();
+    ctx.moveTo(0, size * 0.43);
+    ctx.quadraticCurveTo(size * 0.018, 0, 0, -size * 0.44);
+    ctx.stroke();
+    const needlePairs = 23;
+    for (let index = 0; index < needlePairs; index += 1) {
+      const t = index / (needlePairs - 1);
+      const y = size * (0.37 - t * 0.73);
+      const taper = Math.sin(Math.PI * (0.12 + t * 0.8));
+      const reach = size * (0.13 + taper * 0.16);
+      const upward = size * (0.025 + t * 0.045);
+      ctx.lineWidth = Math.max(1.5, size * (0.014 - t * 0.003));
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(-reach, y - upward);
+      ctx.moveTo(0, y - size * 0.008);
+      ctx.lineTo(reach * 0.94, y - upward * 1.08);
+      ctx.stroke();
+    }
+    // Dense pointed leader at the branchlet end.
+    ctx.lineWidth = Math.max(1.25, size * 0.007);
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(0, -size * 0.31);
+      ctx.lineTo(side * size * 0.12, -size * 0.46);
+      ctx.stroke();
+    }
+    ctx.restore();
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.anisotropy = 4;
+    organLeafSprites.set(cacheKey, texture);
+    return texture;
+  }
+  if (shape === 'giant-monocot') {
+    // Original procedural traveller/banana-style blade. A broad continuous
+    // lamina is kept for the stylized read, while a few shallow deterministic
+    // edge tears prevent the perfect paddle silhouette seen in the first
+    // generic implementation.
+    ctx.beginPath();
+    ctx.moveTo(0, size * 0.47);
+    ctx.bezierCurveTo(
+      -size * 0.13, size * 0.35,
+      -size * 0.25, size * 0.08,
+      -size * 0.23, -size * 0.16,
+    );
+    ctx.bezierCurveTo(
+      -size * 0.2, -size * 0.34,
+      -size * 0.09, -size * 0.45,
+      0, -size * 0.49,
+    );
+    ctx.bezierCurveTo(
+      size * 0.09, -size * 0.45,
+      size * 0.2, -size * 0.34,
+      size * 0.23, -size * 0.16,
+    );
+    ctx.bezierCurveTo(
+      size * 0.25, size * 0.08,
+      size * 0.13, size * 0.35,
+      0, size * 0.47,
+    );
+    ctx.closePath();
+    ctx.fill();
+    ctx.globalCompositeOperation = 'destination-out';
+    for (const side of [-1, 1]) {
+      for (let tear = 0; tear < 4; tear += 1) {
+        const y = size * (-0.22 + tear * 0.14);
+        const edge = side * size * (0.205 + (tear % 2) * 0.018);
+        ctx.beginPath();
+        ctx.moveTo(edge, y - size * 0.025);
+        ctx.lineTo(side * size * (0.08 + tear * 0.012), y);
+        ctx.lineTo(edge, y + size * 0.02);
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.restore();
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.anisotropy = 4;
+    organLeafSprites.set(cacheKey, texture);
+    return texture;
+  }
+  if (shape === 'rosette-blade') {
+    // Original procedural Yucca/Dracaena-style blade. The geometry controls
+    // the extreme biological aspect ratio; this mask supplies a rigid,
+    // slightly shouldered base and a sharp terminal point without borrowing
+    // pixels from third-party assets or botanical photographs.
+    ctx.beginPath();
+    ctx.moveTo(0, -size * 0.49);
+    ctx.bezierCurveTo(
+      size * 0.3, -size * 0.34,
+      size * 0.34, size * 0.24,
+      size * 0.17, size * 0.43,
+    );
+    ctx.quadraticCurveTo(0, size * 0.5, -size * 0.17, size * 0.43);
+    ctx.bezierCurveTo(
+      -size * 0.34, size * 0.24,
+      -size * 0.3, -size * 0.34,
+      0, -size * 0.49,
+    );
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.anisotropy = 4;
+    organLeafSprites.set(cacheKey, texture);
+    return texture;
+  }
+  if (shape === 'coconut-pinna-group') {
+    // One runtime card represents a small group from the coconut frond's
+    // much denser biological row. Three original lanceolate masks retain
+    // visible gaps and a feathered edge while avoiding either a solid paddle
+    // or hundreds of additional quads per frond.
+    for (const blade of [-1, 0, 1]) {
+      ctx.save();
+      ctx.translate(blade * size * 0.26, Math.abs(blade) * size * 0.018);
+      ctx.rotate(blade * 0.055);
+      traceLeafShapePath(ctx, 'teardrop', size * 0.92, size * 0.3);
+      ctx.fill();
+      ctx.restore();
+    }
+    ctx.restore();
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.anisotropy = 4;
+    organLeafSprites.set(cacheKey, texture);
+    return texture;
+  }
+  if (shape === 'oak-leaf') {
+    // One card represents one independently oriented English-oak leaf.
+    // The rounded alternating lobes and short tapered base are traced from
+    // Toonlab's own procedural outline; no reference or vendor pixels are
+    // embedded in the runtime texture.
+    traceLeafShapePath(ctx, 'oak', size * 0.9, size * 0.72);
+    ctx.fill();
+    ctx.restore();
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.anisotropy = 4;
+    organLeafSprites.set(cacheKey, texture);
+    return texture;
+  }
+  const bladeLength = size * 0.9;
+  // The geometry already supplies the biological leaflet aspect ratio. Fill
+  // most of that narrow card here; applying a second 3:1 squeeze in the alpha
+  // texture made palm pinnae disappear into one-pixel hairs at catalog scale.
+  const bladeWidth = size * (
+    shape === 'fern-pinna' ? 0.62
+      : shape === 'bamboo-leaf' ? 0.32
+        : 0.76
+  );
+  traceLeafShapePath(ctx, 'teardrop', bladeLength, bladeWidth);
+  ctx.fill();
+  ctx.restore();
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.anisotropy = 4;
+  organLeafSprites.set(cacheKey, texture);
+  return texture;
+}
+
 // Merged quad soup: 4 verts per card, position = card center, corners spread
 // in the vertex shader (billboarding). Cards sit on the blob surfaces so the
 // canopy silhouette stays clumpy rather than spherical.
@@ -260,6 +470,7 @@ export function createTreeFoliageGeometry({
   frondLength = 1.25,
   cardsPerCluster = 5,
   clusterRadius = 0.48,
+  individualBroadleafCards = false,
   // Per-attachment overrides keyed by attachment index:
   //   { [index]: { cardsPerCluster?, clusterRadius?, densityScale? } }
   // cardsPerCluster/clusterRadius replace the globals for that tuft;
@@ -334,19 +545,35 @@ export function createTreeFoliageGeometry({
   // attachment = index of the tuft's branch end, -1 for shell-fill cards —
   // baked into the aAttachment vertex attribute so pointer picks can map a
   // leaf card back to its branch.
-  const pushCard = (cardRng = rng, attachment = -1, cardSizeScale = 1) => {
-    shadeNormal.copy(cardCenter).sub(core).normalize();
+  const pushCard = (
+    cardRng = rng,
+    attachment = -1,
+    cardSizeScale = 1,
+    cardShape = [1, 1],
+    phaseOverride = null,
+    cardBasis = null,
+  ) => {
+    if (cardBasis?.normal) {
+      shadeNormal.copy(cardBasis.normal).normalize();
+    } else {
+      shadeNormal.copy(cardCenter).sub(core).normalize();
+    }
     cardCenter.multiplyScalar(size);
     minY = Math.min(minY, cardCenter.y);
     maxY = Math.max(maxY, cardCenter.y);
     cardData.push({
       attachment,
+      basisUp: cardBasis?.up?.clone().normalize() ?? new THREE.Vector3(0, 1, 0),
       center: cardCenter.clone(),
       normal: shadeNormal.clone(),
-      size: THREE.MathUtils.lerp(cardSizeRange[0], cardSizeRange[1], cardRng())
-        * size * cardSizeScale,
-      phase: cardRng(),
+      shape: cardShape,
+      size: cardBasis?.size ?? (
+        THREE.MathUtils.lerp(cardSizeRange[0], cardSizeRange[1], cardRng())
+          * size * cardSizeScale
+      ),
+      phase: phaseOverride == null ? cardRng() : THREE.MathUtils.euclideanModulo(phaseOverride, 1),
       tint: cardRng(),
+      worldOriented: Boolean(cardBasis),
     });
   };
 
@@ -380,13 +607,18 @@ export function createTreeFoliageGeometry({
   // A palm crown is one radial rosette at the highest leader. Repeating a
   // complete rosette at every twig tip turns a palm into a round broadleaf
   // ball and produces bare, disconnected-looking frond clusters.
+  const preservedRadialCrowns = attachmentEntries.filter(
+    (entry) => entry.attachment.preserveRadialCrown,
+  );
   const foliageAttachmentEntries = resolvedArchitecture === 'radial-fronds'
     && attachmentEntries.length
-    ? [attachmentEntries.reduce((highest, entry) => (
-      (entry.attachment.normalizedHeight ?? entry.attachment.position.y)
-        > (highest.attachment.normalizedHeight ?? highest.attachment.position.y)
-        ? entry : highest
-    ))]
+    ? preservedRadialCrowns.length
+      ? preservedRadialCrowns
+      : [attachmentEntries.reduce((highest, entry) => (
+        (entry.attachment.normalizedHeight ?? entry.attachment.position.y)
+          > (highest.attachment.normalizedHeight ?? highest.attachment.position.y)
+          ? entry : highest
+      ))]
     : attachmentEntries;
 
   if (foliageAttachmentEntries.length) {
@@ -403,15 +635,105 @@ export function createTreeFoliageGeometry({
       const densityScale = override?.densityScale ?? 1;
       const layerTotal = Math.max(1, Math.round(sprayLayers));
       const whorlTotal = Math.max(3, Math.round(whorlArms));
-      const frondTotal = Math.max(3, Math.round(frondCount));
+      const frondTotal = Math.max(3, Math.round(override?.frondCount ?? frondCount));
+      const localFrondLength = Math.max(0.05, override?.frondLength ?? frondLength);
+      const foliageSprayScale = THREE.MathUtils.clamp(
+        override?.foliageSprayScale ?? attachment.foliageSprayScale ?? 1,
+        0.4,
+        1.25,
+      );
+      const organType = override?.organType ?? attachment.organType ?? 'rosette-leaf';
+      const individualLeaf = Boolean(
+        override?.individualLeaf ?? attachment.individualLeaf,
+      );
+      const individualRosette = Boolean(
+        override?.individualRosette ?? attachment.individualRosette,
+      );
+      const juvenileEntireLeaf = Boolean(
+        override?.juvenileEntireLeaf ?? attachment.juvenileEntireLeaf,
+      );
+      const leafletPairs = Math.max(
+        3,
+        Math.round(override?.leafletPairs ?? attachment.leafletPairs ?? 8),
+      );
+      const leafletLengthRatio = THREE.MathUtils.clamp(
+        override?.leafletLengthRatio ?? attachment.leafletLengthRatio ?? 0.16,
+        0.12,
+        0.38,
+      );
+      const leafletLengthScale = THREE.MathUtils.clamp(
+        override?.leafletLengthScale ?? attachment.leafletLengthScale ?? 1,
+        0.65,
+        1.5,
+      );
+      const emergingLeafletScale = THREE.MathUtils.clamp(
+        override?.emergingLeafletScale ?? attachment.emergingLeafletScale ?? 1,
+        0.15,
+        1,
+      );
+      const leafletWidthScale = THREE.MathUtils.clamp(
+        override?.leafletWidthScale ?? attachment.leafletWidthScale ?? 1,
+        0.65,
+        1.6,
+      );
+      const pinnaAlongJitter = THREE.MathUtils.clamp(
+        override?.pinnaAlongJitter ?? attachment.pinnaAlongJitter ?? 0,
+        0,
+        0.9,
+      );
+      const pinnaDownfold = THREE.MathUtils.clamp(
+        override?.pinnaDownfold ?? attachment.pinnaDownfold ?? 0.34,
+        0.1,
+        0.72,
+      );
+      const pinnaDownfoldJitter = THREE.MathUtils.clamp(
+        override?.pinnaDownfoldJitter ?? attachment.pinnaDownfoldJitter ?? 0,
+        0,
+        0.18,
+      );
+      const pinnaLengthJitter = THREE.MathUtils.clamp(
+        override?.pinnaLengthJitter ?? attachment.pinnaLengthJitter ?? 0,
+        0,
+        0.28,
+      );
+      const pinnaRoll = THREE.MathUtils.clamp(
+        override?.pinnaRoll ?? attachment.pinnaRoll ?? 0.24,
+        0,
+        0.42,
+      );
+      const pinnaTipSweep = THREE.MathUtils.clamp(
+        override?.pinnaTipSweep ?? attachment.pinnaTipSweep ?? 0.08,
+        0,
+        0.72,
+      );
+      const uprightFrondFraction = THREE.MathUtils.clamp(
+        override?.uprightFrondFraction ?? attachment.uprightFrondFraction ?? 0.2,
+        0,
+        0.6,
+      );
       const rawCount = Math.round(
         tuftCardsPerCluster * (0.8 + tuftRng() * 0.5) * coverage * densityScale *
         Math.max(1, density));
       // Only an explicit override may bare a branch.
       const architectureMinimum = resolvedArchitecture === 'radial-fronds'
-        ? frondTotal * 3
-        : resolvedArchitecture === 'needle-whorls' ? whorlTotal : 3;
-      const tuftCards = override ? Math.max(rawCount, 0) : Math.max(rawCount, architectureMinimum);
+          ? individualLeaf && organType === 'giant-monocot-leaf'
+          ? 1
+          : juvenileEntireLeaf && organType === 'pinnate-frond'
+            ? frondTotal
+          : organType === 'pinnate-frond' || organType === 'fern-frond'
+          ? frondTotal * leafletPairs * 2
+          : organType === 'fan-frond'
+            ? frondTotal * 5
+            : frondTotal
+        : resolvedArchitecture === 'needle-whorls'
+          ? organType === 'conifer-leader-tip' ? 3 : whorlTotal
+          : 3;
+      const allowBare = override?.densityScale === 0 || override?.cardsPerCluster === 0;
+      const tuftCards = individualRosette && organType === 'rosette-leaf'
+        ? frondTotal
+        : allowBare
+        ? Math.max(rawCount, 0)
+        : Math.max(rawCount, architectureMinimum);
       const growth = (attachment.tangent ?? attachment.direction ?? new THREE.Vector3(0, 1, 0))
         .clone().normalize();
       const basisReference = Math.abs(growth.y) > 0.92
@@ -421,39 +743,416 @@ export function createTreeFoliageGeometry({
       const branchForward = new THREE.Vector3().crossVectors(branchRight, growth).normalize();
       for (let i = 0; i < tuftCards; i += 1) {
         let cardSizeScale = 1;
+        let cardShape = [1, 1];
+        let phaseOverride = null;
+        let cardBasis = null;
+        let secondaryCardBasis = null;
         if (resolvedArchitecture === 'layered-sprays') {
           const layer = i % layerTotal;
           const layerT = layerTotal === 1 ? 0 : layer / (layerTotal - 1) - 0.5;
           const radialT = Math.sqrt(tuftRng());
           const angle = tuftRng() * Math.PI * 2;
           cardCenter.copy(attachment.position)
-            .addScaledVector(branchRight, Math.cos(angle) * radialT * spraySpread)
-            .addScaledVector(branchForward, Math.sin(angle) * radialT * spraySpread * 0.62)
-            .addScaledVector(growth, layerT * sprayThickness + tuftRadius * 0.16);
-          cardSizeScale = 0.88 + tuftRng() * 0.2;
+            .addScaledVector(
+              branchRight,
+              Math.cos(angle) * radialT * spraySpread * foliageSprayScale,
+            )
+            .addScaledVector(
+              branchForward,
+              Math.sin(angle) * radialT * spraySpread * foliageSprayScale * 0.62,
+            )
+            .addScaledVector(
+              growth,
+              layerT * sprayThickness * foliageSprayScale + tuftRadius * 0.16,
+            );
+          cardSizeScale = (0.88 + tuftRng() * 0.2)
+            * (0.88 + foliageSprayScale * 0.12);
+          if (individualBroadleafCards && organType === 'broad-leaf') {
+            // Oak leaves grow alternately along short terminal shoots rather
+            // than as compound, fern-like radial sprites. A golden-angle
+            // divergence avoids artificial paired rows while preserving a
+            // deterministic, readable terminal spray.
+            const leafCount = Math.max(1, tuftCards);
+            const along = leafCount === 1 ? 1 : i / (leafCount - 1);
+            const divergence = i * Math.PI * (3 - Math.sqrt(5))
+              + attachmentIndex * 0.73;
+            const outward = branchRight.clone().multiplyScalar(Math.cos(divergence))
+              .addScaledVector(branchForward, Math.sin(divergence))
+              .normalize();
+            const shootLength = Math.max(tuftRadius * 1.15, spraySpread * 0.7)
+              * foliageSprayScale;
+            cardCenter.copy(attachment.position)
+              .addScaledVector(growth, (along - 0.62) * shootLength)
+              .addScaledVector(
+                outward,
+                tuftRadius * (0.07 + 0.12 * along + tuftRng() * 0.035),
+              );
+            cardSizeScale = 0.82 + tuftRng() * 0.24;
+            cardShape = [0.76, 1];
+            const leafUp = growth.clone().multiplyScalar(0.38)
+              .addScaledVector(outward, 0.88)
+              .addScaledVector(new THREE.Vector3(0, 1, 0), 0.08)
+              .normalize();
+            const leafNormal = new THREE.Vector3().crossVectors(leafUp, growth);
+            if (leafNormal.lengthSq() < 1e-6) {
+              leafNormal.crossVectors(leafUp, branchRight);
+            }
+            cardBasis = { normal: leafNormal.normalize(), up: leafUp };
+          } else if (organType === 'bamboo-leaf') {
+            // One attachment represents a real leafy branch, not a spherical
+            // tuft. Place alternating lanceolate leaves progressively along
+            // the twig so node-born branch topology remains legible.
+            const leafCount = Math.max(1, tuftCards);
+            const rowCount = Math.ceil(leafCount / 2);
+            const row = Math.floor(i / 2);
+            const side = i % 2 === 0 ? -1 : 1;
+            const rowT = (row + 0.72) / Math.max(1, rowCount);
+            const leafRunLength = Math.max(
+              tuftRadius * 1.8,
+              override?.leafRunLength ?? attachment.leafRunLength ?? tuftRadius * 2.8,
+            );
+            const depthBand = (i % 3) - 1;
+            const lateralJitter = (tuftRng() - 0.5) * tuftRadius * 0.16;
+            cardCenter.copy(attachment.position)
+              .addScaledVector(growth, -leafRunLength * (1 - rowT) * 0.9)
+              .addScaledVector(branchRight, side * tuftRadius * (0.12 + rowT * 0.16))
+              .addScaledVector(
+                branchForward,
+                depthBand * tuftRadius * (0.07 + rowT * 0.05) + lateralJitter,
+              );
+            // The alpha mask narrows the card again, so this restrained
+            // geometry exaggeration keeps a real 1:7–1:10 bamboo blade
+            // readable in the full-height stylized catalog capture.
+            cardShape = [
+              0.85 * THREE.MathUtils.clamp(
+                override?.bambooLeafWidthScale ?? attachment.bambooLeafWidthScale ?? 1,
+                0.75,
+                1.35,
+              ),
+              1.35 * THREE.MathUtils.clamp(
+                override?.bambooLeafLengthScale ?? attachment.bambooLeafLengthScale ?? 1,
+                0.8,
+                1.4,
+              ),
+            ];
+            cardSizeScale *= 0.9 + tuftRng() * 0.16;
+            const leafUp = growth.clone().multiplyScalar(0.62)
+              .addScaledVector(branchRight, side * (0.62 + rowT * 0.18))
+              .addScaledVector(
+                branchForward,
+                depthBand * 0.2 + (tuftRng() - 0.5) * 0.14,
+              )
+              .addScaledVector(new THREE.Vector3(0, 1, 0), 0.08 - rowT * 0.13)
+              .normalize();
+            const leafNormal = new THREE.Vector3().crossVectors(leafUp, growth);
+            if (leafNormal.lengthSq() < 1e-6) leafNormal.crossVectors(leafUp, branchRight);
+            leafNormal.normalize();
+            cardBasis = { normal: leafNormal, up: leafUp };
+            // Mature graph sprays already fork in three dimensions. Emitting
+            // one world-oriented card per blade preserves the two-ranked
+            // bamboo leaf arrangement; the previous crossed duplicate made
+            // every blade read as a broad X-shaped fern leaflet.
+            const singleBladeCards = Boolean(
+              override?.bambooSingleBladeCards ?? attachment.bambooSingleBladeCards,
+            );
+            if (singleBladeCards) {
+              secondaryCardBasis = null;
+            } else {
+              const leafRight = new THREE.Vector3()
+                .crossVectors(leafUp, leafNormal)
+                .normalize();
+              const crossAngle = Math.PI * 0.34;
+              const crossNormal = leafNormal.clone()
+                .multiplyScalar(Math.cos(crossAngle))
+                .addScaledVector(leafRight, Math.sin(crossAngle))
+                .normalize();
+              secondaryCardBasis = { normal: crossNormal, up: leafUp };
+            }
+          }
         } else if (resolvedArchitecture === 'needle-whorls') {
           const arm = i % whorlTotal;
           const ring = Math.floor(i / whorlTotal);
           const ringCount = Math.max(1, Math.ceil(tuftCards / whorlTotal));
           const angle = (arm / whorlTotal) * Math.PI * 2 + tuftRng() * 0.22;
-          const radius = whorlRadius * (0.68 + tuftRng() * 0.34);
+          const localWhorlRadius = Math.max(
+            0.015,
+            override?.whorlRadius ?? attachment.whorlRadius ?? whorlRadius,
+          );
+          const radius = localWhorlRadius * (0.68 + tuftRng() * 0.34);
           const ringT = ringCount === 1 ? 0 : ring / (ringCount - 1) - 0.5;
+          const radialDirection = branchRight.clone().multiplyScalar(Math.cos(angle))
+            .addScaledVector(branchForward, Math.sin(angle))
+            .normalize();
           cardCenter.copy(attachment.position)
-            .addScaledVector(branchRight, Math.cos(angle) * radius)
-            .addScaledVector(branchForward, Math.sin(angle) * radius)
+            .addScaledVector(radialDirection, radius)
             .addScaledVector(growth, ringT * tuftRadius * 1.25);
-          cardSizeScale = 0.52 + tuftRng() * 0.16;
+          // The card represents a needle-bearing branchlet, so its long axis
+          // follows the twig. Radial offset only separates overlapping
+          // branchlets around that twig; using it as the long axis produced
+          // starbursts and vertical strings instead of layered spruce boughs.
+          const needleLong = growth.clone()
+            .addScaledVector(
+              radialDirection,
+              organType === 'conifer-leader-tip' ? 0.32 : 0.1,
+            )
+            .normalize();
+          const needleShort = radialDirection.clone()
+            .addScaledVector(needleLong, -radialDirection.dot(needleLong))
+            .normalize();
+          const needleNormal = new THREE.Vector3()
+            .crossVectors(needleShort, needleLong)
+            .normalize();
+          cardShape = organType === 'needle-fascicle' ? [0.18, 1.08] : [0.64, 1];
+          cardSizeScale = organType === 'conifer-leader-tip'
+            ? 0.62 + tuftRng() * 0.1
+            : 0.78 + tuftRng() * 0.14;
+          // One view-facing branchlet in each small cluster keeps the
+          // stylized crown readable from front/side/back; the others retain
+          // true world orientation and supply parallax and edge structure.
+          cardBasis = i % 3 === 0
+            ? null
+            : {
+              normal: needleNormal,
+              up: needleLong,
+            };
         } else if (resolvedArchitecture === 'radial-fronds') {
           const arm = i % frondTotal;
           const step = Math.floor(i / frondTotal);
           const stepCount = Math.max(1, Math.ceil(tuftCards / frondTotal));
-          const along = (step + 1) / (stepCount + 0.5);
-          const angle = (arm / frondTotal) * Math.PI * 2 + tuftRng() * 0.16;
-          cardCenter.copy(attachment.position)
-            .addScaledVector(branchRight, Math.cos(angle) * frondLength * along)
-            .addScaledVector(branchForward, Math.sin(angle) * frondLength * along)
-            .addScaledVector(growth, tuftRadius * (0.28 - along * 0.32));
-          cardSizeScale = 0.62 + along * 0.3;
+          const angle = (arm / frondTotal) * Math.PI * 2 + tuftRng() * 0.045;
+          const radialDirection = branchRight.clone().multiplyScalar(Math.cos(angle))
+            .addScaledVector(branchForward, Math.sin(angle));
+          const lateralDirection = branchRight.clone().multiplyScalar(-Math.sin(angle))
+            .addScaledVector(branchForward, Math.cos(angle));
+          const droop = Math.max(0, attachment.crownDroop ?? 0);
+          const crownArch = Math.max(
+            0,
+            override?.crownArch ?? attachment.crownArch ?? 0.2,
+          );
+          const crownDropScale = THREE.MathUtils.clamp(
+            override?.crownDropScale ?? attachment.crownDropScale ?? (
+              organType === 'fern-frond' ? 0.34 : 0.25
+            ),
+            0.18,
+            0.52,
+          );
+          const uprightT = (arm * 0.6180339887498949) % 1;
+          const emergence = uprightT < uprightFrondFraction
+            ? 1 - uprightT / Math.max(uprightFrondFraction, 1e-4)
+            : 0;
+          const radialReach = 1 - emergence * 0.48;
+          if (individualRosette && organType === 'rosette-leaf') {
+            // One card is one rigid biological blade. Arrange blades around
+            // the terminal growth axis with most leaves spreading outward,
+            // a smaller upright inner cohort, and a few retained older leaves
+            // angled slightly back. This is a terminal rosette, not a generic
+            // broadleaf tuft or a palm frond crown.
+            const ageT = (arm * 0.6180339887498949 + tuftRng() * 0.08) % 1;
+            const axial = THREE.MathUtils.lerp(
+              -0.18,
+              0.86,
+              ageT ** 2.15,
+            );
+            const radialWeight = Math.sqrt(Math.max(0.08, 1 - axial * axial));
+            const leafUp = radialDirection.clone()
+              .multiplyScalar(radialWeight)
+              .addScaledVector(growth, axial)
+              .normalize();
+            cardCenter.copy(attachment.position)
+              .addScaledVector(leafUp, localFrondLength * 0.5);
+            cardShape = [
+              THREE.MathUtils.clamp(
+                override?.leafWidthScale ?? attachment.leafWidthScale ?? 0.065,
+                0.035,
+                0.14,
+              ),
+              1,
+            ];
+            cardBasis = {
+              normal: lateralDirection.clone().normalize(),
+              size: localFrondLength * (0.87 + tuftRng() * 0.18),
+              up: leafUp,
+            };
+            phaseOverride = angle / (Math.PI * 2);
+          } else if (juvenileEntireLeaf && organType === 'pinnate-frond') {
+            // Coconut seedlings first produce entire, pleated strap leaves;
+            // the blade progressively splits into pinnae after the first
+            // year. One continuous blade sits on one short petiole; adult
+            // multi-segment feather logic is deliberately not reused here.
+            const leafUp = radialDirection.clone()
+              .multiplyScalar(radialReach)
+              .addScaledVector(
+                growth,
+                0.42 + emergence * 0.55 - droop * (1 - emergence) * 0.12,
+              )
+              .normalize();
+            cardCenter.copy(attachment.position)
+              .addScaledVector(leafUp, localFrondLength * 0.48);
+            cardShape = [0.26, 1];
+            const juvenileNormal = new THREE.Vector3(
+              arm % 2 === 0 ? 1 : -1,
+              0,
+              1,
+            ).normalize();
+            juvenileNormal
+              .addScaledVector(leafUp, -juvenileNormal.dot(leafUp))
+              .normalize();
+            if (juvenileNormal.lengthSq() < 1e-6) {
+              juvenileNormal.copy(lateralDirection).normalize();
+            }
+            cardBasis = {
+              normal: juvenileNormal,
+              size: localFrondLength * 1.05,
+              up: leafUp,
+            };
+            phaseOverride = angle / (Math.PI * 2);
+          } else if (individualLeaf && organType === 'giant-monocot-leaf') {
+            const leafUp = growth.clone().normalize();
+            const leafNormal = (
+              override?.leafNormal
+              ?? attachment.leafNormal
+              ?? branchForward
+            ).clone().normalize();
+            // Keep the normal perpendicular to the long blade axis so the
+            // card remains stable when a fan leaf approaches vertical.
+            leafNormal
+              .addScaledVector(leafUp, -leafNormal.dot(leafUp))
+              .normalize();
+            if (leafNormal.lengthSq() < 1e-6) leafNormal.copy(branchForward);
+            cardCenter.copy(attachment.position);
+            cardShape = [
+              THREE.MathUtils.clamp(
+                override?.leafWidthScale ?? attachment.leafWidthScale ?? 0.4,
+                0.25,
+                0.58,
+              ),
+              1,
+            ];
+            cardBasis = {
+              normal: leafNormal,
+              size: localFrondLength,
+              up: leafUp,
+            };
+            phaseOverride = (attachment.fanAngle ?? 0) / (Math.PI * 2);
+          } else if (attachment.fanPlane) {
+            const along = (step + 1) / (stepCount + 0.5);
+            const fanT = frondTotal === 1 ? 0.5 : arm / (frondTotal - 1);
+            const fanAngle = THREE.MathUtils.lerp(-1.12, 1.12, fanT)
+              + (tuftRng() - 0.5) * 0.05;
+            cardCenter.copy(attachment.position)
+              .addScaledVector(branchRight, Math.sin(fanAngle) * localFrondLength * along)
+              .addScaledVector(growth, Math.cos(fanAngle) * localFrondLength * along)
+              .addScaledVector(branchForward, (tuftRng() - 0.5) * tuftRadius * 0.12);
+            cardShape = [0.42, 1.65];
+            cardSizeScale = 0.82 + along * 0.25;
+            phaseOverride = fanAngle / (Math.PI * 2);
+          } else if (organType === 'pinnate-frond' || organType === 'fern-frond') {
+            // A pinnate frond is a feather, not a chain of broadleaf puffs:
+            // paired narrow pinnae flank a curved rachis and shrink toward
+            // both its base and tip. The graph carries the matching rachis
+            // axes, so these cards read as attached organs from every view.
+            const side = step % 2 === 0 ? -1 : 1;
+            const pair = Math.floor(step / 2);
+            const pairCount = Math.max(1, Math.ceil(stepCount / 2));
+            const pairInterval = 1 / Math.max(1, pairCount + 0.42);
+            const along = THREE.MathUtils.clamp(
+              (pair + 0.72) / (pairCount + 0.42)
+                + (tuftRng() - 0.5) * pairInterval * pinnaAlongJitter,
+              pairInterval * 0.42,
+              1 - pairInterval * 0.28,
+            );
+            const leafletEnvelope = Math.sin(Math.PI * THREE.MathUtils.clamp(along, 0, 1));
+            const leafletLength = localFrondLength * leafletLengthRatio
+              * (0.35 + leafletEnvelope * 0.65)
+              * leafletLengthScale
+              * THREE.MathUtils.lerp(
+                1,
+                emergingLeafletScale,
+                emergence ** 0.72,
+              )
+              * (1 + (tuftRng() - 0.5) * pinnaLengthJitter);
+            const crownLift = localFrondLength * (
+              Math.sin(Math.PI * along) * crownArch
+              + emergence * along * (organType === 'fern-frond' ? 0.58 : 0.72)
+              - droop * (1 - emergence) * along ** 1.7
+                * crownDropScale
+            );
+            const rachisPosition = cardCenter.copy(attachment.position)
+              .addScaledVector(radialDirection, localFrondLength * radialReach * along)
+              .addScaledVector(growth, crownLift);
+            const leafletLong = lateralDirection.clone().multiplyScalar(side)
+              .addScaledVector(
+                radialDirection,
+                THREE.MathUtils.lerp(0.06, pinnaTipSweep, along ** 2.2),
+              )
+              // Palm and fern pinnae are not flat horizontal strips. A
+              // downward fold makes the feather visible in side elevation
+              // and produces the characteristic hanging coconut silhouette.
+              .addScaledVector(
+                growth,
+                organType === 'fern-frond'
+                  ? -0.14
+                  : -(pinnaDownfold
+                    + (tuftRng() - 0.5) * pinnaDownfoldJitter),
+              )
+              .normalize();
+            const leafletShort = radialDirection.clone()
+              .addScaledVector(growth, organType === 'fern-frond' ? 0.32 : 0.5);
+            leafletShort
+              .addScaledVector(leafletLong, -leafletShort.dot(leafletLong))
+              .normalize();
+            if (organType === 'pinnate-frond') {
+              // Pinnae twist incrementally along a real coconut rachis. A
+              // small deterministic four-step roll avoids an artificial
+              // single flat comb and keeps the stylized feather readable
+              // from front, side, and back without camera-facing billboards.
+              const localPinnaRoll = ((pair % 4) - 1.5) * pinnaRoll + side * 0.06;
+              leafletShort.applyAxisAngle(leafletLong, localPinnaRoll).normalize();
+            }
+            const leafletNormal = new THREE.Vector3()
+              .crossVectors(leafletShort, leafletLong)
+              .normalize();
+            if (leafletNormal.y < 0) leafletNormal.multiplyScalar(-1);
+            cardCenter.copy(rachisPosition)
+              .addScaledVector(leafletLong, leafletLength * 0.48);
+            cardShape = organType === 'fern-frond'
+              ? [0.28, 1]
+              : [0.32 * leafletWidthScale, 1];
+            cardBasis = {
+              normal: leafletNormal,
+              size: leafletLength,
+              up: leafletLong,
+            };
+            phaseOverride = (angle + side * Math.PI * 0.5) / (Math.PI * 2);
+          } else if (organType === 'fan-frond') {
+            const ray = step % 5;
+            const along = 0.58 + ray / 5 * 0.42;
+            const fanOffset = (ray - 2) * 0.105;
+            cardCenter.copy(attachment.position)
+              .addScaledVector(radialDirection, localFrondLength * along)
+              .addScaledVector(lateralDirection, localFrondLength * fanOffset)
+              .addScaledVector(
+                growth,
+                localFrondLength * (0.08 - droop * along ** 1.6 * 0.22),
+              );
+            cardShape = [0.68, 1.25];
+            cardSizeScale = 0.48 + (1 - Math.abs(fanOffset)) * 0.08;
+            phaseOverride = angle / (Math.PI * 2);
+          } else {
+            const along = (step + 1) / (stepCount + 0.5);
+            cardCenter.copy(attachment.position)
+              .addScaledVector(radialDirection, localFrondLength * along)
+              .addScaledVector(
+                growth,
+                tuftRadius * (0.28 - along * 0.32)
+                  - localFrondLength * along ** 1.7 * droop * 0.26,
+              );
+            cardShape = organType === 'giant-monocot-leaf' ? [0.38, 1.75] : [0.3, 1.55];
+            cardSizeScale = organType === 'giant-monocot-leaf'
+              ? 0.95 + along * 0.35
+              : 0.58 + along * 0.24;
+            phaseOverride = angle / (Math.PI * 2);
+          }
         } else {
           // Historical cloud-card puff: preserve the existing seeded layout.
           const radius = tuftRadius * (0.35 + 0.65 * Math.cbrt(tuftRng()));
@@ -470,7 +1169,24 @@ export function createTreeFoliageGeometry({
               attachment.direction, (0.1 + tuftRng() * 0.35) * tuftRadius);
           }
         }
-        pushCard(tuftRng, attachmentIndex, cardSizeScale);
+        pushCard(
+          tuftRng,
+          attachmentIndex,
+          cardSizeScale,
+          cardShape,
+          phaseOverride,
+          cardBasis,
+        );
+        if (secondaryCardBasis) {
+          pushCard(
+            tuftRng,
+            attachmentIndex,
+            cardSizeScale,
+            cardShape,
+            phaseOverride,
+            secondaryCardBasis,
+          );
+        }
       }
     });
     // Then shell fill (gap-cullable) tops the crown up to a solid mass —
@@ -498,6 +1214,11 @@ export function createTreeFoliageGeometry({
   const uvs = new Float32Array(cardData.length * 4 * 2);
   const shadeNormals = new Float32Array(cardData.length * 4 * 3);
   const infos = new Float32Array(cardData.length * 4 * 4);
+  const cardShapes = new Float32Array(cardData.length * 4 * 2);
+  // xyz = fixed organ-card up axis; w = 1 for fixed organ cards, 0 for
+  // billboards. The right axis is recovered from up × aShadeNormal. Packing
+  // this into one buffer keeps the WebGPU vertex-buffer count below eight.
+  const cardFrames = new Float32Array(cardData.length * 4 * 4);
   const attachmentIds = new Float32Array(cardData.length * 4);
   const indices = new Uint32Array(cardData.length * 6);
 
@@ -521,6 +1242,12 @@ export function createTreeFoliageGeometry({
       infos[vertex * 4 + 1] = card.phase;
       infos[vertex * 4 + 2] = card.tint;
       infos[vertex * 4 + 3] = heightT;
+      cardShapes[vertex * 2] = card.shape?.[0] ?? 1;
+      cardShapes[vertex * 2 + 1] = card.shape?.[1] ?? 1;
+      cardFrames[vertex * 4] = card.basisUp.x;
+      cardFrames[vertex * 4 + 1] = card.basisUp.y;
+      cardFrames[vertex * 4 + 2] = card.basisUp.z;
+      cardFrames[vertex * 4 + 3] = card.worldOriented ? 1 : 0;
       attachmentIds[vertex] = card.attachment;
     }
     const base = cardIndex * 4;
@@ -534,13 +1261,24 @@ export function createTreeFoliageGeometry({
   geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   geometry.setAttribute('aShadeNormal', new THREE.BufferAttribute(shadeNormals, 3));
   geometry.setAttribute('aInfo', new THREE.BufferAttribute(infos, 4));
+  geometry.setAttribute('aCardShape', new THREE.BufferAttribute(cardShapes, 2));
+  geometry.setAttribute('aCardFrame', new THREE.BufferAttribute(cardFrames, 4));
   // Branch-end index per card (-1 = shell fill), for pointer picking.
   geometry.setAttribute('aAttachment', new THREE.BufferAttribute(attachmentIds, 1));
   geometry.userData.treeFoliageArchitecture = resolvedArchitecture;
   // Billboards expand past their centers; pad the bounds so culling and the
   // shadow camera keep the swaying crown fully inside.
+  geometry.computeBoundingBox();
   geometry.computeBoundingSphere();
-  geometry.boundingSphere.radius += cardSizeRange[1] * size;
+  const maxCardExtent = cardData.reduce(
+    (maximum, card) => Math.max(
+      maximum,
+      card.size * Math.hypot(card.shape?.[0] ?? 1, card.shape?.[1] ?? 1) * 0.56,
+    ),
+    0,
+  );
+  geometry.boundingBox.expandByScalar(maxCardExtent);
+  geometry.boundingSphere.radius += maxCardExtent;
   return geometry;
 }
 
@@ -631,10 +1369,12 @@ export function deriveCanopyPalette(color, overrides = {}) {
   return { lit, shadow, crown };
 }
 
-let sharedLeafSprite = null;
-function defaultLeafSprite() {
-  if (!sharedLeafSprite) sharedLeafSprite = createLeafSpriteTexture();
-  return sharedLeafSprite;
+const sharedLeafSprites = new Map();
+function defaultLeafSprite(shape = 'teardrop') {
+  if (!sharedLeafSprites.has(shape)) {
+    sharedLeafSprites.set(shape, createLeafSpriteTexture({ shape }));
+  }
+  return sharedLeafSprites.get(shape);
 }
 
 // Shared uniform setters behind the setSun/setWind/... methods that every
@@ -692,6 +1432,7 @@ export function createTreeFoliageMaterials({
   palette: paletteOverrides = {},
   seed = 1,
   leafMap = null,
+  leafShape = 'teardrop',
   // Low enough that mipmap-averaged alpha doesn't erode distant crowns.
   alphaCutoff = 0.3,
   windDirection = [1, 0.3],
@@ -714,7 +1455,7 @@ export function createTreeFoliageMaterials({
   sharedUniforms = {},
 } = {}) {
   const palette = deriveCanopyPalette(resolveCanopyColor(color, seed), paletteOverrides);
-  const map = leafMap ?? defaultLeafSprite();
+  const map = leafMap ?? defaultLeafSprite(leafShape);
 
   const material = createTreeLeafNodeMaterial({
     alphaCutoff,

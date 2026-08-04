@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Your local ToonLab creations, generated assets, style profiles, and style bundles." />
+    <title>Library — ToonLab</title>
+    <link rel="stylesheet" href="/labs/home/home.css" />
+    <link rel="stylesheet" href="/labs/gallery/gallery.css" />
+    <link rel="stylesheet" href="/labs/library/library.css" />
+  </head>
+  <body>
+    <toonlab-site-header active="library"></toonlab-site-header>
+    <main class="home-main gal-main">
+      <section id="libraryIndex">
+        <div class="lib-heading">
+          <div class="gal-toolbar">
+            <h1>Library</h1>
+            <span class="jp">ライブラリ</span>
+          </div>
+          <div class="lib-tools">
+            <span id="libraryStatus" class="gal-section-note mono"></span>
+            <input id="librarySearch" class="tl-input gal-search" type="search" placeholder="Search your library…" />
+          </div>
+        </div>
+        <p class="home-sub">Named lab creations, generated assets, and style bundles saved in your local Postgres database.</p>
+        <div id="libraryGrid" class="gal-grid lib-grid"></div>
+        <div id="libraryEmpty" class="tl-empty" hidden>
+          <span class="lib-empty-icon" aria-hidden="true">🌸</span>
+          <strong>Nothing saved yet</strong>
+          <span>Make something in a <a href="/">lab</a>, then save it with a name.</span>
+        </div>
+      </section>
+
+      <section id="libraryDetail" class="lib-detail" hidden>
+        <a class="lib-back" href="/library/">← Library</a>
+        <div class="lib-hero">
+          <div id="detailPreview" class="lib-preview" aria-hidden="true"></div>
+          <div class="lib-hero-copy">
+            <span id="detailType" class="gal-badge"></span>
+            <h1 id="detailTitle"></h1>
+            <div id="detailActions" class="lib-actions"></div>
+          </div>
+        </div>
+        <form id="detailForm" class="lib-card">
+          <label class="lib-field">
+            <span>Name</span>
+            <input class="tl-input" name="label" required maxlength="120" />
+          </label>
+          <label class="lib-field">
+            <span>Description</span>
+            <textarea class="tl-input" name="description" rows="3" maxlength="2000"></textarea>
+          </label>
+          <div class="lib-form-actions">
+            <button class="tl-btn tl-btn--primary" type="submit">Save changes</button>
+            <button id="deleteEntry" class="tl-btn lib-danger" type="button">Delete</button>
+          </div>
+          <span id="detailStatus" class="lib-status mono" role="status"></span>
+        </form>
+        <details class="lib-json">
+          <summary>Document JSON</summary>
+          <pre id="detailJson" class="mono"></pre>
+        </details>
+      </section>
+    </main>
+    <script type="module" src="/labs/library/main.js"></script>
+  </body>
+</html>

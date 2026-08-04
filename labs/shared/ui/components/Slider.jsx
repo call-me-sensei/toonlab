@@ -32,17 +32,23 @@ export function Slider({
 
   function onPointerDown(event) {
     if (disabled || event.button !== 0) return;
+    const target = event.currentTarget;
     try {
-      event.currentTarget.setPointerCapture(event.pointerId);
+      target.setPointerCapture(event.pointerId);
     } catch { /* synthetic pointers (tests) have no capturable id */ }
-    onChange(valueFromPointer(event));
-    const move = (moveEvent) => onChange(valueFromPointer(moveEvent));
-    const up = (upEvent) => {
-      upEvent.target.removeEventListener('pointermove', move);
-      upEvent.target.removeEventListener('pointerup', up);
+    let latest = valueFromPointer(event);
+    onChange(latest, { gestureStart: true, transient: true });
+    const move = (moveEvent) => {
+      latest = valueFromPointer(moveEvent);
+      onChange(latest, { transient: true });
     };
-    event.currentTarget.addEventListener('pointermove', move);
-    event.currentTarget.addEventListener('pointerup', up);
+    const up = () => {
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', up);
+      onChange(latest, { gestureEnd: true, transient: false });
+    };
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', up);
   }
 
   const defaultFraction = defaultValue === null
@@ -82,7 +88,13 @@ export function ScrubValue({
 
   function onPointerDown(event) {
     if (disabled || event.button !== 0) return;
-    dragState.current = { moved: false, startValue: value, startX: event.clientX };
+    dragState.current = {
+      latest: value,
+      moved: false,
+      startValue: value,
+      startX: event.clientX,
+      started: false,
+    };
     try {
       event.currentTarget.setPointerCapture(event.pointerId);
     } catch { /* synthetic pointers (tests) have no capturable id */ }
@@ -96,13 +108,19 @@ export function ScrubValue({
     if (!drag.moved) return;
     const scale = event.shiftKey ? 10 : event.altKey ? 0.1 : 1;
     const raw = drag.startValue + dx * step * scale;
-    onChange(clamp(snap(raw, min, step * (scale === 0.1 ? 0.1 : 1)), min, max));
+    drag.latest = clamp(snap(raw, min, step * (scale === 0.1 ? 0.1 : 1)), min, max);
+    onChange(drag.latest, {
+      gestureStart: !drag.started,
+      transient: true,
+    });
+    drag.started = true;
   }
 
   function onPointerUp() {
     const drag = dragState.current;
     dragState.current = null;
     if (drag && !drag.moved) setEditing(true);
+    else if (drag) onChange(drag.latest, { gestureEnd: true, transient: false });
   }
 
   if (editing) {

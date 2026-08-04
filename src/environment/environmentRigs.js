@@ -38,6 +38,11 @@ import { NodeMaterial } from 'three/webgpu';
 const backdropTextureLoader = new THREE.TextureLoader();
 const backdropTextureCache = new Map();
 
+// ToonLab's surface-light adapter normalizes directional irradiance by PI.
+// Keep the public rig input in intuitive "suns" while converting once at the
+// Three light boundary.
+export const ENVIRONMENT_SUN_INTENSITY_SCALE = Math.PI;
+
 export function environmentRelativePoint(environmentBox, ratios, target = new THREE.Vector3()) {
   const center = environmentBox.getCenter(new THREE.Vector3());
   const size = environmentBox.getSize(new THREE.Vector3());
@@ -155,7 +160,10 @@ export function createEnvironmentSunRig({
   const group = new THREE.Group();
   group.name = 'Environment sun rig';
 
-  const light = new THREE.DirectionalLight(color, intensity);
+  const light = new THREE.DirectionalLight(
+    color,
+    intensity * ENVIRONMENT_SUN_INTENSITY_SCALE,
+  );
   light.name = 'Environment sun key';
   light.castShadow = shadow.enabled !== false;
   light.shadow.mapSize.set(mapSize, mapSize);
@@ -253,7 +261,9 @@ export function createEnvironmentSunRig({
     shaftOpacity,
   } = {}) {
     if (nextColor) light.color.set(nextColor);
-    if (Number.isFinite(nextIntensity)) light.intensity = nextIntensity;
+    if (Number.isFinite(nextIntensity)) {
+      light.intensity = nextIntensity * ENVIRONMENT_SUN_INTENSITY_SCALE;
+    }
     if (nextSource) {
       light.position.copy(environmentRelativePoint(environmentBox, nextSource));
       disk?.position.copy(light.position).multiplyScalar(1.15);

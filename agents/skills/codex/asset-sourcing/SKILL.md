@@ -1,6 +1,6 @@
 ---
 name: asset-sourcing
-description: Help agents reuse, generate, discover, import, and prepare assets — approved stylized procedural base sets when reliable, curated CC0/CC-BY discovery for gaps, optional image-to-3D, licensing provenance, and portable rendering-domain/material labels.
+description: Help agents source anime-game-ready models, textures, and presets through policy-aware ToonLab MCP discovery, provenance, supported shaders, and explicit custom-gap reporting.
 ---
 
 # Asset Sourcing
@@ -9,16 +9,13 @@ Use this skill when a developer needs an asset — a model, texture, HDRI,
 prop, tree, rock, building, material, or a saved look/behavior preset.
 
 Read first:
-- `docs/open-asset-library.md` for scene-kit coverage, approved generator
-  base sets, route selection, CC0/CC-BY policy, and acceptance evidence.
-- `docs/styles-and-bundles.md` for rendering domains, semantic labels,
-  support levels, and Call Me Sensei verification.
-- `docs/mcp.md` (only the MCP-routed steps need a connected server)
-- `docs/urban-prop-surface-roles.md` when generating, importing, or preparing
-  an urban prop GLB, or when building a reusable prop shader. If the repo copy
-  is unavailable, use `https://toonlab.io/docs/urban-prop-roles.md`.
+- `agents/references/anime-art-direction.md`
+- `agents/references/style-bundles.md`
+- `agents/references/mcp-asset-discovery.md`
+- `agents/references/asset-sourcing-policy.md`
+- `agents/references/custom-gap-report.md`
 
-**The boundary:** the npm package is the worker for approved procedural
+**The boundary:** ToonLab targets anime-style games and environments. The npm package is the worker for approved procedural
 families, style presets, and texture baking. The gallery is optional. Route
 through MCP only where it adds something beyond the package: external
 discovery, curation/moderation policy, download provenance, shared workspace
@@ -27,52 +24,78 @@ proxy for package functions. ToonLab Pro may author and review stylized base
 sets; their approved documents, recipes, labels, seeds, and provenance must
 remain portable so OSS runtimes can use them without a database.
 
+## Select the connected MCP surface
+
+Feature-detect tools before making a call. ToonLab OSS local MCP is identified
+by `get_workspace_info`, `search_cc0_assets`, `get_cc0_asset`, and
+`import_cc0_asset`. ToonLab Pro remote MCP is identified by
+`get_runtime_guide`, `search_public_gallery`, and `get_toonlab_asset`. Either
+surface is sufficient and both may be connected. Shared names such as
+`search_assets`, `get_asset`, `list_my_creations`,
+`validate_asset_candidate`, and `record_asset_gap` have surface-specific
+schemas; qualify them by MCP server when both are present and use the schema
+advertised by that server. Read `agents/references/mcp-asset-discovery.md` for
+the exact OSS and Pro sequences.
+
 ## Decision order
 
 Choose the first route that is both available and accepted for the requested
 scene-kit role.
 
-1. **Reuse what exists.** Earlier imports, saved presets, and exports live in
-   `.toonlab/` on disk. Query via MCP (`list_my_creations` / `search_assets`
-   with `source: 'workspace'` or `'library'`, then `get_my_creation` /
-   `get_asset`) or read the folder directly when working inside the project.
-   Never regenerate or re-download something already there.
-2. **Use an approved procedural family (no gallery).** The built-in catalog
-   ships in
-   `@call-me-sensei/toonlab/catalog`: `catalog.list({ kind, cluster, tags,
-   text })` to browse trees, rocks, debris, props, buildings, paths, then
-   `catalog.spawn(id, { seed })` for a deterministic, placeable asset.
-   Seamless stylized textures: `@call-me-sensei/toonlab/texgen`. This is the
-   direct route only when the requested family has an approved, versioned
-   stylized base set and passes the reliability gate in
-   `docs/open-asset-library.md`. Preserve base-set version, generator version,
+1. **Load policy and ask when missing.** Call the available server's
+   `get_anime_game_profile`, load
+   the selected bundle, and locate the project's sourcing policy. If no policy
+   exists, ask the developer; until answered, use library-first advisory mode
+   and report the unresolved decision. Validate every candidate before use.
+2. **Reuse what exists.** In OSS, earlier imports, saved presets, and exports
+   live in `.toonlab/`; call local `list_my_creations` and `search_assets` with
+   `source: 'workspace'`, `'workspace-storage'`, `'library'`, or `'builtin'`.
+   If those do not close the role, use local `search_assets` with
+   `source: 'official'` for the complete released Gallery catalog and follow
+   `nextOffset` until null.
+   In Pro, call cloud `list_my_creations`, then `search_public_gallery`; use
+   `source: 'toonlab'` plus the appropriate catalog for first-party assets and
+   follow `nextOffset`. For rocks on either surface, shortlist from positive
+   `dimensionsMeters` width/height/depth plus family/profile, scale class,
+   category/subcategory, geology, and surface; never render a GLB merely to
+   discover its size. Call `get_asset` (OSS) or `get_toonlab_asset` (Pro) only
+   for finalists that need full recipe, lineage, and file metadata. When both are connected,
+   search the local project/library before the Pro cloud library and gallery.
+   Never regenerate or re-download something already available.
+3. **Use an approved procedural family only when policy permits it.** Discover
+   approved families through MCP, then use their focused runtime such as
+   `@call-me-sensei/toonlab/vegetation`, `rockgen`, `debrisgen`, or `texgen`.
+   This is the direct route only when the requested family has an approved,
+   versioned stylized base set and passes the policy/review gate described in
+   `agents/references/asset-sourcing-policy.md`. Preserve base-set version, generator version,
    recipe, seed, domain/material labels, and golden-seed verification. Do not
    treat every legacy catalog entry as approved merely because it can spawn.
-3. **Search curated open sources when generation is not approved or is not
-   the best fit.**
-   `search_cc0_assets({ query, kind, provider })` covers external providers
-   for what procedural generation can't make: reference-quality PBR texture
-   sets, HDRIs, and photoscanned props. Then `get_cc0_asset` for details and
-   `import_cc0_asset` to download the actual files into `.toonlab/imports/`
-   with a provenance manifest. This route stays on MCP because it carries the
-   network fetch, the owner curation policy, and licensing provenance —
+4. **Search curated open sources when policy permits and generation is not
+   approved or is not the best fit.** In OSS, use
+   `search_cc0_assets({ query, kind, provider })`, `get_cc0_asset`, then
+   `import_cc0_asset` to download selected files into `.toonlab/imports/` with
+   a provenance manifest. In Pro, use Pro `search_assets` and `get_asset`;
+   Pro does not expose `search_cc0_assets` or `import_cc0_asset`. This route
+   stays on MCP because it carries the network fetch, the owner curation
+   policy, and licensing provenance —
    selection is by name/tags only, so always preview imports in-scene before
    committing to them. Prefer CC0. Accept CC-BY only through a source path that
    exposes the exact creator, asset URL, license/version/URL, provider credit,
    and modification notice; do not assume a tool named `search_cc0_assets`
    returns CC-BY.
-4. **Use image-to-3D for a named remaining gap.** First record why accepted
+5. **Use managed generation for a named remaining gap only through Pro.**
+   First record why accepted
    assets, approved procedural families, and curated open candidates were
    inadequate. Check generation capabilities and rights for the input image.
    Treat output as a candidate that still needs topology, UV, texture, scale,
-   collision, LOD, semantic-label, and Call Me Sensei review.
-5. **Generate style presets (package first).** Looks and behaviors (post
-   grades, camera feel, game feel, lighting styles/fixtures) are generated in
-   code: `create*GeneratorRecipe` → `createGenerated*PresetDocument` /
-   `generate*Preset` from the matching subpath, deterministic per seed. Use
-   the MCP style tools (`create_style_recipe` / `generate_style_presets`)
-   only when you want validated batches persisted to the shared workspace
-   where the labs and later sessions can see them.
+   collision, LOD, semantic-label, and Call Me Sensei review. OSS
+   `generate_asset` is deterministic local recipe generation, not Pro's
+   credit-spending managed image/3D generation.
+6. **Author stable visual profiles in code.** Post profiles can be generated
+   deterministically through `@call-me-sensei/toonlab/post`; other stable
+   shader profiles resolve through the selected style bundle. Lighting, VFX,
+   camera, and game-feel generation are host-owned or pre-beta in 0.4.10 and
+   are not advertised by the packaged MCP server.
 
 Persist anything worth keeping with `save_creation` (or write the JSON into
 the repo); `.toonlab/creations/` is the shared surface labs and later
@@ -142,8 +165,10 @@ them before choosing:
   `evaluateTextureMaps(createTextureSettings(findTexturePreset(id).settings),
   { size: 256 })` (async, ~50 ms) returns raw RGBA maps; encode the albedo
   to PNG and write it next to the imports.
-- **Discovered**: `import_cc0_asset` already leaves real image files in
-  `.toonlab/imports/`.
+- **Discovered in OSS**: when the connected surface exposes
+  `import_cc0_asset`, it leaves real image files in `.toonlab/imports/`.
+  ToonLab Pro instead returns approved immutable download URLs and provenance;
+  do not prescribe the OSS import tool on that surface.
 
 View the swatches side by side, judge fit against the game's stylized look,
 then confirm the winner in-scene (toon shading changes how a texture reads).
@@ -171,6 +196,44 @@ Sources carry their own metadata (`kinds`, `goodFor`, `qualityTier`,
 `enabled`) in the registry (`src/assetlib/sources.js`, surfaced through the
 asset tools). New sources appear over time; query rather than assume.
 
+## Loading first-party catalog models
+
+Some first-party catalog GLBs declare `KHR_texture_basisu` in
+**`extensionsRequired`**, so a KTX2 transcoder is mandatory for those assets.
+Supply `decoderBasePath` and `renderer`, and stage the Basis and Draco decoder
+files where that path resolves.
+
+**Share one transcoder set across the whole catalog.** A transcoder is expensive
+and is not automatically pooled. Use the public loader contract:
+
+```js
+import {
+  createModelAssetTranscoders,
+  loadModelAsset,
+} from '@call-me-sensei/toonlab/loaders';
+
+const transcoders = createModelAssetTranscoders({ decoderBasePath, renderer });
+const asset = await loadModelAsset(url, { transcoders });
+// Reuse transcoders for every model, then dispose once after loading finishes.
+transcoders.dispose();
+```
+
+Constructing decoder resources per asset can spin up a WASM instance per asset,
+and a catalog-scale scene can fail with
+
+```
+RuntimeError: Aborted(RangeError: WebAssembly.instantiate():
+Out of memory: Cannot allocate Wasm memory for new instance)
+```
+
+long before it finishes loading. Cache each parsed asset/geometry by immutable
+asset URL as well, so a repeated id is one decode and upload rather than two.
+
+Note also that a catalog rock's `material-config.json` may name textures with
+paths that do not resolve from the delivery origin. Do not block on them: the
+rock shader's own projection is the intended appearance path, and it discards
+imported albedo when `assetIntegration.sourceAlbedoMode` is `'replace'`.
+
 ## Licensing and curation rules
 
 - Enabled sources are owner-curated to the project quality bar; disabled
@@ -188,6 +251,9 @@ asset tools). New sources appear over time; query rather than assume.
 
 ## Verify
 
+- For every selected first-party rock, record the catalog ID and original
+  `dimensionsMeters`; after authored scaling, record the resulting scene size.
+  Reject missing, zero, negative, or axis-ambiguous dimensions before download.
 - Preview imported GLBs/textures in the consumer app's actual scene and
   toon/environment shading — reference-realistic assets can clash with a
   stylized look.

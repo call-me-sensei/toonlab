@@ -5,7 +5,7 @@
 // from the same traceLeafShapePath silhouettes as leaves.
 
 import * as THREE from 'three';
-import { createFlowerHeadTexture, FLOWER_SPECIES } from '../../../src/vegetation/index.js';
+import { createFlowerHeadTexture, FLOWER_SPECIES } from '../../../src/vegetation/experimental.js';
 import { createFlowerHeadNodeMaterial } from '../../../src/shaders-tsl/flower.js';
 
 // Sakura/magnolia-style blossoms attach to canopy cards. Density is the only

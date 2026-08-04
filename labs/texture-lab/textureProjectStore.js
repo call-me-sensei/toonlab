@@ -1,7 +1,7 @@
 // localStorage persistence for Texture Lab: the autosaved working document,
 // the user's saved preset library, and the AI-assist configuration (provider
-// choice, model ids, and API keys — keys never leave this browser except in
-// direct calls to the chosen provider).
+// choice and model ids. Provider keys live only in the local server
+// environment and are never persisted in browser state.
 
 import { createTextureSettings } from '../../src/texgen/index.js';
 
@@ -86,10 +86,7 @@ export const DEFAULT_AI_MODELS = Object.freeze({
 export function loadAiConfig() {
   const saved = read(AI_KEY) ?? {};
   return {
-    keys: {
-      gemini: typeof saved.keys?.gemini === 'string' ? saved.keys.gemini : '',
-      openai: typeof saved.keys?.openai === 'string' ? saved.keys.openai : '',
-    },
+    keys: { gemini: '', openai: '' },
     models: {
       gemini: typeof saved.models?.gemini === 'string' && saved.models.gemini ? saved.models.gemini : DEFAULT_AI_MODELS.gemini,
       openai: typeof saved.models?.openai === 'string' && saved.models.openai ? saved.models.openai : DEFAULT_AI_MODELS.openai,
@@ -99,5 +96,5 @@ export function loadAiConfig() {
 }
 
 export function saveAiConfig(config) {
-  write(AI_KEY, config);
+  write(AI_KEY, { models: config.models, provider: config.provider });
 }

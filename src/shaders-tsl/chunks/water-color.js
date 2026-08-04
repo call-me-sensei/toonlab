@@ -34,18 +34,32 @@ import { waterRotate2d, waterVoronoi2 } from './water-common.js';
 
 export function createWaterColorChunk({ u, flags }) {
   const sceneRawDepth = (screenUv) => {
-    const raw = float(1.0).toVar();
+    // The pass texture is deliberately stored as canonical forward depth.
+    // Three's perspectiveDepthToViewZ and the camera inverse projection both
+    // follow the active renderer convention, so reverse the sampled value
+    // for reversed-depth hosts before either consumer sees it.
+    const stored = float(1.0).toVar();
     If(u.uUseSceneDepth.greaterThanEqual(0.5), () => {
-      raw.assign(u.uSceneDepth.sample(screenUv).level(0).r);
+      stored.assign(u.uSceneDepth.sample(screenUv).level(0).r);
     });
-    return raw;
+    return mix(
+      stored,
+      stored.oneMinus(),
+      clamp(u.uDepthTargetNeedsReverse, 0.0, 1.0),
+    ).toVar();
   };
+
+  const storedDepthHasGeometry = (projectedDepth) => mix(
+    projectedDepth,
+    projectedDepth.oneMinus(),
+    clamp(u.uDepthTargetNeedsReverse, 0.0, 1.0),
+  ).lessThan(0.99999);
 
   const viewDistanceFromDepth = (rawDepth) => {
     // perspectiveDepthToViewZ is an Fn() in r185 — keep it out of select()
     // operands (docs/tsl-conventions.md #2), hence the If shape.
     const distance = float(u.uCameraFar).toVar();
-    If(rawDepth.lessThan(0.99999), () => {
+    If(storedDepthHasGeometry(rawDepth), () => {
       distance.assign(perspectiveDepthToViewZ(rawDepth, u.uCameraNear, u.uCameraFar).negate());
     });
     return distance;
@@ -84,7 +98,7 @@ export function createWaterColorChunk({ u, flags }) {
   const pierceSample = (sampleUv, surfaceHeight) => {
     const pierce = float(0.0).toVar();
     const rawDepth = sceneRawDepth(sampleUv).toVar();
-    If(rawDepth.lessThan(0.99999), () => { // sky — nothing pierces here
+    If(storedDepthHasGeometry(rawDepth), () => { // sky — nothing pierces here
       const neighborWorld = worldFromDepth(sampleUv, rawDepth);
       pierce.assign(smoothstep(0.01, 0.05, neighborWorld.y.sub(surfaceHeight)));
     });

@@ -1,13 +1,55 @@
 import assert from 'node:assert/strict';
+import * as THREE from 'three';
 
 import {
+  DEFAULT_POST_PROCESSING_PARAMETERS,
   createGeneratedPostPresetDocument,
   createPostGeneratorRecipe,
+  createPostProcessingPipeline,
   parsePostGeneratorRecipe,
   registerPostGeneratorFamily,
   resolvePostGeneratorRecipe,
   serializePostGeneratorRecipe,
 } from '../src/post/index.js';
+
+assert.equal(DEFAULT_POST_PROCESSING_PARAMETERS.vignetteRadius, 0.55,
+  'enabling the vignette at defaults must begin inside the visible frame');
+
+const resizeCalls = [];
+const rendererProbe = {
+  setPixelRatio: (value) => resizeCalls.push(['pixelRatio', value]),
+  setSize: (width, height) => resizeCalls.push(['size', width, height]),
+};
+const pipeline = createPostProcessingPipeline({
+  camera: new THREE.PerspectiveCamera(),
+  height: 180,
+  pixelRatio: 1,
+  renderer: rendererProbe,
+  scene: new THREE.Scene(),
+  settings: { preset: 'off' },
+  width: 320,
+});
+pipeline.setSize(640, 360, 2);
+assert.deepEqual(resizeCalls, [],
+  'post target resize must not mutate a host-owned renderer by default');
+assert.ok(pipeline.compositeCamera?.isCamera,
+  'the composite camera must be public for diagnostics/compilation');
+pipeline.dispose();
+
+const ownedPipeline = createPostProcessingPipeline({
+  camera: new THREE.PerspectiveCamera(),
+  height: 180,
+  ownsRenderer: true,
+  pixelRatio: 1,
+  renderer: rendererProbe,
+  scene: new THREE.Scene(),
+  settings: { preset: 'off' },
+  width: 320,
+});
+ownedPipeline.setSize(800, 450, 1.5);
+assert.deepEqual(resizeCalls, [['pixelRatio', 1.5], ['size', 800, 450]],
+  'renderer resize remains available through explicit ownership');
+ownedPipeline.dispose();
 
 const recipe = createPostGeneratorRecipe('verification', {
   seed: 42,

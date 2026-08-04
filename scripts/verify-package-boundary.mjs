@@ -9,6 +9,10 @@ import { fileURLToPath } from 'node:url';
 const root = new URL('..', import.meta.url);
 const rootPath = fileURLToPath(root);
 const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url)));
+const mcpServerSource = await readFile(new URL('../mcp/server.mjs', import.meta.url), 'utf8');
+assert.match(packageJson.version, /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/, 'package version must be semver');
+assert.match(packageJson.description, /anime-style game/i);
+assert.equal(packageJson.exports['./asset-policy'], './src/asset-policy/index.js');
 
 const forbiddenRoots = ['assets-local', 'docs', 'examples', 'labs', 'public'];
 for (const entry of packageJson.files) {
@@ -20,6 +24,12 @@ for (const entry of packageJson.files) {
 }
 assert.ok(packageJson.files.includes('src'), 'npm package must include runtime source');
 assert.ok(packageJson.files.includes('agents'), 'npm package must include agent skills');
+assert.equal(packageJson.dependencies.pg, '^8.22.0', 'the packaged MCP/database runtime must install pg');
+assert.doesNotMatch(
+  mcpServerSource,
+  /from ['"]\.\.\/src\/assetlib\/index\.js['"]/,
+  'The packaged MCP must import pure asset clients directly so optional renderer peers are not loaded at startup.',
+);
 
 const preBetaRuntimeRoots = [
   'biome',
@@ -35,11 +45,34 @@ const preBetaRuntimeRoots = [
   'vfxgen',
   'villagegen',
 ];
-const packageExportTargets = Object.values(packageJson.exports)
-  .filter((target) => typeof target === 'string');
+const experimentalTreeRuntimePaths = new Set([
+  'src/vegetation/plantGraph.js',
+  'src/vegetation/proceduralSpeciesTree.js',
+  'src/vegetation/recursiveWoodyGrowth.js',
+  'src/vegetation/recursiveWoodyMesh.js',
+  'src/vegetation/treeArchitectureProfiles.js',
+  'src/vegetation/treeLodCompiler.js',
+  'src/vegetation/treeRecipe.js',
+  'src/vegetation/treeRecipePresets.js',
+  'src/vegetation/treeSpeciesProfiles.js',
+  'src/vegetation/treeSpeciesResearch.generated.js',
+  'src/vegetation/treeSpeciesRoster.js',
+  'src/vegetation/treeSpeciesTaxonomy.generated.js',
+  'src/vegetation/treeSurfaceTextures.js',
+  'src/vegetation/woodyBaselineControls.js',
+]);
+function stringTargets(value) {
+  if (typeof value === 'string') return [value];
+  if (!value || typeof value !== 'object') return [];
+  return Object.values(value).flatMap(stringTargets);
+}
+
+const packageExportTargets = stringTargets(packageJson.exports);
+const packageImportTargets = stringTargets(packageJson.imports ?? {});
+const packageRuntimeTargets = [...packageExportTargets, ...packageImportTargets];
 for (const runtimeRoot of preBetaRuntimeRoots) {
   assert.equal(
-    packageExportTargets.some((target) => target.startsWith(`./src/${runtimeRoot}/`)),
+    packageRuntimeTargets.some((target) => target.startsWith(`./src/${runtimeRoot}/`)),
     false,
     `pre-beta ${runtimeRoot} must not have an npm export`,
   );
@@ -51,7 +84,9 @@ function normalizeLocalPath(path) {
 
 function resolveRuntimeDependency(importerPath, specifier) {
   if (!specifier.startsWith('.')) return null;
-  const unresolved = resolve(rootPath, dirname(importerPath), specifier);
+  const isBundlerAssetUrl = /[?&]url(?:[&#]|$)/.test(specifier);
+  const cleanSpecifier = specifier.replace(/[?#].*$/, '');
+  const unresolved = resolve(rootPath, dirname(importerPath), cleanSpecifier);
   const candidates = [
     unresolved,
     `${unresolved}.js`,
@@ -67,6 +102,10 @@ function resolveRuntimeDependency(importerPath, specifier) {
     localPath.startsWith('src/'),
     `published runtime ${importerPath} reaches repository-only ${localPath}`,
   );
+  // `?url` imports are verified for existence above and against the exact
+  // approved package-asset allowlist below; they are not JavaScript runtime
+  // modules and therefore do not belong in the module-closure graph.
+  if (isBundlerAssetUrl) return null;
   return localPath;
 }
 
@@ -83,7 +122,7 @@ function importedSpecifiers(source) {
 
 async function collectPublishedRuntimeClosure() {
   const entries = new Set(
-    packageExportTargets
+    packageRuntimeTargets
       .filter((target) => target.startsWith('./src/'))
       .map((target) => target.slice(2)),
   );
@@ -146,21 +185,41 @@ try {
 
   const report = JSON.parse(result.stdout)[0];
   const paths = report.files.map((file) => file.path);
-  const packedRuntimePaths = paths.filter((path) => path.startsWith('src/'));
-  const visualAssetPattern =
-    /\.(?:bin|exr|gif|glb|gltf|hdr|jpe?g|ktx2|mp3|ogg|png|wav|webm|webp)$/i;
+  const packedRuntimePaths = paths.filter(
+    (path) => path.startsWith('src/') && /\.(?:js|json)$/i.test(path),
+  );
+  const packedRuntimePathSet = new Set(packedRuntimePaths);
+  assert.deepEqual(
+    paths.filter((path) => experimentalTreeRuntimePaths.has(path)),
+    [],
+    'npm tarball must not publish the experimental species/taxonomy tree engine',
+  );
+  const redistributedAssetPattern =
+    /\.(?:7z|aiff?|bin|blend|bmp|dae|dll|dylib|eot|exr|fbx|gif|glb|gltf|hdr|ico|jpe?g|ktx2|mp3|mp4|obj|ogg|otf|pdf|png|so|stl|svg|tiff?|ttf|usdz|wasm|wav|webm|webp|woff2?|zip)$/i;
   const applicationArtifactPattern = /\.(?:css|html|jsx|tsx)$/i;
+  const allowedTextFilePattern = /(?:^LICENSE$|\.(?:js|json|md|mdc|mjs|sql|txt|ya?ml)$)/i;
+  const internalReferencePattern = /(?:p18|so[ _-]?stylized|\/Game\/SoStylized|reference-materials)/i;
+  const privateCdnPattern = /https?:\/\/private-cdn\.toonlab\.io/i;
+
+  assert.deepEqual(report.bundled ?? [], [], 'npm tarball must not bundle dependencies');
 
   for (const path of paths) {
+    assert.match(path, allowedTextFilePattern, `npm tarball contains a non-text/code file ${path}`);
+    assert.equal(path.includes('node_modules/'), false, `npm tarball bundles a dependency: ${path}`);
+    assert.equal(
+      internalReferencePattern.test(path),
+      false,
+      `npm tarball path exposes an internal reference: ${path}`,
+    );
     assert.equal(
       forbiddenRoots.some((rootName) => path === rootName || path.startsWith(`${rootName}/`)),
       false,
       `npm tarball contains repository-only path ${path}`,
     );
     assert.equal(
-      visualAssetPattern.test(path),
+      redistributedAssetPattern.test(path),
       false,
-      `npm tarball contains visual/media asset ${path}`,
+      `npm tarball contains a redistributed binary/media asset ${path}`,
     );
     assert.equal(
       applicationArtifactPattern.test(path),
@@ -172,6 +231,43 @@ try {
         path,
         /\.(?:js|json)$/i,
         `npm runtime source contains non-code file ${path}`,
+      );
+    }
+    if (/\.(?:js|json|md|mdc|mjs|sql|txt|ya?ml)$/i.test(path)) {
+      const source = await readFile(resolve(rootPath, path), 'utf8');
+      assert.equal(
+        internalReferencePattern.test(source),
+        false,
+        `npm tarball file ${path} exposes an internal reference`,
+      );
+      assert.equal(
+        privateCdnPattern.test(source),
+        false,
+        `npm tarball file ${path} points to the private CDN`,
+      );
+      if (path.startsWith('agents/') && path.endsWith('.md')) {
+        assert.doesNotMatch(
+          source,
+          /(?:^|[\s`(])docs\//m,
+          `packaged agent resource ${path} points to unpackaged repository docs`,
+        );
+      }
+    }
+  }
+  assert.deepEqual(
+    paths.filter((path) => redistributedAssetPattern.test(path)),
+    [],
+    'npm tarball must remain free of redistributed binary/media assets',
+  );
+
+  for (const path of packedRuntimePaths) {
+    if (!path.endsWith('.js')) continue;
+    const source = await readFile(resolve(rootPath, path), 'utf8');
+    for (const specifier of importedSpecifiers(source)) {
+      const dependency = resolveRuntimeDependency(path, specifier);
+      assert.ok(
+        dependency === null || packedRuntimePathSet.has(dependency),
+        `packed runtime ${path} imports unpacked dependency ${dependency}`,
       );
     }
   }
@@ -205,12 +301,26 @@ try {
   );
   assert.ok(skillPaths.length >= 26, 'npm tarball must include every feature skill');
   assert.ok(paths.includes('mcp/server.mjs'), 'npm tarball must include the local MCP helper');
+  assert.ok(paths.includes('scripts/setup-local.mjs'), 'npm tarball must include its setup command');
+  assert.ok(paths.includes('scripts/generate-catalog-seed.mjs'), 'npm tarball must include its catalog seed command');
+  assert.ok(paths.includes('compose.yaml'), 'npm tarball setup must include the referenced Postgres Compose service');
+  for (const reference of [
+    'agents/references/anime-art-direction.md',
+    'agents/references/asset-sourcing-policy.md',
+    'agents/references/custom-gap-report.md',
+    'agents/references/mcp-asset-discovery.md',
+    'agents/references/runtime-entry-points.md',
+    'agents/references/style-bundles.md',
+  ]) {
+    assert.ok(paths.includes(reference), `npm tarball must include ${reference}`);
+  }
 
   console.log(
     `Package boundary verified: ${report.entryCount} files, `
       + `${report.size} packed bytes, ${report.unpackedSize} unpacked bytes, `
       + `${packedRuntimePaths.length} runtime modules, `
-      + `${skillPaths.length} skills, zero labs/assets/pre-beta code.`,
+      + `${skillPaths.length} skills, zero redistributed binary/media assets, `
+      + 'zero labs/pre-beta code.',
   );
 } finally {
   await rm(temporaryRoot, { force: true, recursive: true });

@@ -2,14 +2,13 @@
 //
 // Not a physics engine — a walkability service for stylized worlds, so a
 // third-person character can't stroll through tree trunks and boulders and
-// always knows the ground height. `createStylizedWorld` builds one
-// automatically (forest trunks pre-registered) and exposes it as
-// `world.collision`; register your own blockers (rocks, props, buildings)
-// with one call and resolve the character every frame:
+// always knows the ground height. The 0.4.7 host constructs it explicitly,
+// registers blockers for trees, rocks, props, and buildings, and resolves the
+// character every frame:
 //
-//   world.collision.addCircles(rockBlockers);         // [{ x, z, radius }]
+//   collision.addCircles(rockBlockers);         // [{ x, z, radius }]
 //   // in the controller, after applying movement:
-//   world.collision.resolve(character.position, 0.35); // pushes out of blockers
+//   collision.resolve(character.position, 0.35); // pushes out of blockers
 //
 // Blockers are 2D circles on a spatial hash — thousands resolve in
 // microseconds. Hosts that outgrow this (dynamic bodies, ragdolls) graduate

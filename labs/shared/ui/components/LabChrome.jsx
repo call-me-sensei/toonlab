@@ -27,14 +27,28 @@ function labsHomeHref() {
   return window.location.pathname.startsWith('/labs') ? '/labs' : '/';
 }
 
-export function BrandLockup({ labName }) {
+export function BrandLockup({ labName, onLabNameClick }) {
   return (
     <span className="tk-brand">
       <a className="tk-brand-home" href={labsHomeHref()} title="Back to Labs">
         <span aria-hidden="true" className="tk-brand-mark">ト</span>
         <span className="tk-brand-word">TOONLAB</span>
       </a>
-      {labName && <span className="tk-brand-lab">{labName}</span>}
+      {labName && (onLabNameClick ? (
+        // A lab may make its own name a step back to its start screen (e.g.
+        // Tree Lab's gallery) while the wordmark keeps exiting to the labs
+        // screen. Labs that pass no handler keep the inert label.
+        <button
+          type="button"
+          className="tk-brand-lab tk-brand-lab--link"
+          title="Back to gallery"
+          onClick={onLabNameClick}
+        >
+          {labName}
+        </button>
+      ) : (
+        <span className="tk-brand-lab">{labName}</span>
+      ))}
     </span>
   );
 }

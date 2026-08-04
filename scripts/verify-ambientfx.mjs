@@ -107,13 +107,27 @@ check('density 0 → 0 particles', zero.stats.liveParticles === 0,
   `live=${zero.stats.liveParticles}`);
 
 const triple = build({
-  effects: { fireflies: { density: 3 }, leaves: { density: 3 }, mist: { density: 3 }, petals: { density: 3 }, pollen: { density: 3 } },
+  effects: { fireflies: { densityScale: 3 }, leaves: { densityScale: 3 }, mist: { densityScale: 3 }, petals: { densityScale: 3 }, pollen: { densityScale: 3 } },
 });
 const ratio = triple.stats.liveParticles / a.stats.liveParticles;
 check('density 3× → ~3× particles (linear cost)', ratio > 2.6 && ratio < 3.4,
   `ratio=${ratio.toFixed(2)} (${a.stats.liveParticles} → ${triple.stats.liveParticles})`);
 check('3× everything still within budget', triple.stats.liveParticles <= 20000,
   `live=${triple.stats.liveParticles}`);
+check('stats expose unambiguous per-effect density scales',
+  Object.values(triple.stats.densityScales).every((scale) => scale === 3));
+
+const constructionProbe = createAmbientFx({
+  heightAt,
+  seed: 42,
+  timeOfDay: 12,
+  waterLevel: WATER_LEVEL,
+});
+check('construction stats begin honestly empty', constructionProbe.stats.liveParticles === 0);
+constructionProbe.emitNow(camera);
+check('emitNow makes build-time stats and first captures ready without a frame update',
+  constructionProbe.stats.liveParticles > 0);
+constructionProbe.dispose();
 
 // --- window containment + follow re-centering --------------------------------
 let maxDistance = 0;

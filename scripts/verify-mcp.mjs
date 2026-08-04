@@ -10,9 +10,11 @@ import {
   readBrowserStorage,
   saveLibraryEntry,
 } from '../mcp/workspace.mjs';
+import { CALL_ME_SENSEI_STRICT_ASSET_POLICY } from '../src/asset-policy/index.js';
 
 const projectRoot = fileURLToPath(new URL('..', import.meta.url));
 const serverPath = fileURLToPath(new URL('../mcp/server.mjs', import.meta.url));
+const packageVersion = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8')).version;
 const workspace = await mkdtemp(join(tmpdir(), 'toonlab-mcp-'));
 
 function createClient(child) {
@@ -86,6 +88,7 @@ try {
 
   const child = spawn(process.execPath, [serverPath, '--workspace', workspace], {
     cwd: projectRoot,
+    env: { ...process.env, TOONLAB_LEGACY_WORKSPACE: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   let stderr = '';
@@ -100,6 +103,8 @@ try {
   });
   assert.equal(initialized.result.protocolVersion, '2025-11-25');
   assert.equal(initialized.result.serverInfo.name, 'toonlab-oss');
+  assert.equal(initialized.result.serverInfo.version, packageVersion);
+  assert.match(initialized.result.instructions, /anime-style games/i);
   client.notify('notifications/initialized');
 
   const listed = await client.request('tools/list');
@@ -107,89 +112,46 @@ try {
   assert.ok(toolNames.includes('search_assets'));
   assert.ok(toolNames.includes('generate_asset'));
   assert.ok(toolNames.includes('import_cc0_asset'));
-  assert.ok(toolNames.includes('list_style_labs'));
-  assert.ok(toolNames.includes('create_style_recipe'));
-  assert.ok(toolNames.includes('generate_style_presets'));
-  assert.ok(toolNames.includes('validate_style_document'));
+  assert.ok(toolNames.includes('get_anime_game_profile'));
+  assert.ok(toolNames.includes('validate_asset_candidate'));
+  assert.ok(toolNames.includes('record_asset_gap'));
+  assert.equal(toolNames.includes('list_style_labs'), false);
+  const searchTool = listed.result.tools.find((tool) => tool.name === 'search_assets');
+  assert.ok(searchTool.inputSchema.properties.source.enum.includes('official'));
+  assert.equal(searchTool.inputSchema.properties.offset.minimum, 0);
+  assert.match(searchTool.description, /dimensions and taxonomy metadata/i);
 
-  const styleLabs = await client.request('tools/call', {
-    arguments: {},
-    name: 'list_style_labs',
+  const firstBuiltinPage = await client.request('tools/call', {
+    arguments: { limit: 1, offset: 0, source: 'builtin' },
+    name: 'search_assets',
   });
-  assert.equal(styleLabs.result.isError, undefined);
-  assert.deepEqual(
-    styleLabs.result.structuredContent.labs.map((lab) => lab.id),
-    ['post', 'camera', 'game-feel', 'lighting-style', 'light-fixture'],
+  assert.equal(firstBuiltinPage.result.structuredContent.count, 1);
+  assert.ok(firstBuiltinPage.result.structuredContent.total > 1);
+  assert.equal(firstBuiltinPage.result.structuredContent.nextOffset, 1);
+  const secondBuiltinPage = await client.request('tools/call', {
+    arguments: { limit: 1, offset: 1, source: 'builtin' },
+    name: 'search_assets',
+  });
+  assert.notEqual(
+    firstBuiltinPage.result.structuredContent.items[0].id,
+    secondBuiltinPage.result.structuredContent.items[0].id,
   );
 
-  for (const lab of styleLabs.result.structuredContent.labs) {
-    const createdRecipe = await client.request('tools/call', {
-      arguments: {
-        ...(lab.id === 'camera' ? { family: 'wide_exploration' } : {}),
-        id: `mcp-${lab.id}`,
-        lab: lab.id,
-        save: false,
-        seed: 8042,
-      },
-      name: 'create_style_recipe',
-    });
-    assert.equal(createdRecipe.result.isError, undefined, `${lab.id} recipe creation failed`);
-    const recipe = createdRecipe.result.structuredContent.recipe;
-    if (lab.id === 'camera') assert.equal(recipe.basePreset, 'wide_exploration');
-
-    const generatedPresets = await client.request('tools/call', {
-      arguments: {
-        count: 3,
-        lab: lab.id,
-        quality: 'mobile',
-        recipe,
-        save: false,
-        start_seed: 120,
-      },
-      name: 'generate_style_presets',
-    });
-    assert.equal(generatedPresets.result.isError, undefined, `${lab.id} preset generation failed`);
-    assert.equal(generatedPresets.result.structuredContent.count, 3);
-    assert.equal(
-      generatedPresets.result.structuredContent.qualityApplied,
-      lab.generation.qualities.length > 0,
-      `${lab.id} quality capability drifted`,
-    );
-    assert.equal(new Set(generatedPresets.result.structuredContent.presets.map((preset) => preset.id)).size, 3);
-
-    const validatedRecipe = await client.request('tools/call', {
-      arguments: { document: recipe, kind: 'recipe', lab: lab.id },
-      name: 'validate_style_document',
-    });
-    assert.equal(validatedRecipe.result.structuredContent.ok, true, `${lab.id} recipe validation failed`);
-  }
-
-  const invalidDomainRecipe = await client.request('tools/call', {
-    arguments: { id: 'invalid-domain', lab: 'post', save: false },
-    name: 'create_style_recipe',
+  const animeProfile = await client.request('tools/call', {
+    arguments: {},
+    name: 'get_anime_game_profile',
   });
-  const rejectedDomain = await client.request('tools/call', {
-    arguments: {
-      document: {
-        ...invalidDomainRecipe.result.structuredContent.recipe,
-        domains: { exposure: { $type: 'range', min: 2, max: 1 } },
-      },
-      kind: 'recipe',
-      lab: 'post',
-    },
-    name: 'validate_style_document',
-  });
-  assert.equal(rejectedDomain.result.structuredContent.ok, false);
-  assert.match(rejectedDomain.result.structuredContent.errors.join(' '), /max must be greater/i);
+  assert.equal(animeProfile.result.structuredContent.artDirection.family, 'anime-game');
+  assert.equal(animeProfile.result.structuredContent.defaultStyleBundle.version, 2);
 
-  const savedPostBatch = await client.request('tools/call', {
-    arguments: { count: 2, lab: 'post', name: 'MCP post batch', start_seed: 9001 },
-    name: 'generate_style_presets',
+  const capabilities = await client.request('tools/call', {
+    arguments: {},
+    name: 'get_generation_capabilities',
   });
-  assert.equal(savedPostBatch.result.isError, undefined);
-  assert.match(
-    await readFile(savedPostBatch.result.structuredContent.file.absolutePath, 'utf8'),
-    /"schema": "toonlab\/style-preset-batch"/,
+  assert.equal(capabilities.result.isError, undefined);
+  assert.deepEqual(
+    capabilities.result.structuredContent.unsupportedStyleDomains,
+    ['lighting', 'vfx', 'renderer'],
   );
 
   const searched = await client.request('tools/call', {
@@ -198,9 +160,30 @@ try {
   });
   assert.equal(searched.result.isError, undefined);
   assert.equal(searched.result.structuredContent.items[0].id, 'user/test-entry');
+  assert.equal(searched.result.structuredContent.items[0].sourceClass, 'toonlab-library');
+  assert.equal(searched.result.structuredContent.items[0].policyDecision.decision, 'warn');
+
+  const strictDenied = await client.request('tools/call', {
+    arguments: {
+      candidate: { domain: 'natural.rock', sourceClass: 'procedural' },
+      policy: CALL_ME_SENSEI_STRICT_ASSET_POLICY,
+    },
+    name: 'validate_asset_candidate',
+  });
+  assert.equal(strictDenied.result.structuredContent.result.allowed, false);
+  const blockedGeneration = await client.request('tools/call', {
+    arguments: {
+      catalog_id: 'rock/boulder',
+      domain: 'natural.rock',
+      policy: CALL_ME_SENSEI_STRICT_ASSET_POLICY,
+      save: false,
+    },
+    name: 'generate_asset',
+  });
+  assert.equal(blockedGeneration.result.isError, true);
 
   const generated = await client.request('tools/call', {
-    arguments: { catalog_id: 'prop/lantern/stone-toro', name: 'MCP lantern', seed: 77 },
+    arguments: { catalog_id: 'water/lake', name: 'MCP water', seed: 77 },
     name: 'generate_asset',
   });
   assert.equal(generated.result.isError, undefined);
@@ -208,8 +191,23 @@ try {
   const generatedPath = generated.result.structuredContent.file.absolutePath;
   assert.match(await readFile(generatedPath, 'utf8'), /"seed": 77/);
 
+  const gap = await client.request('tools/call', {
+    arguments: {
+      attempts: [{ query: 'anime cloud mesh', tool: 'search_assets' }],
+      domain: 'cloud',
+      feedbackNeeded: 'Add a reusable anime cloud adapter.',
+      id: 'custom-cloud-adapter',
+      kind: 'custom-shader-adapter',
+      reason: 'No supported adapter matched the host renderer.',
+    },
+    name: 'record_asset_gap',
+  });
+  assert.equal(gap.result.isError, undefined);
+  assert.match(await readFile(gap.result.structuredContent.jsonPath, 'utf8'), /custom-cloud-adapter/);
+  assert.match(await readFile(gap.result.structuredContent.markdownPath, 'utf8'), /Add a reusable anime cloud adapter/);
+
   const creations = await client.request('tools/call', {
-    arguments: { query: 'mcp-lantern' },
+    arguments: { query: 'mcp-water' },
     name: 'list_my_creations',
   });
   assert.equal(creations.result.structuredContent.count, 1);

@@ -19,6 +19,7 @@ import { stagesForLab } from './stageMap.js';
 import { TREE_SETTING_FIELD_SCHEMA } from '../../../src/vegetation/treeRecipe.js';
 import { StagePanel } from './panels/StagePanel.jsx';
 import { PowerDrawer } from './panels/PowerDrawer.jsx';
+import { WoodyBaselinePanel } from './panels/WoodyBaselinePanel.jsx';
 import { ExportDialog } from './panels/ExportDialog.jsx';
 import { AnimationPanel } from './panels/AnimationPanel.jsx';
 import { FlowersPanel } from './panels/FlowersPanel.jsx';
@@ -26,6 +27,15 @@ import { CustomShapeDialog, LeafPaletteSection, LeafStyleSection } from './LeafS
 import { GalleryScreen } from './screens/GalleryScreen.jsx';
 import { OptionsBar, SketchModeBar, ToolStrip } from './ToolStripTree.jsx';
 import { BranchInspectorPopover } from './BranchInspectorPopover.jsx';
+
+const WOODY_BASELINE_STAGE_GROUPS = Object.freeze({
+  shape: Object.freeze(['form', 'dimensions']),
+  wood: Object.freeze(['trunk', 'axisNoise', 'branching', 'roots', 'resolution']),
+  leaves: Object.freeze(['foliage']),
+  look: Object.freeze(['appearance', 'mapping']),
+  animation: Object.freeze(['motion', 'shedding']),
+  flowers: Object.freeze(['reproductive']),
+});
 
 function DocumentMenu({ actions, anchor, onClose, state }) {
   const [name, setName] = useState('');
@@ -119,7 +129,10 @@ function TopBar({ actions, labKind, state }) {
 
   return (
     <header className="td-topbar tk">
-      <BrandLockup labName={isFlowerLab ? 'Flower Lab' : 'Tree Lab'} />
+      <BrandLockup
+        labName={isFlowerLab ? 'Flower Lab' : 'Tree Lab'}
+        onLabNameClick={() => actions.setView({ gallery: true, drawer: false, export: false })}
+      />
       <button
         type="button"
         className="td-topbar-title"
@@ -512,19 +525,38 @@ function Inspector({ actions, labKind, state }) {
   }
   const stages = stagesForLab(labKind);
   const stage = stages.find((entry) => entry.id === state.stage) ?? stages[0];
+  const baselineSpecies = !isFlowerLab
+    && ['woody-axis', 'whorled-conifer'].includes(state.settings.structure.engine);
+  const standardGroups = baselineSpecies
+    ? (stage.id === 'shape' ? ['plant'] : stage.id === 'look' ? ['color'] : [])
+    : stage.groups;
   return (
     <aside className="td-inspector tk" data-testid="inspector">
       <div className="td-inspector-header">{stage.label}</div>
       <div className="td-inspector-caption">{stage.description}</div>
-      {stage.id === 'animation' && !isFlowerLab && <AnimationPanel actions={actions} state={state} />}
-      {stage.id === 'flowers' && !isFlowerLab && <FlowersPanel actions={actions} state={state} />}
+      {stage.id === 'animation' && !isFlowerLab && !baselineSpecies
+        && <AnimationPanel actions={actions} state={state} />}
+      {stage.id === 'flowers' && !isFlowerLab && !baselineSpecies
+        && <FlowersPanel actions={actions} state={state} />}
       {stage.id === 'look' && <LeafStyleSection actions={actions} state={state} />}
       {stage.id === 'look' && <LeafPaletteSection actions={actions} state={state} />}
       {stage.id === 'look' && !isFlowerLab && <BarkTextureSection actions={actions} state={state} />}
-      {stage.id === 'wood' && <TrunkShapeSection actions={actions} labKind={labKind} state={state} />}
-      {stage.id === 'wood' && !isFlowerLab && <WoodDetailsSection actions={actions} state={state} />}
-      {stage.id === 'wood' && !isFlowerLab && <RootsSection actions={actions} state={state} />}
-      <StagePanel actions={actions} groupIds={stage.groups} labKind={labKind} state={state} />
+      {stage.id === 'wood' && !baselineSpecies
+        && <TrunkShapeSection actions={actions} labKind={labKind} state={state} />}
+      {stage.id === 'wood' && !isFlowerLab && !baselineSpecies
+        && <WoodDetailsSection actions={actions} state={state} />}
+      {stage.id === 'wood' && !isFlowerLab && !baselineSpecies
+        && <RootsSection actions={actions} state={state} />}
+      <StagePanel actions={actions} groupIds={standardGroups} labKind={labKind} state={state} />
+      {baselineSpecies && (
+        <WoodyBaselinePanel
+          actions={actions}
+          groupIds={WOODY_BASELINE_STAGE_GROUPS[stage.id] ?? []}
+          labKind={labKind}
+          state={state}
+          title={`${stage.label} baseline controls`}
+        />
+      )}
     </aside>
   );
 }
@@ -570,6 +602,7 @@ function LodPreviewControl({ actions, state }) {
     { label: 'LOD0', title: 'Preview the exact compiled LOD0 export mesh.', value: 0 },
     { label: 'LOD1', title: 'Preview the exact compiled LOD1 export mesh.', value: 1 },
     { label: 'LOD2', title: 'Preview the exact compiled LOD2 export mesh.', value: 2 },
+    { label: 'LOD3', title: 'Preview the exact compiled LOD3 far mesh.', value: 3 },
   ];
   return (
     <span

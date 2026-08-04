@@ -1,17 +1,26 @@
-// Portable Sky Shader settings for the accepted P18 sky-dome renderer.
+// Portable Sky Shader settings for ToonLab's authored anime sky renderer.
 //
 // The profile owns visible background treatment, sun/moon appearance, and
 // stars. Current time, celestial direction, cloud rendering, atmosphere,
 // weather, exposure, source meshes/textures/atlases, and camera are host
 // inputs and never enter this document.
 
+import {
+  CALL_ME_SENSEI_SKY_ATMOSPHERE,
+  CALL_ME_SENSEI_SKY_TIME_KEYFRAMES,
+  DEFAULT_SKY_ATMOSPHERE,
+  DEFAULT_SKY_TIME_KEYFRAMES,
+  createSkyAtmosphereSettings,
+  createSkyTimeKeyframes,
+} from './skyTimeKeyframes.js';
+
 export const SKY_SHADER_DOCUMENT_TYPE = 'toonlab/sky-shader-preset';
-export const SKY_SHADER_SCHEMA_VERSION = 1;
+export const SKY_SHADER_SCHEMA_VERSION = 2;
 export const DEFAULT_SKY_SHADER_PRESET = 'call_me_sensei';
 
 const DEFINITIONS = Object.freeze({
   atlasBrightness: Object.freeze({
-    description: 'Brightness multiplier applied after the authored P18 sky color-curve lookup.',
+    description: 'Brightness multiplier applied after the authored anime sky color-curve lookup.',
     group: 'gradient',
     label: 'Sky Brightness',
     range: Object.freeze({ max: 4, min: 0, step: 0.01 }),
@@ -102,7 +111,7 @@ const DEFINITIONS = Object.freeze({
     value: Object.freeze([1, 0.72, 0.5]),
   }),
   horizonGlowStrength: Object.freeze({
-    description: 'Strength of the sunward glow centered on the horizon. 0 preserves the accepted P18 baseline.',
+    description: 'Strength of the sunward glow centered on the horizon.',
     group: 'gradient',
     label: 'Horizon Glow Strength',
     range: Object.freeze({ max: 3, min: 0, step: 0.01 }),
@@ -376,7 +385,7 @@ const GROUP_KEYS = Object.freeze({
 
 export const SKY_SHADER_SETTING_GROUPS = Object.freeze([
   Object.freeze({
-    description: 'P18 color-curve sampling, grading, region tints, and visible horizon treatment.',
+    description: 'Anime color-curve sampling, grading, region tints, and visible horizon treatment.',
     id: 'gradient',
     label: 'Gradient',
   }),
@@ -474,6 +483,19 @@ export const DEFAULT_SKY_SHADER_SETTINGS = Object.freeze(Object.fromEntries(
   ]),
 ));
 
+export const CALL_ME_SENSEI_SKY_SHADER_SETTINGS = Object.freeze({
+  ...DEFAULT_SKY_SHADER_SETTINGS,
+  atlasContrast: 1.04,
+  atlasSaturation: 1.2,
+  belowHorizonTint: Object.freeze([0.3, 0.65, 0.84]),
+  horizonGlowStrength: 0.24,
+  horizonTint: Object.freeze([0.46, 0.78, 0.94]),
+  skyTint: Object.freeze([0.7, 0.9, 1]),
+  starsStrength: 0.86,
+  sunGlowStrength: 0.52,
+  zenithTint: Object.freeze([0.045, 0.29, 0.7]),
+});
+
 export function createSkyShaderSettings(options = {}) {
   const source = typeof options === 'string'
     ? { preset: options }
@@ -490,7 +512,11 @@ export function createSkyShaderSettings(options = {}) {
 
 function canonicalDocument(id, definition = {}) {
   const source = isObject(definition) ? definition : {};
+  const presetId = normalizeId(source.preset) || DEFAULT_SKY_SHADER_PRESET;
+  const preset = presetRegistry.get(presetId)
+    ?? presetRegistry.get(DEFAULT_SKY_SHADER_PRESET);
   return {
+    atmosphere: createSkyAtmosphereSettings(source.atmosphere ?? preset?.atmosphere),
     description: String(source.description ?? ''),
     id: normalizeId(id ?? source.id),
     label: String(source.label ?? source.title ?? id ?? source.id ?? '').trim(),
@@ -498,6 +524,7 @@ function canonicalDocument(id, definition = {}) {
       preset: source.preset ?? DEFAULT_SKY_SHADER_PRESET,
       settings: source.settings ?? pickSettings(source),
     }),
+    timeKeyframes: createSkyTimeKeyframes(source.timeKeyframes ?? preset?.timeKeyframes),
     type: SKY_SHADER_DOCUMENT_TYPE,
     version: SKY_SHADER_SCHEMA_VERSION,
   };
@@ -539,7 +566,24 @@ export function validateSkyShaderPresetDocument(input) {
       `Sky Shader version ${version} is newer than supported version ${SKY_SHADER_SCHEMA_VERSION}.`,
     );
   }
+  if (version < SKY_SHADER_SCHEMA_VERSION) {
+    warnings.push(
+      `Sky Shader version ${version} was migrated to version ${SKY_SHADER_SCHEMA_VERSION} with the default atmosphere and time curve.`,
+    );
+  }
   if (!normalizeId(source.id)) errors.push('Sky Shader preset id is required.');
+  if (source.timeKeyframes !== undefined) {
+    if (!Array.isArray(source.timeKeyframes)) {
+      errors.push('Sky Shader timeKeyframes must be an array.');
+    } else {
+      const uniqueHours = new Set(source.timeKeyframes.map((entry) =>
+        Number(entry?.hour)).filter(Number.isFinite).map((hour) =>
+        (((hour % 24) + 24) % 24).toFixed(6)));
+      if (uniqueHours.size < 2) {
+        errors.push('Sky Shader timeKeyframes must contain at least two unique hours.');
+      }
+    }
+  }
   for (const key of Object.keys(isObject(source.settings) ? source.settings : {})) {
     if (!SKY_SHADER_KEY_SET.has(key)) {
       warnings.push(`Unknown Sky Shader setting "${key}" was ignored.`);
@@ -610,7 +654,21 @@ export function getSkyShaderPresetOptions() {
 }
 
 export function applySkyShaderSettings(target, options = {}) {
-  const settings = createSkyShaderSettings(options);
+  const source = isObject(options) ? options : {};
+  const settings = createSkyShaderSettings(
+    source.type === SKY_SHADER_DOCUMENT_TYPE ? source.settings : options,
+  );
+  if (typeof target?.applySkyShaderProfile === 'function') {
+    const profile = source.type === SKY_SHADER_DOCUMENT_TYPE
+      ? canonicalDocument(source.id || 'runtime', source)
+      : {
+        atmosphere: createSkyAtmosphereSettings(source.atmosphere),
+        settings,
+        timeKeyframes: createSkyTimeKeyframes(source.timeKeyframes),
+      };
+    target.applySkyShaderProfile(profile);
+    return profile;
+  }
   if (typeof target?.applySkyShaderSettings !== 'function') {
     throw new Error(
       'Sky Shader target must expose applySkyShaderSettings(settings).',
@@ -621,13 +679,17 @@ export function applySkyShaderSettings(target, options = {}) {
 }
 
 registerSkyShaderPreset('default', {
-  description: 'Accepted P18 sky-dome color-curve treatment.',
-  label: 'Source Reference',
+  description: 'Neutral authored sky-dome color-curve treatment.',
+  label: 'Default',
+  atmosphere: DEFAULT_SKY_ATMOSPHERE,
   settings: DEFAULT_SKY_SHADER_SETTINGS,
+  timeKeyframes: DEFAULT_SKY_TIME_KEYFRAMES,
 });
 
 registerSkyShaderPreset('call_me_sensei', {
-  description: 'Call Me Sensei sky treatment initialized from the accepted P18 comparison.',
+  description: 'The Call Me Sensei house sky: a Genshin-inspired open-world treatment with a saturated cyan-blue zenith, luminous horizon, lifted aerial perspective, and graphic celestial accents.',
   label: 'Call Me Sensei',
-  settings: DEFAULT_SKY_SHADER_SETTINGS,
+  atmosphere: CALL_ME_SENSEI_SKY_ATMOSPHERE,
+  settings: CALL_ME_SENSEI_SKY_SHADER_SETTINGS,
+  timeKeyframes: CALL_ME_SENSEI_SKY_TIME_KEYFRAMES,
 });

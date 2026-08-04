@@ -1,0 +1,15 @@
+@import '../../grass-lab/ui/app.css';
+@import '../../cloud-shader-lab/ui/app.css';
+
+.sensei-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 8px;
+}
+
+.sensei-meta {
+  margin: 6px 10px 12px;
+  color: var(--tk-text-muted, #9aa3b2);
+  font-size: 11px;
+}

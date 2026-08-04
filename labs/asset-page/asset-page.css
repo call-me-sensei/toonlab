@@ -39,6 +39,65 @@
 .asset-stage--plateau {
   background: #9fc6d9;
 }
+.asset-stage--pack {
+  background-color: #152235;
+  background-position: center;
+  background-size: cover;
+  filter: saturate(1.08);
+}
+
+.asset-pack-warning {
+  margin: 8px 0;
+  color: var(--tl-danger);
+  font-size: 12px;
+}
+.asset-pack-files {
+  margin-top: 14px;
+  max-height: 250px;
+  display: grid;
+  gap: 8px;
+}
+.asset-pack-files__heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+.asset-pack-files__heading span,
+.asset-pack-file__meta {
+  color: rgb(255 255 255 / 0.55);
+  font-size: 10px;
+}
+.asset-pack-files__search {
+  width: 100%;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  border-radius: 6px;
+  padding: 8px;
+  color: #fff;
+  background: rgb(8 10 16 / 0.65);
+}
+.asset-pack-files__list {
+  min-height: 0;
+  overflow: auto;
+  border-top: 1px solid rgb(255 255 255 / 0.12);
+}
+.asset-pack-file {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgb(255 255 255 / 0.08);
+}
+.asset-pack-file__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--tl-font-mono);
+  font-size: 10px;
+}
+.asset-pack-file__download { color: var(--tl-accent-hot); font-size: 10px; }
+.asset-pack-file__unavailable { color: rgb(255 255 255 / 0.35); font-size: 10px; }
 .asset-stage--plateau .plateau-viewer-canvas {
   position: absolute;
   inset: 0;

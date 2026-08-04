@@ -8,8 +8,6 @@ import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 import { USDZLoader } from 'three/examples/jsm/loaders/USDZLoader.js';
 import { unzipSync } from 'three/examples/jsm/libs/fflate.module.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { MMDLoader } from 'three-stdlib';
-import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 
 export const SUPPORTED_MODEL_FORMATS = ['pmx', 'pmd', 'fbx', 'glb', 'gltf', 'vrm', 'obj', 'usdz'];
 
@@ -106,6 +104,28 @@ function loadArrayBuffer(url, manager = undefined) {
   const loader = new FileLoader(manager);
   loader.setResponseType('arraybuffer');
   return loadAsync(loader, url);
+}
+
+async function loadMmdSupport() {
+  try {
+    return await import('three-stdlib');
+  } catch (error) {
+    throw new Error(
+      'PMX/PMD loading requires the optional peer dependency "three-stdlib".',
+      { cause: error },
+    );
+  }
+}
+
+async function loadVrmSupport() {
+  try {
+    return await import('@pixiv/three-vrm');
+  } catch (error) {
+    throw new Error(
+      'VRM loading requires the optional peer dependency "@pixiv/three-vrm".',
+      { cause: error },
+    );
+  }
 }
 
 function getTextEncodeMap(label) {
@@ -235,7 +255,42 @@ function validateUsdzBuffer(buffer, url) {
   }
 }
 
-function configureGltfLoader(loader, { decoderBasePath = null, renderer = null } = {}) {
+export function createModelAssetTranscoders({ decoderBasePath, renderer = null } = {}) {
+  if (!decoderBasePath) {
+    throw new TypeError('createModelAssetTranscoders requires decoderBasePath.');
+  }
+  const normalizedDecoderBasePath = decoderBasePath.endsWith('/')
+    ? decoderBasePath
+    : `${decoderBasePath}/`;
+  const dracoLoader = new DRACOLoader();
+  dracoLoader.setDecoderPath(`${normalizedDecoderBasePath}draco/`);
+  const ktx2Loader = renderer ? new KTX2Loader() : null;
+  if (ktx2Loader) {
+    ktx2Loader.setTranscoderPath(`${normalizedDecoderBasePath}basis/`);
+    ktx2Loader.detectSupport(renderer);
+  }
+  return {
+    dispose() {
+      dracoLoader.dispose();
+      ktx2Loader?.dispose();
+    },
+    dracoLoader,
+    ktx2Loader,
+    meshoptDecoder: MeshoptDecoder,
+  };
+}
+
+function configureGltfLoader(loader, {
+  decoderBasePath = null,
+  renderer = null,
+  transcoders = null,
+} = {}) {
+  if (transcoders) {
+    loader.setMeshoptDecoder(transcoders.meshoptDecoder ?? MeshoptDecoder);
+    if (transcoders.dracoLoader) loader.setDRACOLoader(transcoders.dracoLoader);
+    if (transcoders.ktx2Loader) loader.setKTX2Loader(transcoders.ktx2Loader);
+    return;
+  }
   loader.setMeshoptDecoder(MeshoptDecoder);
 
   if (!decoderBasePath) return;
@@ -328,12 +383,14 @@ export async function loadModelAsset(url, {
   decoderBasePath = null,
   materialUrl = null,
   renderer = null,
+  transcoders = null,
 } = {}) {
   const format = getModelFormat(url);
   const resourcePath = getResourcePath(url);
   const manager = createModelLoadingManager();
 
   if (format === 'mmd') {
+    const { MMDLoader } = await loadMmdSupport();
     const loader = new MMDLoader(manager);
     loader.setResourcePath(resourcePath);
     const root = await loadAsync(loader, url);
@@ -364,17 +421,20 @@ export async function loadModelAsset(url, {
   if (format === 'gltf' || format === 'vrm') {
     const loader = new GLTFLoader(manager);
     loader.setResourcePath(resourcePath);
-    configureGltfLoader(loader, { decoderBasePath, renderer });
-    // The VRM plugin only activates when the glTF carries the VRM extension,
-    // so registering it for every glTF load is safe.
-    loader.register((parser) => new VRMLoaderPlugin(parser));
+    configureGltfLoader(loader, { decoderBasePath, renderer, transcoders });
+    let vrmUtils = null;
+    if (format === 'vrm') {
+      const { VRMLoaderPlugin, VRMUtils } = await loadVrmSupport();
+      loader.register((parser) => new VRMLoaderPlugin(parser));
+      vrmUtils = VRMUtils;
+    }
     const gltf = await loadAsync(loader, url);
     annotateGltfSourceMetadata(gltf, url);
 
     const vrm = gltf.userData?.vrm ?? null;
     if (vrm) {
       // VRM0 models face +Z after this, matching VRM1/three convention.
-      VRMUtils.rotateVRM0(vrm);
+      vrmUtils.rotateVRM0(vrm);
       // Clips animate the raw scene bones directly; without this vrm.update()
       // would overwrite them from the untouched normalized rig every frame.
       vrm.humanoid.autoUpdateHumanBones = false;

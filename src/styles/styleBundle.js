@@ -1,7 +1,7 @@
-// Style bundles — ONE named document that mixes and matches an IP-wide style
-// per visual system ("slot"), plus explicit asset documents such as a tree
-// recipe. Asset/condition presets remain runtime state and are rendered
-// through these styles rather than being mistaken for styles themselves.
+// Style bundles — one named document that coordinates the anime-game art
+// direction and one material treatment per public visual system. Asset
+// identity, geometry, source policy, and current scene conditions remain
+// outside the bundle.
 // Labs and games reference a bundle
 // (a local JSON or a published toonlab.io slug) and get every system's
 // resolved settings in one call:
@@ -57,29 +57,16 @@ import {
   parseCloudShaderPresetDocument,
 } from '../cloud/index.js';
 import {
-  createGrassSettings,
-  GRASS_PRESET_DOCUMENT_TYPE,
-  parseGrassPresetDocument,
-} from '../vegetation/stylizedGrass.js';
-import { createFlowerSettings } from '../vegetation/stylizedFlowers.js';
-import {
   createFlowerShaderProfileSettings,
   createGrassShaderProfileSettings,
   createTreeShaderSettings,
-  createVegetationShaderSettings,
   FLOWER_SHADER_PROFILE_DOCUMENT_TYPE,
   GRASS_SHADER_PROFILE_DOCUMENT_TYPE,
-  parseVegetationShaderPresetDocument,
   parseFlowerShaderProfilePresetDocument,
   parseGrassShaderProfilePresetDocument,
   parseTreeShaderPresetDocument,
   TREE_SHADER_DOCUMENT_TYPE,
-  VEGETATION_SHADER_DOCUMENT_TYPE,
 } from '../vegetation/vegetationShaders.js';
-import {
-  TREE_RECIPE_SCHEMA,
-  validateTreeRecipeDocument,
-} from '../vegetation/treeRecipe.js';
 import {
   createRockShaderSettings,
   parseRockShaderPresetDocument,
@@ -91,9 +78,17 @@ import {
   parseGroundShaderPresetDocument,
 } from '../ground-shader/index.js';
 import { resolveDebrisStyleName } from '../debrisgen/debrisPresets.js';
+import {
+  cloneAnimeGameProfile,
+  DEFAULT_UNSUPPORTED_STYLE_DOMAINS,
+  TOONLAB_ANIME_GAME_PROFILE,
+  TOONLAB_ANIME_GAME_PROFILE_FAMILY,
+  TOONLAB_ANIME_GAME_RENDERING,
+} from './animeGameProfile.js';
 
 export const STYLE_BUNDLE_DOCUMENT_TYPE = 'toonlab/style-bundle';
-export const STYLE_BUNDLE_SCHEMA_VERSION = 1;
+export const STYLE_BUNDLE_SCHEMA_VERSION = 2;
+export const LEGACY_STYLE_BUNDLE_SCHEMA_VERSION = 1;
 export const DEFAULT_STYLE_BUNDLE_BASE_URL = 'https://toonlab.io';
 
 /**
@@ -146,53 +141,6 @@ export const STYLE_BUNDLE_SLOTS = Object.freeze({
         ? createFlowerShaderProfileSettings(payload.document.settings)
         : createFlowerShaderProfileSettings({ preset: selectedStyleId(payload) })
     ),
-  }),
-  tree: Object.freeze({
-    documentType: TREE_RECIPE_SCHEMA,
-    label: 'Trees',
-    // Tree recipes carry { type, options } (not .settings) and resolve to
-    // the recipe document itself — hand it to createPlantFromRecipe(
-    // settings.tree). No built-in preset ids: fill by document or creation.
-    parseDocument: validateTreeRecipeDocument,
-    selectionKind: 'document',
-    resolve: (payload) => {
-      if (payload.document) return payload.document;
-      throw new Error(
-        `Style bundle slot "tree" has no built-in preset "${payload.preset}" — inline a tree recipe document or reference a saved recipe.`,
-      );
-    },
-  }),
-  grass: Object.freeze({
-    documentType: GRASS_PRESET_DOCUMENT_TYPE,
-    label: 'Grass',
-    parseDocument: parseGrassPresetDocument,
-    selectionKind: 'style',
-    resolve: (payload) => {
-      if (payload.document) return createGrassSettings(payload.document.settings);
-      const style = selectedStyleId(payload);
-      return withStyleIdentity(createGrassSettings({ preset: style }), style);
-    },
-  }),
-  flowers: Object.freeze({
-    documentType: null,
-    label: 'Flowers',
-    parseDocument: null,
-    selectionKind: 'style',
-    resolve: (payload) => {
-      const style = selectedStyleId(payload);
-      return withStyleIdentity(createFlowerSettings({ preset: style }), style);
-    },
-  }),
-  vegetationShader: Object.freeze({
-    documentType: VEGETATION_SHADER_DOCUMENT_TYPE,
-    label: 'Vegetation shader compatibility aggregate',
-    parseDocument: parseVegetationShaderPresetDocument,
-    selectionKind: 'style',
-    resolve: (payload) => {
-      if (payload.document) return createVegetationShaderSettings(payload.document.settings);
-      const style = selectedStyleId(payload);
-      return withStyleIdentity(createVegetationShaderSettings({ preset: style }), style);
-    },
   }),
   rock: Object.freeze({
     documentType: ROCK_SHADER_DOCUMENT_TYPE,
@@ -348,31 +296,132 @@ function withStyleIdentity(settings, style) {
   return isPlainObject(settings) && style ? { ...settings, style } : settings;
 }
 
+const LEGACY_ASSET_SLOT_IDS = Object.freeze(['tree', 'grass', 'flowers']);
+
+function stringList(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map((entry) => String(entry ?? '').trim()).filter(Boolean))];
+}
+
+function normalizeArtDirection(input, errors) {
+  if (!isPlainObject(input)) {
+    errors.push('Style bundle v2 needs artDirection metadata.');
+    return cloneAnimeGameProfile();
+  }
+  const family = String(input.family ?? '').trim();
+  const rendering = String(input.rendering ?? '').trim();
+  const subjects = stringList(input.subjects);
+  const traits = stringList(input.traits);
+  const antiGoals = stringList(input.antiGoals);
+  if (family !== TOONLAB_ANIME_GAME_PROFILE_FAMILY) {
+    errors.push(`Style bundle artDirection.family must be "${TOONLAB_ANIME_GAME_PROFILE_FAMILY}".`);
+  }
+  if (rendering !== TOONLAB_ANIME_GAME_RENDERING) {
+    errors.push(`Style bundle artDirection.rendering must be "${TOONLAB_ANIME_GAME_RENDERING}".`);
+  }
+  for (const requiredSubject of ['character', 'environment']) {
+    if (!subjects.includes(requiredSubject)) {
+      errors.push(`Style bundle artDirection.subjects must include "${requiredSubject}".`);
+    }
+  }
+  if (traits.length === 0) errors.push('Style bundle artDirection.traits cannot be empty.');
+  if (antiGoals.length === 0) errors.push('Style bundle artDirection.antiGoals cannot be empty.');
+  return { antiGoals, family, rendering, subjects, traits };
+}
+
+function normalizeCoverage(input) {
+  const unsupported = stringList(input?.unsupported);
+  return {
+    unsupported: unsupported.length
+      ? unsupported
+      : [...DEFAULT_UNSUPPORTED_STYLE_DOMAINS],
+  };
+}
+
 /**
- * Validate a style-bundle document. Returns { ok: true, value } with a
- * normalized copy (unknown slots dropped, empty slots removed) or
- * { ok: false, errors }.
+ * Convert v1 documents to the visual-only v2 contract. Legacy asset slots are
+ * returned to the caller for an explicit scene/policy migration and are never
+ * silently serialized back into a style bundle.
  */
-export function validateStyleBundleDocument(input) {
+export function migrateStyleBundleDocument(input) {
   const errors = [];
   const document = typeof input === 'string' ? tryParseJson(input, errors) : input;
   if (!isPlainObject(document)) {
     return { errors: errors.length ? errors : ['Style bundle must be a JSON object.'], ok: false };
   }
   if (document.schema !== STYLE_BUNDLE_DOCUMENT_TYPE) {
-    errors.push(`Expected schema "${STYLE_BUNDLE_DOCUMENT_TYPE}".`);
+    return { errors: [`Expected schema "${STYLE_BUNDLE_DOCUMENT_TYPE}".`], ok: false };
   }
-  if (document.version !== STYLE_BUNDLE_SCHEMA_VERSION) {
-    errors.push(`Unsupported style bundle version ${document.version}.`);
+  if (document.version === STYLE_BUNDLE_SCHEMA_VERSION) {
+    return { legacyAssetSelections: {}, ok: true, value: document, warnings: [] };
   }
+  if (document.version !== LEGACY_STYLE_BUNDLE_SCHEMA_VERSION) {
+    return { errors: [`Unsupported style bundle version ${document.version}.`], ok: false };
+  }
+
+  const warnings = [
+    'Style bundle v1 was migrated to v2 with the ToonLab anime-game art direction.',
+  ];
+  const legacyAssetSelections = {};
+  const slots = isPlainObject(document.slots) ? { ...document.slots } : {};
+  for (const slotId of LEGACY_ASSET_SLOT_IDS) {
+    if (!Object.hasOwn(slots, slotId)) continue;
+    legacyAssetSelections[slotId] = slots[slotId];
+    delete slots[slotId];
+    warnings.push(`Legacy asset slot "${slotId}" must move to scene or asset-sourcing configuration.`);
+  }
+  if (slots.vegetationShader) {
+    const legacySelection = slots.vegetationShader;
+    const style = selectedStyleId(legacySelection);
+    if (style) {
+      for (const slotId of ['treeShader', 'grassShader', 'flowerShader']) {
+        if (!slots[slotId]) slots[slotId] = { style };
+      }
+      warnings.push('Legacy vegetationShader style was expanded into treeShader, grassShader, and flowerShader.');
+    } else {
+      legacyAssetSelections.vegetationShader = legacySelection;
+      warnings.push('Legacy inline vegetationShader document needs an explicit three-profile migration.');
+    }
+    delete slots.vegetationShader;
+  }
+
+  return {
+    legacyAssetSelections,
+    ok: true,
+    value: {
+      ...document,
+      artDirection: cloneAnimeGameProfile(),
+      coverage: normalizeCoverage(document.coverage),
+      slots,
+      version: STYLE_BUNDLE_SCHEMA_VERSION,
+    },
+    warnings,
+  };
+}
+
+/**
+ * Validate a style-bundle document. Returns { ok: true, value } with a
+ * normalized v2 copy (unknown slots warned, empty slots removed) or
+ * { ok: false, errors }.
+ */
+export function validateStyleBundleDocument(input) {
+  const migrated = migrateStyleBundleDocument(input);
+  if (!migrated.ok) return migrated;
+  const errors = [];
+  const warnings = [...(migrated.warnings ?? [])];
+  const document = migrated.value;
   const label = typeof document.label === 'string' ? document.label.trim() : '';
   if (!label) errors.push('Style bundle needs a label.');
+  const artDirection = normalizeArtDirection(document.artDirection, errors);
 
   const slots = {};
   const slotsInput = isPlainObject(document.slots) ? document.slots : {};
   for (const [slotId, payload] of Object.entries(slotsInput)) {
     const slot = STYLE_BUNDLE_SLOTS[slotId];
-    if (!slot) continue; // forward compatibility: ignore unknown slots
+    if (!slot) {
+      warnings.push(`Unknown style bundle slot "${slotId}" was ignored.`);
+      continue;
+    }
     if (payload == null) continue;
     if (!isPlainObject(payload)) {
       errors.push(`Slot "${slotId}" must be an object.`);
@@ -414,8 +463,11 @@ export function validateStyleBundleDocument(input) {
 
   if (errors.length) return { errors, ok: false };
   return {
+    legacyAssetSelections: migrated.legacyAssetSelections ?? {},
     ok: true,
     value: {
+      artDirection,
+      coverage: normalizeCoverage(document.coverage),
       description: typeof document.description === 'string' ? document.description : '',
       id: typeof document.id === 'string' && document.id ? document.id : slugify(label),
       label,
@@ -423,6 +475,7 @@ export function validateStyleBundleDocument(input) {
       slots,
       version: STYLE_BUNDLE_SCHEMA_VERSION,
     },
+    warnings,
   };
 }
 
@@ -442,8 +495,16 @@ function slugify(value) {
     .replace(/^-+|-+$/g, '') || 'style-bundle';
 }
 
-export function createStyleBundleDocument(id, { description = '', label, slots = {} } = {}) {
+export function createStyleBundleDocument(id, {
+  artDirection = TOONLAB_ANIME_GAME_PROFILE,
+  coverage = { unsupported: DEFAULT_UNSUPPORTED_STYLE_DOMAINS },
+  description = '',
+  label,
+  slots = {},
+} = {}) {
   const result = validateStyleBundleDocument({
+    artDirection,
+    coverage,
     description,
     id,
     label: label ?? id,
@@ -453,6 +514,56 @@ export function createStyleBundleDocument(id, { description = '', label, slots =
   });
   if (!result.ok) throw new Error(result.errors.join(' '));
   return result.value;
+}
+
+function deepFreeze(value) {
+  if (!value || typeof value !== 'object' || Object.isFrozen(value)) return value;
+  for (const child of Object.values(value)) deepFreeze(child);
+  return Object.freeze(value);
+}
+
+export const CALL_ME_SENSEI_STYLE_SLOT_IDS = Object.freeze([
+  'toon',
+  'environment',
+  'treeShader',
+  'grassShader',
+  'flowerShader',
+  'groundShader',
+  'rock',
+  'debris',
+  'water',
+  'sky',
+  'cloud',
+  'weather',
+  'post',
+]);
+
+export const CALL_ME_SENSEI_STYLE_BUNDLE = deepFreeze(
+  createStyleBundleDocument('call-me-sensei', {
+    artDirection: TOONLAB_ANIME_GAME_PROFILE,
+    coverage: { unsupported: DEFAULT_UNSUPPORTED_STYLE_DOMAINS },
+    description: 'First-party anime-game treatment coordinated across every stable ToonLab shader and presentation system.',
+    label: 'Call Me Sensei',
+    slots: Object.fromEntries(
+      CALL_ME_SENSEI_STYLE_SLOT_IDS.map((slotId) => [
+        slotId,
+        { style: 'call_me_sensei' },
+      ]),
+    ),
+  }),
+);
+
+export const FIRST_PARTY_STYLE_BUNDLES = Object.freeze({
+  'call-me-sensei': CALL_ME_SENSEI_STYLE_BUNDLE,
+});
+
+export function getFirstPartyStyleBundle(id) {
+  const normalized = String(id ?? '').trim().toLowerCase().replace(/_/g, '-');
+  return FIRST_PARTY_STYLE_BUNDLES[normalized] ?? null;
+}
+
+export function listFirstPartyStyleBundles() {
+  return Object.values(FIRST_PARTY_STYLE_BUNDLES);
 }
 
 export function serializeStyleBundle(document, { pretty = true } = {}) {
@@ -505,6 +616,10 @@ export async function fetchStyleBundle(ref, {
   baseUrl = DEFAULT_STYLE_BUNDLE_BASE_URL,
   fetchImpl = globalThis.fetch,
 } = {}) {
+  const firstParty = getFirstPartyStyleBundle(ref);
+  if (firstParty) {
+    return { document: firstParty, settings: resolveStyleBundleSettings(firstParty) };
+  }
   const url = /^https?:\/\//.test(ref)
     ? ref
     : `${baseUrl.replace(/\/+$/, '')}/api/v1/bundles/${encodeURIComponent(ref)}`;

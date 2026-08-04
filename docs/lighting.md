@@ -1,7 +1,12 @@
 # Lighting
 
-`@call-me-sensei/toonlab/lighting` is ToonLab's portable lighting-authoring
-layer. It gives games one vocabulary for lights, reusable styles and fixtures,
+> **Repository-only status:** the Lighting Lab and `src/lighting/` prototype
+> exist in this checkout, but `@call-me-sensei/toonlab/lighting` is not a
+> public npm export in 0.4.10. Consumers must keep lighting host-owned. The
+> examples below describe internal evaluation code and must not be copied as
+> package imports.
+
+The repository lighting prototype gives games one vocabulary for lights, reusable styles and fixtures,
 quality budgets, runtime selection, diagnostics, and engine export. The module
 coordinates Three.js lights and preserves metadata for ToonLab's stylized
 material response; it does not replace an engine renderer,
@@ -26,7 +31,7 @@ through MCP, and in a shipped game.
 ## Quick start: the lighting system
 
 ```js
-import { createLightingSystem } from '@call-me-sensei/toonlab/lighting';
+import { createLightingSystem } from '../src/lighting/index.js'; // repository checkout only
 
 const lighting = createLightingSystem({
   camera,
@@ -55,7 +60,8 @@ touching built-ins.
 
 ### Working with worlds
 
-`lighting.attachWorld(world)` binds a `createStylizedWorld` result. The style
+`lighting.attachWorld(world)` binds the repository-only world-composition
+prototype. The style
 drives its world-owned sun-direction adapter (so the visible disc, directional
 light, cast shadows, Grass/Flower/Tree shader inputs, and Water highlight
 agree), sun color/intensity/accents, environment-material sky/fog tints, scene
@@ -86,7 +92,7 @@ Both artifact types have generator recipes on the shared grammar
 import {
   createLightingStyleGeneratorRecipe,
   resolveLightingStyleGeneratorRecipe,
-} from '@call-me-sensei/toonlab/lighting';
+} from '../src/lighting/index.js'; // repository checkout only
 
 const recipe = createLightingStyleGeneratorRecipe('my-style', {
   family: 'call-me-sensei',   // anime-day | call-me-sensei | golden | noir-neon | pastel-overcast
@@ -123,7 +129,7 @@ that itself yields endless placement variety.
   first directional light, 8 point lights, 4 spot lights, and 2 hemisphere
   lights through the shared toon light mirror; area lights affect standard
   materials only. Fixture budgets should respect those caps in toon worlds.
-- Inside `createStylizedWorld`, the sun's shadow pass and position remain
+- Inside the repository-only world-composition prototype, the sun's shadow pass and position remain
   world-owned; the style contributes color/intensity/accents.
 
 ---
@@ -153,7 +159,7 @@ import {
   createLightingManager,
   createLightingRecipe,
   resolveLightingQualityPreset,
-} from '@call-me-sensei/toonlab/lighting';
+} from '../src/lighting/index.js'; // repository checkout only
 
 const recipe = createLightingRecipe({
   id: 'harbor-night',
@@ -425,7 +431,7 @@ import {
   deserializeLightingRecipe,
   serializeLightingRecipe,
   validateLightingRecipe,
-} from '@call-me-sensei/toonlab/lighting';
+} from '../src/lighting/index.js'; // repository checkout only
 
 const json = serializeLightingRecipe(recipe, { pretty: true });
 localStorage.setItem('my-game/lighting/shrine', json);
@@ -662,7 +668,7 @@ host editor, change project settings, compile shaders, or enable plugins.
 import {
   exportLightingRecipeToToonLab,
   serializeToonLabLightingManifest,
-} from '@call-me-sensei/toonlab/lighting';
+} from '../src/lighting/index.js'; // repository checkout only
 
 const manifest = exportLightingRecipeToToonLab(look.recipe, {
   manyLights: 'prefer', // 'disabled' | 'prefer' | 'require'
@@ -760,7 +766,7 @@ import {
   createLightDescriptor,
   createLightingLook,
   createLightingRecipe,
-} from '@call-me-sensei/toonlab/lighting';
+} from '../src/lighting/index.js'; // repository checkout only
 
 const legacy = resolveEnvironmentPreset('interiorEvening');
 

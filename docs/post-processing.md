@@ -15,6 +15,8 @@ import { createPostProcessingPipeline } from '@call-me-sensei/toonlab/post';
 
 const post = createPostProcessingPipeline({
   renderer, scene, camera,
+  // false by default: the host app owns canvas/CSS sizing.
+  ownsRenderer: false,
   settings: { preset: 'softAnime' },
 });
 
@@ -36,7 +38,10 @@ post.setCharacterMask(passes.characterMaskTexture);
 The pipeline renders the scene into a color+depth target and composites in
 one screen pass. `post.enabled` and `post.settings` are live getters;
 `isPostProcessingEnabled(settings)` answers the same question for a plain
-settings object.
+settings object. `setSize()` resizes only pipeline render targets by default;
+set `ownsRenderer: true` only when this pipeline is also responsible for the
+renderer canvas. `post.compositeScene` and `post.compositeCamera` are exposed
+for compilation and diagnostics.
 
 ## Features and parameters
 

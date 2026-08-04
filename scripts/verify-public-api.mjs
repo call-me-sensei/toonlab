@@ -5,6 +5,7 @@ import * as root from '@call-me-sensei/toonlab';
 import * as atmosphericCondition from '@call-me-sensei/toonlab/atmospheric-condition';
 import * as climate from '@call-me-sensei/toonlab/climate';
 import * as cloud from '@call-me-sensei/toonlab/cloud';
+import * as character from '@call-me-sensei/toonlab/character';
 import * as grass from '@call-me-sensei/toonlab/grass';
 import * as grassPalettes from '@call-me-sensei/toonlab/grass-palettes';
 import * as rockShader from '@call-me-sensei/toonlab/rock-shader';
@@ -32,14 +33,20 @@ const grassShaderSource = await readFile(
   'utf8',
 );
 
+check('runtime package version matches package.json', () => {
+  assert.equal(root.TOONLAB_VERSION, packageJson.version);
+});
+
 check('package export map publishes the stable system entry points', () => {
   assert.equal(packageJson.exports['./vegetation'], './src/vegetation/index.js');
   assert.equal(packageJson.exports['./vegetation-shaders'], './src/vegetation/vegetationShaders.js');
   assert.equal(packageJson.exports['./grass-palettes'], './src/vegetation/grassPalettes.js');
-  assert.equal(packageJson.exports['./grass'], './src/vegetation/stylizedGrass.js');
+  assert.equal(packageJson.exports['./grass'], './src/vegetation/grass.js');
   assert.equal(packageJson.exports['./water'], './src/water/index.js');
   assert.equal(packageJson.exports['./sky'], './src/sky/index.js');
   assert.equal(packageJson.exports['./cloud'], './src/cloud/index.js');
+  assert.equal(packageJson.exports['./asset-policy'], './src/asset-policy/index.js');
+  assert.equal(packageJson.exports['./character'], './src/character/index.js');
   assert.equal(packageJson.exports['./climate'], './src/climate/index.js');
   assert.equal(packageJson.exports['./atmospheric-condition'], './src/atmospheric-condition/index.js');
   assert.equal(packageJson.exports['./rock-shader'], './src/rock-shader/index.js');
@@ -65,6 +72,22 @@ check('package export map publishes the stable system entry points', () => {
   assert.equal(packageJson.files.some((path) => path === 'labs' || path.startsWith('labs/')), false);
 });
 
+check('character publishes the immutable public-R2 mannequin contract', () => {
+  assert.equal(character.TOONLAB_MANNEQUIN_ASSET.animationClipCount, 46);
+  assert.equal(character.TOONLAB_MANNEQUIN_ASSET.byteSize, 6670948);
+  assert.equal(character.TOONLAB_MANNEQUIN_ASSET.license, 'CC0');
+  assert.match(character.TOONLAB_MANNEQUIN_ASSET.licenseUrl, /creativecommons\.org/);
+  assert.match(character.TOONLAB_MANNEQUIN_ASSET.sourceUrl, /quaternius\.com/);
+  assert.equal(
+    character.TOONLAB_MANNEQUIN_ASSET.url,
+    character.TOONLAB_MANNEQUIN_ASSET_URL,
+  );
+  assert.equal(
+    character.TOONLAB_MANNEQUIN_ASSET_URL,
+    'https://assets.toonlab.io/runtime/characters/mannequin/v1-37925f7d8278d5a7/mannequin.glb',
+  );
+});
+
 check('root mirrors the published vegetation, water, sky, cloud, climate, and rock shader barrels', () => {
   for (const module of [vegetation, water, sky, cloud, climate, rockShader]) {
     for (const [name, value] of Object.entries(module)) {
@@ -75,9 +98,13 @@ check('root mirrors the published vegetation, water, sky, cloud, climate, and ro
 
 check('cloud publishes an independent appearance profile', () => {
   assert.equal(cloud.DEFAULT_CLOUD_SHADER_PRESET, 'call_me_sensei');
-  assert.equal(cloud.CLOUD_SHADER_FIELD_COUNT, 16);
+  assert.equal(cloud.CLOUD_SHADER_FIELD_COUNT, 31);
   assert.equal(cloud.CLOUD_SHADER_SETTING_GROUPS.length, 4);
-  assert.equal(cloud.createCloudShaderSettings().backgroundCloudStrength, 0.30000001192092896);
+  assert.equal(cloud.createCloudShaderSettings().backgroundCloudStrength, 0.34);
+  assert.notDeepEqual(
+    cloud.CALL_ME_SENSEI_CLOUD_SHADER_SETTINGS,
+    cloud.DEFAULT_CLOUD_SHADER_SETTINGS,
+  );
   assert.equal(typeof cloud.applyCloudShaderSettings, 'function');
 });
 
@@ -118,6 +145,49 @@ check('focused vegetation subpaths share identities with the main barrel', () =>
   }
 });
 
+check('grass exposes paintable clump geometry, material, field, and LOD contracts', () => {
+  for (const name of [
+    'createCallMeSenseiGrassField',
+    'createCallMeSenseiGrassMaterial',
+    'createGrassClumpGeometry',
+    'createGrassClumpMaterial',
+    'loadCallMeSenseiGrassClump',
+    'RetainedGrassClumpField',
+    'StylizedGrassClumpField',
+  ]) {
+    assert.equal(typeof grass[name], 'function', `missing grass clump API ${name}`);
+  }
+  assert.equal(grass.GRASS_CLUMP_LODS.length, 3);
+  assert.equal(grass.DEFAULT_CALL_ME_SENSEI_GRASS_CLUMP, 'primary');
+  assert.deepEqual(
+    Object.keys(grass.CALL_ME_SENSEI_GRASS_CLUMP_VARIANTS),
+    ['primary', 'secondary'],
+  );
+  assert.deepEqual(
+    Object.values(grass.CALL_ME_SENSEI_GRASS_CLUMP_VARIANTS)
+      .map(({ bladeCount, seed }) => ({ bladeCount, seed })),
+    [{ bladeCount: 40, seed: 1337 }, { bladeCount: 56, seed: 7331 }],
+  );
+  assert.equal(
+    Object.values(grass.CALL_ME_SENSEI_GRASS_MATERIAL_TEXTURE_URLS).length,
+    0,
+  );
+  const geometry = grass.createGrassClumpGeometry();
+  assert.equal(geometry.userData.grassClump.triangleCount, 280);
+  assert.equal(geometry.userData.grassClump.role, 'static-mesh-equivalent');
+  const meadow = grass.createGrassSettings({ preset: 'call_me_sensei_clump' });
+  assert.equal(meadow.bladesPerClump, 40);
+  assert.equal(meadow.groundAdoptStrength, 1);
+  assert.deepEqual(meadow.groundAdoptTint, [1, 1, 1]);
+  assert.equal(meadow.leanStrength, 0.24);
+  assert.equal(meadow.washLift, 0.68);
+  assert.equal(meadow.washOpacity, 0.82);
+  const callMeSenseiVegetation = vegetationShaders.resolveVegetationShaderPreset('call_me_sensei');
+  assert.equal(callMeSenseiVegetation.grass.tipHueShift, 0);
+  assert.equal(callMeSenseiVegetation.grass.tipDesaturation, 0);
+  geometry.dispose();
+});
+
 check('vegetation exposes semantic contracts and every shipped material factory', () => {
   for (const name of [
     'createGrassNodeMaterial',
@@ -137,6 +207,53 @@ check('vegetation exposes semantic contracts and every shipped material factory'
     ['flowerCenter', 'flowerPetal', 'foliageCard', 'grassBlade', 'herbaceousStem', 'woodySurface'].sort(),
   );
   assert.equal(vegetation.VEGETATION_MATERIAL_CONTRACT_VERSION, 1);
+});
+
+check('vegetation exposes the legacy tree set plus BranchTree and no experimental species roster', () => {
+  for (const name of [
+    'createLegacyTree',
+    'getLegacyTreePreset',
+    'getLegacyTreePresetOptions',
+  ]) {
+    assert.equal(typeof vegetation[name], 'function', `missing stable legacy tree API ${name}`);
+  }
+  assert.deepEqual(vegetation.LEGACY_TREE_IDS, [
+    'straight',
+    'leaning',
+    'see-through',
+    'curved',
+    'forest-mix',
+    'wide-crown',
+    'autumn-blend',
+    'gnarled',
+    'bonsai',
+    'golden-gingko',
+    'sumeru-tips',
+    'massive-sumeru',
+  ]);
+  assert.equal(vegetation.LEGACY_TREE_PRESETS.length, 12);
+  for (const name of [
+    'BranchTree',
+    'createBranchTree',
+    'createBranchTreeDocument',
+    'createBranchTreeSettings',
+    'parseBranchTreeDocument',
+  ]) {
+    assert.equal(typeof vegetation[name], 'function', `missing stable BranchTree API ${name}`);
+  }
+  assert.deepEqual(
+    vegetation.BRANCH_TREE_LEAF_SHAPES,
+    ['teardrop', 'round', 'oak', 'maple', 'gingko'],
+  );
+  for (const name of [
+    'TREE_SPECIES_PROFILES',
+    'TREE_SPECIES_ROSTER',
+    'createTreeSpeciesRecipe',
+    'createPlantGraph',
+    'ProceduralSpeciesTree',
+  ]) {
+    assert.equal(vegetation[name], undefined, `${name} is experimental and must not be public`);
+  }
 });
 
 check('vegetation shader profiles round-trip through the public package', () => {
@@ -344,37 +461,44 @@ check('Grass Lab persistence re-exports the npm grass document contract', () => 
   }
 });
 
-check('style bundles accept and resolve typed inline grass documents', () => {
-  const grassDocument = grass.createGrassPresetDocument('bundle-grass', {
+check('style bundles accept and resolve typed inline grass shader documents', () => {
+  const grassDocument = vegetation.createGrassShaderProfilePresetDocument('bundle-grass', {
     settings: {
-      baseColor: [0.16, 0.3, 0.52],
-      shadowTint: [0.12, 0.18, 0.34],
-      tipColor: [0.38, 0.7, 0.82],
+      grass: { baseColor: [0.16, 0.3, 0.52] },
+      lighting: { shadowTint: [0.12, 0.18, 0.34] },
     },
   });
-  assert.equal(styles.STYLE_BUNDLE_SLOTS.grass.documentType, grass.GRASS_PRESET_DOCUMENT_TYPE);
-  assert.equal(styles.STYLE_BUNDLE_SLOTS.grass.parseDocument, grass.parseGrassPresetDocument);
+  assert.equal(
+    styles.STYLE_BUNDLE_SLOTS.grassShader.documentType,
+    vegetation.GRASS_SHADER_PROFILE_DOCUMENT_TYPE,
+  );
+  assert.equal(
+    styles.STYLE_BUNDLE_SLOTS.grassShader.parseDocument,
+    vegetation.parseGrassShaderProfilePresetDocument,
+  );
   const bundle = styles.createStyleBundleDocument('grass-bundle', {
-    slots: { grass: { document: grassDocument } },
+    slots: { grassShader: { document: grassDocument } },
   });
   const resolved = styles.resolveStyleBundleSettings(bundle);
-  assert.deepEqual(resolved.grass.baseColor, [0.16, 0.3, 0.52]);
-  assert.deepEqual(resolved.grass.tipColor, [0.38, 0.7, 0.82]);
-  assert.deepEqual(resolved.grass.shadowTint, [0.12, 0.18, 0.34]);
+  assert.deepEqual(resolved.grassShader.grass.baseColor, [0.16, 0.3, 0.52]);
+  assert.deepEqual(resolved.grassShader.lighting.shadowTint, [0.12, 0.18, 0.34]);
 });
 
 check('style bundles keep IP-wide styles separate from asset presets', () => {
   assert.equal(styles.STYLE_BUNDLE_SLOTS.landscapeMaterial, undefined);
   assert.equal(styles.STYLE_BUNDLE_SLOTS.lighting, undefined);
+  assert.equal(styles.STYLE_BUNDLE_SLOTS.tree, undefined);
+  assert.equal(styles.STYLE_BUNDLE_SLOTS.grass, undefined);
+  assert.equal(styles.STYLE_BUNDLE_SLOTS.flowers, undefined);
+  assert.equal(styles.STYLE_BUNDLE_SLOTS.vegetationShader, undefined);
   for (const slotId of [
     'toon', 'treeShader', 'grassShader', 'flowerShader',
     'groundShader',
-    'grass', 'flowers', 'vegetationShader', 'rock', 'debris',
+    'rock', 'debris',
     'water', 'sky', 'cloud', 'weather', 'environment', 'post',
   ]) {
     assert.equal(styles.STYLE_BUNDLE_SLOTS[slotId].selectionKind, 'style');
   }
-  assert.equal(styles.STYLE_BUNDLE_SLOTS.tree.selectionKind, 'document');
 
   const bundle = styles.createStyleBundleDocument('identity-bundle', {
     slots: {
@@ -387,6 +511,8 @@ check('style bundles keep IP-wide styles separate from asset presets', () => {
       weather: { style: 'call_me_sensei' },
     },
   });
+  assert.equal(bundle.version, 2);
+  assert.equal(bundle.artDirection.family, 'anime-game');
   assert.deepEqual(bundle.slots.water, { style: 'call_me_sensei' });
   const resolved = styles.resolveStyleBundleSettings(bundle);
   assert.equal(resolved.rock.preset, 'call_me_sensei');
@@ -548,25 +674,40 @@ check('style bundles resolve independent Tree, Grass, and Flower shader document
   assert.equal(resolved.flowerShader.bark, undefined);
 });
 
-check('style bundles keep legacy aggregate vegetation documents compatible', () => {
-  const vegetationDocument = vegetation.createVegetationShaderPresetDocument('bundle-vegetation', {
-    settings: { lighting: { shadowTintStrength: 0.33 } },
-  });
+check('style bundle v1 migrates legacy aggregate vegetation styles explicitly', () => {
   const waterDocument = water.createWaterPresetDocument('bundle-water', {
     settings: { waveIntensity: 0.91 },
   });
   const weatherDocument = root.createWeatherPresetDocument('bundle-weather', {
     settings: { atmosphere: { cloudCoverage: 0.77 } },
   });
-  const bundle = styles.createStyleBundleDocument('system-bundle', {
+  const parsed = styles.parseStyleBundleDocument({
+    description: 'Legacy aggregate migration fixture.',
+    id: 'system-bundle',
+    label: 'System bundle',
+    schema: styles.STYLE_BUNDLE_DOCUMENT_TYPE,
     slots: {
-      vegetationShader: { document: vegetationDocument },
+      vegetationShader: { style: 'call_me_sensei' },
       water: { document: waterDocument },
       weather: { document: weatherDocument },
     },
+    version: 1,
   });
-  const resolved = styles.resolveStyleBundleSettings(bundle);
-  assert.equal(resolved.vegetationShader.lighting.shadowTintStrength, 0.33);
+  assert.equal(parsed.ok, true, parsed.errors?.join(' '));
+  assert.ok(parsed.warnings.some((warning) => warning.includes('expanded')));
+  const resolved = styles.resolveStyleBundleSettings(parsed.value);
+  assert.deepEqual(
+    resolved.treeShader,
+    vegetation.createTreeShaderSettings({ preset: 'call_me_sensei' }),
+  );
+  assert.deepEqual(
+    resolved.grassShader,
+    vegetation.createGrassShaderProfileSettings({ preset: 'call_me_sensei' }),
+  );
+  assert.deepEqual(
+    resolved.flowerShader,
+    vegetation.createFlowerShaderProfileSettings({ preset: 'call_me_sensei' }),
+  );
   assert.equal(resolved.water.waveIntensity, 0.91);
   assert.equal(resolved.weather.atmosphere.cloudCoverage, 0.77);
 });

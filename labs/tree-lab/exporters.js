@@ -3,7 +3,7 @@
 
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 
-import { disposeExportGroup, prepareTreeForExport } from '../../src/vegetation/index.js';
+import { disposeExportGroup, prepareTreeForExport } from '../../src/vegetation/experimental.js';
 import { downloadBlob } from '../shared/download.js';
 
 export { downloadBlob };

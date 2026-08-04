@@ -43,6 +43,7 @@ import {
   texture,
   transformNormalByViewMatrix,
   transpose,
+  uniform,
   uv,
   vec2,
   vec3,
@@ -128,6 +129,9 @@ export const TOONLAB_ROCK_PROFILE_DEFAULTS = Object.freeze({
     saturation: 1,
     contrast: 1,
     brightness: 0,
+    nearDetailScale: 1.4,
+    nearDetailStrength: 0.24,
+    nearDetailDistance: 55,
     projectionContrast: 0.5,
     sideOnly: false,
     closeTintDistance: 500,
@@ -145,6 +149,15 @@ export const TOONLAB_ROCK_PROFILE_DEFAULTS = Object.freeze({
       contrast: 0.25,
       color: Object.freeze([1, 0, 1]),
     }),
+  }),
+  lighting: Object.freeze({
+    exposure: 1,
+    ambientFloor: 0.04,
+  }),
+  shoreline: Object.freeze({
+    wetBandWidth: 0.8,
+    wetBandDarkening: 0.22,
+    wetRoughness: 0.26,
   }),
   normals: Object.freeze({
     distance: 20000,
@@ -278,6 +291,8 @@ export function normalizeToonLabRockProfile(profile = {}) {
   const coordinates = profile.coordinates ?? {};
   const base = profile.base ?? {};
   const striping = base.striping ?? {};
+  const lighting = profile.lighting ?? {};
+  const shoreline = profile.shoreline ?? {};
   const normals = profile.normals ?? {};
   const moss = profile.moss ?? {};
   const layers = profile.layers ?? {};
@@ -303,6 +318,19 @@ export function normalizeToonLabRockProfile(profile = {}) {
       saturation: finite(base.saturation, defaults.base.saturation),
       contrast: finite(base.contrast, defaults.base.contrast),
       brightness: finite(base.brightness, defaults.base.brightness),
+      nearDetailScale: Math.max(
+        finite(base.nearDetailScale, defaults.base.nearDetailScale),
+        0.0001,
+      ),
+      nearDetailStrength: clamp(
+        finite(base.nearDetailStrength, defaults.base.nearDetailStrength),
+        0,
+        1,
+      ),
+      nearDetailDistance: Math.max(
+        finite(base.nearDetailDistance, defaults.base.nearDetailDistance),
+        0.0001,
+      ),
       projectionContrast: finite(
         base.projectionContrast,
         defaults.base.projectionContrast,
@@ -332,6 +360,30 @@ export function normalizeToonLabRockProfile(profile = {}) {
         contrast: finite(striping.contrast, defaults.base.striping.contrast),
         color: color3(striping.color, defaults.base.striping.color),
       },
+    },
+    lighting: {
+      exposure: Math.max(finite(lighting.exposure, defaults.lighting.exposure), 0),
+      ambientFloor: clamp(
+        finite(lighting.ambientFloor, defaults.lighting.ambientFloor),
+        0,
+        1,
+      ),
+    },
+    shoreline: {
+      wetBandWidth: Math.max(
+        finite(shoreline.wetBandWidth, defaults.shoreline.wetBandWidth),
+        0,
+      ),
+      wetBandDarkening: clamp(
+        finite(shoreline.wetBandDarkening, defaults.shoreline.wetBandDarkening),
+        0,
+        1,
+      ),
+      wetRoughness: clamp(
+        finite(shoreline.wetRoughness, defaults.shoreline.wetRoughness),
+        0.02,
+        1,
+      ),
     },
     normals: {
       distance: finite(normals.distance, defaults.normals.distance),
@@ -996,6 +1048,27 @@ export function createToonRockMaterial({
     );
   }
 
+  // The macro projection carries the authored silhouette-scale color breakup;
+  // a second metre-scale octave preserves readable rock surface detail close
+  // to the camera without changing that macro identity.
+  const nearDetailSample = toonLabTriplanarColor(
+    textures.rock,
+    resolvedProfile.base.nearDetailScale,
+    resolvedProfile.base.projectionContrast,
+    resolvedProfile.coordinates,
+  );
+  const nearDetailValue = dot(nearDetailSample, vec3(0.2126, 0.7152, 0.0722));
+  const nearDetailFade = clamp(
+    radialDistance.div(resolvedProfile.base.nearDetailDistance),
+    0,
+    1,
+  ).oneMinus().mul(resolvedProfile.base.nearDetailStrength);
+  colorNode = colorNode.mul(mix(
+    1,
+    mix(0.78, 1.22, nearDetailValue),
+    nearDetailFade,
+  ));
+
   const distantAmount = toonLabLinearRamp(
     radialDistance,
     resolvedProfile.base.closeTintDistance * authoredDistanceScale,
@@ -1057,8 +1130,11 @@ export function createToonRockMaterial({
       0,
       1,
     );
+    // Coverage is scalar. Using RGB moss texels as the interpolation mask
+    // cross-mixed color channels and could turn green source moss magenta.
+    const mossCoverage = dot(mossSample, vec3(0.2126, 0.7152, 0.0722));
     const mossMask = clamp(
-      pow(mossSample.mul(resolvedProfile.moss.multiply).mul(slope), vec3(2)),
+      pow(mossCoverage.mul(resolvedProfile.moss.multiply).mul(slope), 2),
       0,
       1,
     );
@@ -1078,6 +1154,27 @@ export function createToonRockMaterial({
     topMask,
     resolvedProfile.coordinates,
   );
+  const sceneWaterLevel = uniform(-10000);
+  const wetBandMask = clamp(
+    abs(positionWorld.y.sub(sceneWaterLevel)).div(max(
+      resolvedProfile.shoreline.wetBandWidth,
+      0.0001,
+    )),
+    0,
+    1,
+  ).oneMinus();
+  const wetColorScale = float(1).sub(
+    wetBandMask.mul(resolvedProfile.shoreline.wetBandDarkening),
+  );
+  layerState = {
+    color: layerState.color
+      .mul(resolvedProfile.lighting.exposure)
+      .mul(wetColorScale),
+    emission: layerState.emission
+      .mul(resolvedProfile.lighting.exposure)
+      .add(layerState.color.mul(resolvedProfile.lighting.ambientFloor))
+      .mul(wetColorScale),
+  };
   layerState = applyToonLabSubLayer(
     layerState,
     resolvedProfile.layers.snow,
@@ -1185,7 +1282,11 @@ export function createToonRockMaterial({
     && resolvedProfile.layers.sand.useGroundShader
   );
   let metalnessNode = clamp(float(resolvedProfile.base.metallic), 0, 1);
-  let roughnessNode = clamp(finalSmoothness.oneMinus(), 0, 1);
+  let roughnessNode = mix(
+    clamp(finalSmoothness.oneMinus(), 0, 1),
+    resolvedProfile.shoreline.wetRoughness,
+    wetBandMask,
+  );
   let specularIntensityNode = float(1);
   if (useGroundTopSurface) {
     const groundSurface = sampleGroundSurface(positionWorld);
@@ -1235,6 +1336,14 @@ export function createToonRockMaterial({
   material.alphaTest = 0;
   material.depthWrite = true;
   material.userData.toonLabRockProfile = resolvedProfile;
+  material.userData.toonLabRockSceneState = {
+    setWaterLevel(value) {
+      const next = Number(value);
+      if (Number.isFinite(next)) sceneWaterLevel.value = next;
+      return sceneWaterLevel.value;
+    },
+    waterLevel: sceneWaterLevel,
+  };
   material.userData.toonLabRockAssetIntegration = resolvedAssetIntegration;
   material.userData.toonLabSourceShader = {
     assetPath: 'Environment/Rocks/Shaders/S_Rock.toonlabgraph',

@@ -5,7 +5,7 @@
 // renders later via onUpdate.
 
 import * as THREE from 'three';
-import { createPlantFromRecipe } from '../../../src/vegetation/index.js';
+import { createPlantFromRecipe } from '../../../src/vegetation/experimental.js';
 import { createLabRenderer, whenRendererReady } from '../../shared/rendererFactory.js';
 
 const CACHE_KEY = 'toonlab.treeDesigner.thumbs.v1';

@@ -403,10 +403,14 @@ export function createWaterLabEngine({ mount, store }) {
   const scene = new THREE.Scene();
   const sky = buildSkyGradient();
   scene.background = sky;
-  // Fog exists for the underwater swap; above water it sits beyond the stage
-  // so it reads as none. WaterSurface mirrors scene.fog into the material.
-  scene.fog = new THREE.Fog(0xffffff, 220, 520);
-  const underwaterColor = new THREE.Color();
+  const initialWaterSettings = store.getState().settings;
+  // This is the lab's ordinary air-side horizon haze. WaterSurface now saves
+  // and restores it around capture passes and owns the submerged atmosphere.
+  scene.fog = new THREE.Fog(
+    new THREE.Color(...initialWaterSettings.skyHorizonColor),
+    55,
+    150,
+  );
 
   let stageId = store.getState().view.stage;
   const stage = () => STAGE_DEFINITIONS[stageId] ?? STAGE_DEFINITIONS.shore;
@@ -1042,33 +1046,6 @@ export function createWaterLabEngine({ mount, store }) {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  // Diving the camera under the surface is a first-class inspection view:
-  // swap the sky for a dense body-color atmosphere (same treatment as the
-  // playground's UnderwaterAtmosphere) so depth fade/caustics read in situ.
-  function syncUnderwaterAtmosphere() {
-    const settings = store.getState().settings;
-    const submerged = camera.position.y < water.position.y;
-    skirt.visible = !submerged;
-    if (submerged) {
-      underwaterColor.setRGB(
-        settings.midColor[0] * 0.8,
-        settings.midColor[1] * 0.85,
-        settings.midColor[2] * 0.9,
-      );
-      scene.fog.color.copy(underwaterColor);
-      scene.fog.near = 0.5;
-      scene.fog.far = 32;
-      scene.background = underwaterColor;
-    } else {
-      // Horizon haze: the far water edge and the bed beyond it dissolve into
-      // the sky, so the finite tile reads as a body of water, not a slab.
-      scene.fog.color.setRGB(...settings.skyHorizonColor);
-      scene.fog.near = 55;
-      scene.fog.far = 150;
-      scene.background = sky;
-    }
-  }
-
   const clock = new THREE.Clock();
   let firstFrame = true;
 
@@ -1077,7 +1054,6 @@ export function createWaterLabEngine({ mount, store }) {
     renderer.setAnimationLoop(() => {
       const delta = clock.getDelta();
       controls.update();
-      syncUnderwaterAtmosphere();
       updateBalls(delta);
       updateBoat();
       fauna?.update(delta);
@@ -1095,6 +1071,7 @@ export function createWaterLabEngine({ mount, store }) {
         }
       }
       water.update(renderer, scene, camera, delta);
+      skirt.visible = !water.underwaterAtmosphereState.active;
       renderer.render(scene, camera);
       if (firstFrame) {
         firstFrame = false;

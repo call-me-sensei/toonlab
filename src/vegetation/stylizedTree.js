@@ -20,6 +20,7 @@ import {
   setWoodySurfaceSun,
 } from '../shaders-tsl/woody-surface.js';
 import { applyVegetationShader } from './vegetationShaders.js';
+import { syncFoliageFog } from '../shaders-tsl/chunks/foliage-fog.js';
 
 // Modern anime-style stylized trees, fully parameterized for drop-in use:
 //
@@ -740,7 +741,15 @@ export function createBranchingTreeSkeleton({
   leafStart = 0.15,
   maxAttachments = 380,
 } = {}) {
-  const { height = 1.55, radiusBottom = 0.19, gnarl = 0, lean = 0 } = trunk;
+  const {
+    height = 1.55,
+    radiusBottom = 0.19,
+    radiusTop = Math.max(radiusBottom * 0.32, 0.012),
+    bend = 0,
+    twist = 0,
+    gnarl = 0,
+    lean = 0,
+  } = trunk;
   const rand = seededRandom(seed * 4.87 + 2.3);
   let randKey = 0;
   const next = () => rand((randKey += 1) * 1.93);
@@ -789,6 +798,12 @@ export function createBranchingTreeSkeleton({
   const workVector = new THREE.Vector3();
   const workAxis = new THREE.Vector3();
   const workQuaternion = new THREE.Quaternion();
+  const trunkBendHeading = seededRandom(seed * 9.17 + 4.3)(17) * Math.PI * 2;
+  const trunkBendAxis = new THREE.Vector3(
+    Math.cos(trunkBendHeading),
+    0,
+    Math.sin(trunkBendHeading),
+  );
 
   // { origin, quaternion, length, radius, level, segments } — BFS like EZ.
   const queue = [];
@@ -831,6 +846,13 @@ export function createBranchingTreeSkeleton({
       let ringRadius = i === sectionCount && isLeafLevel
         ? tipRadius * 0.3
         : Math.max(tipRadius * 0.5, branch.radius * (1 - taper * t));
+      if (level === 0 && !spineSampler) {
+        ringRadius = THREE.MathUtils.lerp(
+          radiusBottom,
+          Math.max(radiusTop, tipRadius * 0.5),
+          t,
+        );
+      }
 
       if (spineSampler) {
         const sample = spineSampler(t);
@@ -838,9 +860,13 @@ export function createBranchingTreeSkeleton({
         workQuaternion.setFromUnitVectors(UP, sample.tangent);
         orientation.copy(workQuaternion);
       }
+      const ringQuaternion = orientation.clone();
+      if (level === 0 && !spineSampler && twist) {
+        ringQuaternion.multiply(new THREE.Quaternion().setFromAxisAngle(UP, twist * t));
+      }
       rings.push({
         origin: origin.clone(),
-        quaternion: orientation.clone(),
+        quaternion: ringQuaternion,
         radius: ringRadius,
       });
 
@@ -850,6 +876,15 @@ export function createBranchingTreeSkeleton({
         // Advance the growth state — the core growth loop.
         workVector.set(0, sectionLength, 0).applyQuaternion(orientation);
         origin.add(workVector);
+
+        // BranchTree's portable trunk bend is a deliberate world-space arc,
+        // independent of the thin-branch random walk below. Apply it only to
+        // the load-bearing level-0 leader so child/twig gnarliness does not
+        // reinterpret the authored trunk silhouette.
+        if (level === 0 && bend) {
+          workQuaternion.setFromAxisAngle(trunkBendAxis, bend / sectionCount);
+          orientation.premultiply(workQuaternion);
+        }
 
         // 1. Gnarliness random walk, amplified as the branch thins.
         const wobble = gnarlLevels[table] *
@@ -1173,7 +1208,7 @@ export function layoutTreeRow(configs, { margin = 1.6 } = {}) {
 // the identical plant (generation is deterministic per seed). Defined here —
 // not in treeRecipe.js — so toJSON() below has no circular import.
 export const TREE_RECIPE_SCHEMA = 'treeRecipe';
-export const TREE_RECIPE_VERSION = 2;
+export const TREE_RECIPE_VERSION = 3;
 
 // Recursively convert constructor options to plain JSON data: THREE.Color →
 // '#hex' string (resolveCanopyColor accepts it back), vectors → arrays,
@@ -1197,7 +1232,8 @@ function toSerializable(value) {
 // live objects stripped (trunkMaterial, foliage.leafMap/sharedUniforms) —
 // everything a recipe file may carry.
 export function serializableTreeOptions(options = {}) {
-  const { trunkMaterial, foliage, ...rest } = options;
+  const { trunkMap, trunkMaterial, foliage, ...rest } = options;
+  void trunkMap;
   void trunkMaterial;
   const out = toSerializable(rest);
   if (foliage) {
@@ -1522,7 +1558,7 @@ export function createStylizedTreeSettings(options = {}) {
       conifer: booleanOption(skeletonSource.conifer, base.skeleton.conifer),
       forceStrength: finiteNumber(skeletonSource.forceStrength, base.skeleton.forceStrength, { min: -0.08, max: 0.15 }),
       gnarliness: finiteNumber(skeletonSource.gnarliness, base.skeleton.gnarliness, { min: 0, max: 0.6 }),
-      generator: ['branching', 'drawn'].includes(skeletonSource.generator)
+      generator: ['limbs', 'branching', 'drawn'].includes(skeletonSource.generator)
         ? skeletonSource.generator : base.skeleton.generator,
       lengthRatio: finiteNumber(skeletonSource.lengthRatio, base.skeleton.lengthRatio, { min: 0.15, max: 0.95 }),
       levels: integerNumber(skeletonSource.levels, base.skeleton.levels, { min: 1, max: 4 }),
@@ -1538,7 +1574,7 @@ export function createStylizedTreeSettings(options = {}) {
     },
     canopy: {
       ...canopySource,
-      architecture: ['layered-sprays', 'needle-whorls', 'radial-fronds']
+      architecture: ['cloud-cards', 'layered-sprays', 'needle-whorls', 'radial-fronds']
         .includes(canopySource.architecture)
         ? canopySource.architecture : base.canopy.architecture,
       cardCount: integerNumber(canopySource.cardCount, base.canopy.cardCount, { min: 0 }),
@@ -1801,7 +1837,7 @@ const STYLIZED_TREE_FIELD_DEFINITIONS = Object.freeze({
       type: 'number',
     },
     childrenCount: {
-      description: 'Child branches sprouting along the trunk (deeper levels derive from it). Conifers use high counts (60-90) for dense whorled fronds. Branching generator only. Construction-only.',
+      description: 'Lateral child branches sprouting along the trunk (deeper levels derive from them). The central leader continues separately, so children=1 forms one lateral limb plus the leader. Conifers use high counts (60-90) for dense whorled fronds. Branching generator only. Construction-only.',
       label: 'Children',
       range: { max: 90, min: 1, step: 1 },
       type: 'number',
@@ -2166,6 +2202,7 @@ export class StylizedTree extends THREE.Group {
     //                      collar (a complete tree meets the ground).
     const {
       trunkMaterial = null,
+      trunkMap = null,
       vegetationShader = null,
       branchSpines = [],
       extraBlobs = [],
@@ -2557,6 +2594,8 @@ export class StylizedTree extends THREE.Group {
       trunkMaterial ?? createWoodySurfaceNodeMaterial({
         color: trunkColor,
         height: settings.trunk.height,
+        map: trunkMap,
+        sceneShadowStrength: trunkReceiveShadow ? 1 : 0,
         vegetationShader,
       }),
     );
@@ -2652,6 +2691,10 @@ export class StylizedTree extends THREE.Group {
       this.trunkMesh.receiveShadow = settings.tree.trunkReceiveShadow;
       this.trunkMesh.material.needsUpdate = true;
     }
+    if (this.trunkMesh.material.uniforms?.uSceneShadowStrength) {
+      this.trunkMesh.material.uniforms.uSceneShadowStrength.value =
+        settings.tree.trunkReceiveShadow ? 1 : 0;
+    }
     return this.settings;
   }
 
@@ -2696,6 +2739,12 @@ export class StylizedTree extends THREE.Group {
     return applyVegetationShader(this, profile);
   }
 
+  /** Mirrors the host's linear THREE.Fog onto the true billboarded leaf depth. */
+  setSceneFog(fog) {
+    syncFoliageFog(this.canopyMesh?.material, fog);
+    return this;
+  }
+
   update(delta) {
     tickCanopyTime(this.canopyMesh.material.uniforms, delta);
     return this;
@@ -2710,6 +2759,7 @@ export class StylizedTree extends THREE.Group {
       schema: TREE_RECIPE_SCHEMA,
       version: TREE_RECIPE_VERSION,
       type: 'tree',
+      architecture: { id: 'legacy-woody', engine: 'legacy-woody', version: 2 },
       options: serializableTreeOptions(this.config),
     };
   }

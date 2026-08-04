@@ -1,5 +1,10 @@
 # Fauna cluster — integration diffs
 
+> **Historical repository integration record:** Fauna is already exported as
+> `@call-me-sensei/toonlab/fauna` in 0.4.10. Do not reapply the package/index
+> edits below. References to the repository world-composition helper are
+> internal wiring notes, not a stable npm API.
+
 The fauna cluster (`src/fauna/`) is self-contained; these are the EXACT
 changes to shared files needed to publish it. Nothing else is required —
 `examples/fauna-demo/` already runs today because it imports the cluster

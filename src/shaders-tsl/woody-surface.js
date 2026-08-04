@@ -50,11 +50,17 @@ export function createWoodySurfaceNodeMaterial({
   color = 0xc9ab8a,
   height = 1,
   map = null,
+  sceneShadowStrength = 1,
   vegetationShader = null,
 } = {}) {
   const u = {
     uBaseColor: uniform(resolveSrgbColor(color, 0xc9ab8a)),
     uHeight: uniform(Math.max(Number(height) || 1, 1e-3)),
+    uSceneShadowStrength: uniform(THREE.MathUtils.clamp(
+      Number(sceneShadowStrength) || 0,
+      0,
+      1,
+    )),
     uSkyColor: uniform(new THREE.Color().setRGB(0.72, 0.87, 1, THREE.SRGBColorSpace)),
     uSunColor: uniform(new THREE.Color().setRGB(1, 0.96, 0.86, THREE.SRGBColorSpace)),
     uSunDirection: uniform(new THREE.Vector3(0.45, 0.75, 0.5).normalize()),
@@ -64,8 +70,10 @@ export function createWoodySurfaceNodeMaterial({
 
   const material = new NodeMaterial();
   material.name = 'StylizedWoodySurface';
+  material.color = u.uBaseColor.value.clone();
   material.fog = true;
   material.map = map;
+  material.userData.bakedBaseColor = u.uBaseColor.value.getHex();
   material.fragmentNode = Fn(() => {
     const normal = normalize(mix(
       normalWorld,
@@ -78,7 +86,11 @@ export function createWoodySurfaceNodeMaterial({
     const intervals = max(steps.sub(1), 1);
     const hardBand = floor(light.mul(intervals).add(1e-4)).div(intervals);
     const band = mix(hardBand, light, u.uStyleBarkBandSoftness).toVar();
-    const visibility = sampleEnvironmentSunShadow(positionWorld).toVar();
+    const visibility = mix(
+      1,
+      sampleEnvironmentSunShadow(positionWorld),
+      u.uSceneShadowStrength,
+    ).toVar();
     const lit = band.mul(visibility).toVar();
 
     const localHeight = clamp(positionLocal.y.div(u.uHeight), 0, 1);

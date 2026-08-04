@@ -1,7 +1,7 @@
 {
   "name": "@call-me-sensei/toonlab",
-  "version": "0.3.1",
-  "description": "Stylized (anime/toon) game starter kit for Three.js: character and environment shading, lighting, weather, water, vegetation, sky, and post-processing",
+  "version": "0.4.10",
+  "description": "Anime-style game, character, and environment toolkit for Three.js with coordinated cel shading, assets, water, vegetation, sky, weather, and post-processing",
   "license": "MIT",
   "author": "Hyperbond Studio PTE. LTD. (Call Me Sensei)",
   "repository": {
@@ -18,6 +18,9 @@
     "toon",
     "cel-shading",
     "anime",
+    "anime-game",
+    "anime-environment",
+    "cel-shader",
     "shader",
     "lighting",
     "water",
@@ -25,6 +28,12 @@
     "game-starter"
   ],
   "type": "module",
+  "imports": {
+    "#toonlab-mannequin-asset-url": {
+      "browser": "./src/character/mannequinAssetUrl.browser.js",
+      "default": "./src/character/mannequinAssetUrl.node.js"
+    }
+  },
   "engines": {
     "node": ">=18"
   },
@@ -36,7 +45,11 @@
   "files": [
     "src",
     "mcp",
+    "database",
     "agents",
+    "scripts/setup-local.mjs",
+    "scripts/generate-catalog-seed.mjs",
+    "compose.yaml",
     "README.md",
     "LICENSE"
   ],
@@ -49,6 +62,7 @@
     "./vegetation-shaders": "./src/vegetation/vegetationShaders.js",
     "./grass-palettes": "./src/vegetation/grassPalettes.js",
     "./styles": "./src/styles/index.js",
+    "./asset-policy": "./src/asset-policy/index.js",
     "./sky": "./src/sky/index.js",
     "./cloud": "./src/cloud/index.js",
     "./weather": "./src/weather/index.js",
@@ -68,18 +82,24 @@
     "./debug": "./src/debug/index.js",
     "./toon-settings": "./src/toon/toonSettings.js",
     "./water-settings": "./src/water/waterSettings.js",
-    "./grass": "./src/vegetation/stylizedGrass.js",
+    "./grass": "./src/vegetation/grass.js",
     "./post-processing": "./src/post/postProcessing.js",
     "./agents/*": "./agents/*"
   },
   "scripts": {
     "assets:characters": "node scripts/generate-local-character-assets.mjs",
     "assets:environments": "node scripts/generate-local-environment-assets.mjs",
+    "assets:sensei-sky": "node scripts/generate-sensei-sky-assets.mjs",
     "assets:plateau-landmarks": "node scripts/extract-plateau-landmarks.mjs",
     "assets:local": "npm run assets:characters && npm run assets:environments",
     "verify:scene-depth-pass": "node scripts/verify-scene-depth-color-pass.mjs",
     "dev": "vite",
     "mcp": "node mcp/server.mjs",
+    "setup": "node scripts/setup-local.mjs",
+    "update": "node scripts/setup-local.mjs --update",
+    "db:migrate": "node database/apply-sql.mjs migrate",
+    "db:seed": "node database/apply-sql.mjs seed",
+    "catalog:seed:generate": "node scripts/generate-catalog-seed.mjs",
     "build": "vite build",
     "baseline:compare": "node scripts/compare-baselines.mjs",
     "preview": "vite preview",
@@ -96,6 +116,7 @@
     "verify:ambientfx": "node scripts/verify-ambientfx.mjs",
     "verify:vfxgen": "node scripts/verify-vfxgen.mjs",
     "verify:water": "node scripts/verify-watergen.mjs",
+    "verify:texgen": "node scripts/verify-texgen.mjs",
     "verify:landscape": "node scripts/verify-landscape.mjs",
     "verify:lighting": "node scripts/verify-lighting.mjs",
     "verify:lighting-lab": "node scripts/verify-lighting-lab.mjs",
@@ -105,15 +126,31 @@
     "verify:climate": "node scripts/verify-climate.mjs",
     "verify:atmospheric-condition-lab": "node scripts/verify-atmospheric-condition-lab.mjs",
     "verify:sky": "node scripts/verify-sky.mjs",
+    "verify:sensei-sky": "node scripts/verify-sensei-sky.mjs",
     "verify:cloud-shader": "node scripts/verify-cloud-shader.mjs",
+    "verify:sky-cloud-lab": "node scripts/verify-sky-cloud-lab.mjs",
     "verify:environment-cycle": "node scripts/verify-environment-cycle.mjs",
     "verify:manufactured-materials": "node scripts/verify-manufactured-materials.mjs",
     "verify:ground-field": "node scripts/verify-ground-field.mjs",
     "verify:grass": "node scripts/verify-grass-palettes.mjs",
+    "verify:grass-package": "node scripts/verify-packaged-grass.mjs",
+    "verify:character-package": "node scripts/verify-packaged-character.mjs",
     "verify:vegetation-shader": "node scripts/verify-vegetation-shader.mjs",
+    "verify:legacy-trees": "node scripts/verify-legacy-trees.mjs",
+    "verify:branch-tree": "node scripts/verify-branch-tree.mjs",
+    "verify:tree-doodle": "node scripts/verify-tree-doodle.mjs",
+    "verify:tree-woody": "node scripts/verify-tree-woody-engine.mjs",
+    "verify:tree-baseline-coverage": "node scripts/verify-woody-baseline-coverage.mjs",
+    "audit:tree-baseline": "node scripts/analyze-woody-baseline-relationships.mjs",
+    "verify:tree-species": "node scripts/verify-tree-species.mjs",
+    "verify:tree-species-references": "node scripts/verify-tree-species-references.mjs",
     "verify:product-namespace": "node scripts/verify-product-namespace.mjs",
+    "verify:skills": "node scripts/verify-agent-skills.mjs",
+    "verify:docs": "node scripts/verify-package-documentation.mjs",
     "verify:api": "node scripts/verify-public-api.mjs",
     "verify:package": "node scripts/verify-package-boundary.mjs",
+    "verify:style-contract": "node scripts/verify-style-contract.mjs",
+    "verify:release": "npm run verify:style-contract && npm run verify:rock-shader && npm run verify:ground-shader && npm run verify:water && npm run verify:texgen && npm run verify:cloud-shader && npm run verify:world-quality && npm run verify:scatter && npm run verify:legacy-trees && npm run verify:branch-tree && npm run verify:grass-package && npm run verify:character-package && npm run verify:api && npm run verify:mcp && npm run verify:skills && npm run verify:docs && npm run verify:local-database && npm run verify:package",
     "verify:generation": "node scripts/verify-generation.mjs",
     "verify:post": "node scripts/verify-post.mjs",
     "verify:camera": "node scripts/verify-camera.mjs",
@@ -122,16 +159,24 @@
     "verify:soundscape": "node scripts/verify-soundscape.mjs",
     "verify:game-feel": "node scripts/verify-game-feel.mjs",
     "verify:world-quality": "node scripts/verify-world-quality.mjs",
-    "verify:all": "npm run verify:product-namespace && npm run verify:generation && npm run verify:post && npm run verify:camera && npm run verify:motion && npm run verify:biome && npm run verify:soundscape && npm run verify:game-feel && npm run verify:world-quality && npm run verify:rock-shader && npm run verify:ground-shader && npm run verify:rockgen && npm run verify:pathgen && npm run verify:propgen && npm run verify:buildinggen && npm run verify:villagegen && npm run verify:fauna && npm run verify:ambientfx && npm run verify:vfxgen && npm run verify:water && npm run verify:landscape && npm run verify:lighting && npm run verify:lighting-lab && npm run verify:lab-roadmap && npm run verify:lab-preview && npm run verify:weather && npm run verify:climate && npm run verify:atmospheric-condition-lab && npm run verify:sky && npm run verify:cloud-shader && npm run verify:environment-cycle && npm run verify:manufactured-materials && npm run verify:ground-field && npm run verify:grass && npm run verify:vegetation-shader && npm run verify:api && npm run verify:package && npm run verify:catalog && npm run verify:assetlib && npm run verify:mcp",
+    "verify:all": "npm run verify:product-namespace && npm run verify:generation && npm run verify:post && npm run verify:camera && npm run verify:motion && npm run verify:biome && npm run verify:soundscape && npm run verify:game-feel && npm run verify:world-quality && npm run verify:rock-shader && npm run verify:ground-shader && npm run verify:rockgen && npm run verify:pathgen && npm run verify:propgen && npm run verify:buildinggen && npm run verify:villagegen && npm run verify:fauna && npm run verify:ambientfx && npm run verify:vfxgen && npm run verify:water && npm run verify:landscape && npm run verify:lighting && npm run verify:lighting-lab && npm run verify:lab-roadmap && npm run verify:lab-preview && npm run verify:weather && npm run verify:climate && npm run verify:atmospheric-condition-lab && npm run verify:sky && npm run verify:cloud-shader && npm run verify:sky-cloud-lab && npm run verify:environment-cycle && npm run verify:manufactured-materials && npm run verify:ground-field && npm run verify:grass && npm run verify:grass-package && npm run verify:character-package && npm run verify:vegetation-shader && npm run verify:scatter && npm run verify:legacy-trees && npm run verify:branch-tree && npm run verify:api && npm run verify:package && npm run verify:catalog && npm run verify:assetlib && npm run verify:mcp && npm run verify:local-generation",
     "verify:catalog": "node scripts/verify-catalog.mjs",
     "verify:assetlib": "node scripts/verify-assetlib.mjs",
     "verify:mcp": "node scripts/verify-mcp.mjs",
+    "verify:local-database": "node scripts/verify-local-database.mjs",
+    "verify:local-generation": "node scripts/verify-local-generation.mjs",
     "thumbs:prop": "node scripts/generate-prop-thumbs.mjs",
     "thumbs:building": "node scripts/generate-building-thumbs.mjs",
     "thumbs:catalog": "node scripts/generate-catalog-thumbs.mjs",
-    "thumbs:home": "node scripts/generate-home-shots.mjs"
+    "thumbs:home": "node scripts/generate-home-shots.mjs",
+    "prepublishOnly": "npm run verify:release",
+    "verify:scatter": "node scripts/verify-scatter.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.22.0"
   },
   "peerDependencies": {
+    "@dimforge/rapier3d-compat": "^0.19.0",
     "@pixiv/three-vrm": "^3.5.4",
     "3d-tiles-renderer": "^0.5.0",
     "three": "^0.185.1",
@@ -139,6 +184,9 @@
     "three-stdlib": "^2.36.1"
   },
   "peerDependenciesMeta": {
+    "@dimforge/rapier3d-compat": {
+      "optional": true
+    },
     "@pixiv/three-vrm": {
       "optional": true
     },
@@ -153,6 +201,7 @@
     }
   },
   "devDependencies": {
+    "@dimforge/rapier3d-compat": "^0.19.2",
     "@pixiv/three-vrm": "^3.5.4",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",

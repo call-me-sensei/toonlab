@@ -13,12 +13,15 @@ import { createStore } from '../../shared/ui/createStore.js';
 import { WALK_PREVIEW_STATUS } from '../../shared/walkPreview.js';
 import {
   TREE_SETTING_FIELD_SCHEMA,
+  TREE_GROWTH_FORM_SUBTYPES,
+  TREE_SPECIES_PROFILE_BY_ID,
   TREE_TRUNK_STYLES,
   cloneTreeSettings,
+  createTreeSpeciesRecipe,
   matchTrunkStyle,
   settingsFromRecipe,
   validateTreeRecipeDocument,
-} from '../../../src/vegetation/index.js';
+} from '../../../src/vegetation/experimental.js';
 import {
   BUILT_IN_TREE_PRESETS, findTreePreset, loadLocalTreePresets, upsertLocalTreePreset,
 } from '../treePresetStore.js';
@@ -88,7 +91,7 @@ export function createDesignerStore({
     glbMode: 'crossed',
     mannequin: false, // 1.8m scale reference figure
     moveMode: 'rotate', // 'pan' | 'rotate' | 'zoom' — what LEFT-drag does in Move
-    previewLod: null, // null = editable live tree; 0..2 = compiled export LOD inspection
+    previewLod: null, // null = editable live tree; 0..3 = compiled export LOD inspection
     sky: { hour: 12, weather: 'clear' }, // environment presentation (session)
     walkPreview: false, // Keyboard-walk the mannequin around the tree.
     presetDirty: false,
@@ -103,7 +106,7 @@ export function createDesignerStore({
     view: { drawer: false, export: false, gallery: boot.bootSource === 'fresh' },
     // bookkeeping
     docRevision: 0,
-    lastChange: { immediate: false, reframe: false },
+    lastChange: { immediate: false, reframe: false, transient: false },
     liveRevision: 0,
   });
 
@@ -153,7 +156,7 @@ export function createDesignerStore({
    * apply, persist, bump the right revision, notify once.
    */
   function commitDocument(mutate, {
-    immediate = false, live = false, reframe = false, snapshot = true,
+    immediate = false, live = false, reframe = false, snapshot = true, transient = false,
   } = {}) {
     if (snapshot) pushUndo();
     const current = state();
@@ -171,12 +174,12 @@ export function createDesignerStore({
       woodDetails: current.woodDetails,
     };
     mutate(draft);
-    persistState(draft, storageKey);
+    if (!transient) persistState(draft, storageKey);
     const next = {
       ...draft,
       canRedo: redoStack.length > 0,
       canUndo: undoStack.length > 0,
-      lastChange: { immediate, reframe },
+      lastChange: { immediate, reframe, transient },
       presetDirty: presetIsDirty(draft),
       ...(live
         ? { liveRevision: current.liveRevision + 1 }
@@ -193,11 +196,81 @@ export function createDesignerStore({
 
   const actions = {
     // ---- settings ---------------------------------------------------------
-    setField(field, value, { snapshot = true } = {}) {
+    setBaselineControl(controlId, value, { snapshot = true } = {}) {
+      commitDocument((draft) => {
+        draft.settings = {
+          ...draft.settings,
+          baselineControls: {
+            ...(draft.settings.baselineControls ?? {}),
+            [controlId]: value,
+          },
+        };
+      }, { reframe: false, snapshot });
+    },
+    clearBaselineControl(controlId, { snapshot = true } = {}) {
+      commitDocument((draft) => {
+        const baselineControls = { ...(draft.settings.baselineControls ?? {}) };
+        delete baselineControls[controlId];
+        draft.settings = { ...draft.settings, baselineControls };
+      }, { reframe: false, snapshot });
+    },
+    setField(field, value, { snapshot = true, transient = false } = {}) {
       const live = field.bake === 'live';
       commitDocument((draft) => {
+        if (field.id === 'plant.speciesProfileId' && value) {
+          const current = draft.settings;
+          draft.settings = settingsFromRecipe(createTreeSpeciesRecipe(value, {
+            seed: current.plant.seed,
+            // Species profiles own real-world proportions. Carrying the
+            // previous generic preset's global scale (often 2–4×) into a
+            // botanical preset makes otherwise valid dimensions look wildly
+            // wrong and defeats the review camera's auto-framing.
+            options: {
+              size: 1,
+              vegetationShader: current.plant.stylePreset,
+              growthForm: current.plant.growthForm,
+              growthFormSubtype: current.plant.growthFormSubtype,
+            },
+          }));
+          // Species architecture owns its organ shape. Never leak a maple,
+          // oak, or custom editor leaf into bamboo, palms, conifers, or a
+          // newly selected broadleaf preset.
+          draft.leafShape = null;
+          draft.leafStyle = null;
+          return;
+        }
         const settings = { ...draft.settings, [field.group]: { ...draft.settings[field.group] } };
         settings[field.group][field.key] = value;
+        if (field.id === 'plant.speciesProfileId' && !value) {
+          settings.structure = { ...settings.structure, engine: 'legacy-woody' };
+        }
+        if ((field.id === 'plant.lifeStageSlot' || field.id === 'plant.foliageState')
+          && settings.plant.speciesProfileId) {
+          const profile = TREE_SPECIES_PROFILE_BY_ID[settings.plant.speciesProfileId];
+          if (field.id === 'plant.lifeStageSlot' && !profile.supportedStages.includes(value)) {
+            settings.plant.lifeStageSlot = profile.supportedStages[2];
+          }
+          if (field.id === 'plant.lifeStageSlot') {
+            settings.plant.developmentProgress = profile.supportedStages.indexOf(
+              settings.plant.lifeStageSlot,
+            ) / Math.max(1, profile.supportedStages.length - 1);
+          }
+          if (field.id === 'plant.foliageState' && !profile.validFoliageStates.includes(value)) {
+            settings.plant.foliageState = profile.validFoliageStates[0];
+          }
+        }
+        if (field.id === 'plant.developmentProgress' && settings.plant.speciesProfileId) {
+          const profile = TREE_SPECIES_PROFILE_BY_ID[settings.plant.speciesProfileId];
+          const progress = Math.max(0, Math.min(1, Number(value) || 0));
+          settings.plant.developmentProgress = progress;
+          settings.plant.lifeStageSlot = profile.supportedStages[
+            Math.round(progress * (profile.supportedStages.length - 1))
+          ];
+        }
+        if (field.id === 'plant.growthForm') {
+          settings.plant.growthFormSubtype = TREE_GROWTH_FORM_SUBTYPES[value]?.[0]
+            ?? 'species-default';
+        }
         if (field.id === 'trunk.style' && value !== 'custom') {
           // Spread the preset's concrete values into the sliders; recipes
           // always carry explicit numbers, never preset names.
@@ -213,7 +286,19 @@ export function createDesignerStore({
           settings.trunk.style = matchTrunkStyle(settings.trunk);
         }
         draft.settings = settings;
-      }, { live, snapshot });
+      }, {
+        live,
+        reframe: [
+          'plant.speciesProfileId',
+          'plant.lifeStageSlot',
+          'plant.developmentProgress',
+          'plant.growthForm',
+          'plant.growthFormSubtype',
+          'plant.size',
+        ].includes(field.id),
+        snapshot,
+        transient,
+      });
       // Switching into drawn mode arms the wood brush (legacy behavior).
       if (field.id === 'skeleton.generator' && value === 'drawn') actions.setTool('branch');
       if (field.id === 'plant.type') actions.setTool(state().tool);
@@ -409,7 +494,7 @@ export function createDesignerStore({
     setBarkTexture(barkTexture) {
       commitDocument((draft) => {
         draft.barkTexture = barkTexture;
-      }, { immediate: true });
+      }, { live: true });
     },
     setTrunkProfile(trunkProfile) {
       commitDocument((draft) => {
@@ -523,7 +608,7 @@ export function createDesignerStore({
     setPreviewLod(previewLod) {
       const normalized = previewLod === null || previewLod === 'edit'
         ? null
-        : Math.min(2, Math.max(0, Math.round(Number(previewLod) || 0)));
+        : Math.min(3, Math.max(0, Math.round(Number(previewLod) || 0)));
       store.setState({
         previewLod: normalized,
         ...(normalized === null ? {} : { selection: null }),

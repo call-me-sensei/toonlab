@@ -453,40 +453,30 @@ The host currently routes labeled roots through the appropriate runtime:
 
 ```js
 import { applyToonShader } from '@call-me-sensei/toonlab/toon';
-import {
-  applyEnvironmentShader,
-  resolveEnvironmentPreset,
-} from '@call-me-sensei/toonlab/environment';
+import { applyEnvironmentShader } from '@call-me-sensei/toonlab/environment';
 import { applyRockShader } from '@call-me-sensei/toonlab/rock-shader';
 import { resolveStyleBundleSettings } from '@call-me-sensei/toonlab/styles';
+import { applyVegetationShaderScope } from '@call-me-sensei/toonlab/vegetation-shaders';
 
 const settings = resolveStyleBundleSettings(bundle);
 
 applyToonShader(characterRoot, { settings: settings.toon });
 applyToonShader(equipmentRoot, { settings: settings.toon });
 
-const environmentSettings = resolveEnvironmentPreset(
-  settings.environment.style,
-  'exteriorDay',
-);
-await applyEnvironmentShader(manufacturedRoot, environmentSettings);
+await applyEnvironmentShader(manufacturedRoot, {
+  preset: settings.environment.style,
+  scenario: 'exteriorDay',
+});
 applyRockShader(rockRoot, settings.rock);
 
-const world = await createStylizedWorld({
-  renderer,
-  scene,
-  camera,
-  terrain,
-  vegetationShaders: {
-    tree: settings.treeShader,
-    grass: settings.grassShader,
-    flower: settings.flowerShader,
-  },
-});
+applyVegetationShaderScope(treeRoot, 'tree', settings.treeShader);
+applyVegetationShaderScope(grassRoot, 'grass', settings.grassShader);
+applyVegetationShaderScope(flowerRoot, 'flower', settings.flowerShader);
 ```
 
 Vegetation, rocks, debris, sky, water, weather, lighting, VFX, and post should
-be applied through their own runtimes in the same way.
+be applied through their own stable runtimes in the same way. ToonLab 0.4.10
+does not export a full-world coordinator; the host owns cross-system assembly.
 
 This manual routing boundary is important:
 

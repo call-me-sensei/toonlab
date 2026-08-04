@@ -49,6 +49,7 @@ import { NodeMaterial } from 'three/webgpu';
 import { sampleEnvironmentSunShadow } from './chunks/environment-sun-shadow.js';
 import { stylizedCloudShadow } from './chunks/stylized-cloud-shadow.js';
 import { applyFoliageFog, createFoliageFogUniforms } from './chunks/foliage-fog.js';
+export { syncFoliageFog } from './chunks/foliage-fog.js';
 import {
   createVegetationStyleUniforms,
   shadeVegetationSurface,
@@ -84,6 +85,8 @@ const foliageHueNormalized = wgslFn(`
 function buildLeafVertexNode(u, { vUv, vWorldNormal, vWorldPosition, vTint, vHeightT, vViewZ }) {
   return Fn(() => {
     const aCorner = attribute('aCorner', 'vec2');
+    const aCardFrame = attribute('aCardFrame', 'vec4');
+    const aCardShape = attribute('aCardShape', 'vec2');
     const aShadeNormal = attribute('aShadeNormal', 'vec3');
     const aInfo = attribute('aInfo', 'vec4');
 
@@ -111,7 +114,9 @@ function buildLeafVertexNode(u, { vUv, vWorldNormal, vWorldPosition, vTint, vHei
     const rollSin = sin(roll);
     // GLSL mat2(c, s, -s, c) is column-major; TSL matN() scalars are
     // row-major — transposed argument order (docs/tsl-conventions.md).
-    const corner = mat2(rollCos, rollSin.negate(), rollSin, rollCos).mul(aCorner).mul(aInfo.x);
+    const corner = mat2(rollCos, rollSin.negate(), rollSin, rollCos)
+      .mul(aCorner.mul(aCardShape))
+      .mul(aInfo.x);
 
     // World-anchored cylindrical billboard (cameraPosition is the light
     // during the shadow pass, matching the classic depth-pass behavior).
@@ -123,7 +128,14 @@ function buildLeafVertexNode(u, { vUv, vWorldNormal, vWorldPosition, vTint, vHei
     ));
     const cardRight = normalize(cross(vec3(0.0, 1.0, 0.0), facing));
     const cardUp = normalize(cross(facing, cardRight));
-    worldCenter.xyz.addAssign(cardRight.mul(corner.x).add(cardUp.mul(corner.y)));
+    const billboardOffset = cardRight.mul(corner.x).add(cardUp.mul(corner.y));
+    const organCorner = aCorner.mul(aCardShape).mul(aInfo.x);
+    const organUp = normalize(mat3(modelWorldMatrix).mul(aCardFrame.xyz));
+    const organRight = normalize(cross(organUp, normalize(
+      mat3(modelWorldMatrix).mul(aShadeNormal),
+    )));
+    const organOffset = organRight.mul(organCorner.x).add(organUp.mul(organCorner.y));
+    worldCenter.xyz.addAssign(mix(billboardOffset, organOffset, aCardFrame.w));
 
     const viewPosition = cameraViewMatrix.mul(worldCenter).toVar();
     if (vViewZ) vViewZ.assign(viewPosition.z);
@@ -161,6 +173,10 @@ export function createTreeLeafNodeMaterial(settings, vegetationShader = null) {
 
   const material = new NodeMaterial();
   material.name = 'StylizedTreeFoliage';
+  // Keep the live texture discoverable through the conventional material
+  // surface as well as the TSL texture node. This is useful for inspectors,
+  // exporters, and the focused BranchTree texture contract.
+  material.map = settings.leafMap;
   // Leaf cards are view/light-facing cutouts. Three reverses ordinary
   // FrontSide geometry for BasicShadowMap passes; that culls a billboard
   // which has already rotated to face the shadow camera, leaving only the
@@ -314,6 +330,9 @@ export function createTreeLeafNodeMaterial(settings, vegetationShader = null) {
   material.castShadowPositionNode = (() => {
     return Fn(() => {
       const aCorner = attribute('aCorner', 'vec2');
+      const aCardFrame = attribute('aCardFrame', 'vec4');
+      const aCardShape = attribute('aCardShape', 'vec2');
+      const aShadeNormal = attribute('aShadeNormal', 'vec3');
       const aInfo = attribute('aInfo', 'vec4');
       const worldCenter = modelWorldMatrix.mul(vec4(positionLocal, 1.0)).toVar();
       const phase = u.uTime.mul(u.uWindSpeed).add(worldCenter.x.mul(0.6)).add(worldCenter.z.mul(0.5));
@@ -327,7 +346,9 @@ export function createTreeLeafNodeMaterial(settings, vegetationShader = null) {
       );
       const rollCos = cos(roll);
       const rollSin = sin(roll);
-      const corner = mat2(rollCos, rollSin.negate(), rollSin, rollCos).mul(aCorner).mul(aInfo.x);
+      const corner = mat2(rollCos, rollSin.negate(), rollSin, rollCos)
+        .mul(aCorner.mul(aCardShape))
+        .mul(aInfo.x);
       const toCamera = cameraPosition.sub(worldCenter.xyz);
       const facing = normalize(mix(
         vec3(toCamera.x, 0.0, toCamera.z).add(vec3(1e-4, 0.0, 0.0)),
@@ -336,7 +357,14 @@ export function createTreeLeafNodeMaterial(settings, vegetationShader = null) {
       ));
       const cardRight = normalize(cross(vec3(0.0, 1.0, 0.0), facing));
       const cardUp = normalize(cross(facing, cardRight));
-      worldCenter.xyz.addAssign(cardRight.mul(corner.x).add(cardUp.mul(corner.y)));
+      const billboardOffset = cardRight.mul(corner.x).add(cardUp.mul(corner.y));
+      const organCorner = aCorner.mul(aCardShape).mul(aInfo.x);
+      const organUp = normalize(mat3(modelWorldMatrix).mul(aCardFrame.xyz));
+      const organRight = normalize(cross(organUp, normalize(
+        mat3(modelWorldMatrix).mul(aShadeNormal),
+      )));
+      const organOffset = organRight.mul(organCorner.x).add(organUp.mul(organCorner.y));
+      worldCenter.xyz.addAssign(mix(billboardOffset, organOffset, aCardFrame.w));
       return modelWorldMatrix.inverse().mul(worldCenter).xyz;
     })();
   })();

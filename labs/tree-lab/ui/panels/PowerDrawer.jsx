@@ -3,13 +3,15 @@
 
 import { useMemo, useState } from 'react';
 import {
-  TREE_SETTING_FIELD_SCHEMA, TREE_SETTING_GROUPS,
-} from '../../../../src/vegetation/index.js';
+  TREE_SETTING_FIELD_SCHEMA, TREE_SETTING_GROUPS, TREE_SPECIES_PROFILE_BY_ID,
+} from '../../../../src/vegetation/experimental.js';
 import { readFieldValueFromSettings } from '../../../../src/debug/fieldValues.js';
 import {
   Button, SchemaGroup, TextField, toast,
 } from '../../../shared/ui/index.js';
 import { fieldsForLab, groupForLab, isFieldDisabled } from '../fieldRules.js';
+import { WoodyBaselinePanel } from './WoodyBaselinePanel.jsx';
+import { PlantSections } from './StagePanel.jsx';
 
 function RecipeJsonEditor({ actions, state }) {
   // Re-derive on every document change; local draft only while editing.
@@ -69,13 +71,19 @@ function RecipeJsonEditor({ actions, state }) {
 export function PowerDrawer({ actions, labKind = 'tree', state }) {
   const [filter, setFilter] = useState('');
   const needle = filter.trim().toLowerCase();
+  const profile = state.settings.plant.speciesProfileId
+    ? TREE_SPECIES_PROFILE_BY_ID[state.settings.plant.speciesProfileId]
+    : null;
+  const baselineSpecies = ['woody-axis', 'whorled-conifer'].includes(profile?.engine);
   const fieldFilter = (field) => !needle
     || field.label.toLowerCase().includes(needle)
     || field.group.toLowerCase().includes(needle);
 
   return (
     <>
-      <div className="td-inspector-header">All controls</div>
+      <div className="td-inspector-header">
+        {labKind === 'tree' ? 'All controls · woody baseline 131' : 'All controls'}
+      </div>
       <div className="td-drawer-filter">
         <TextField
           onCommit={setFilter}
@@ -84,21 +92,43 @@ export function PowerDrawer({ actions, labKind = 'tree', state }) {
           value={filter}
         />
       </div>
+      <WoodyBaselinePanel
+        actions={actions}
+        filter={filter}
+        labKind={labKind}
+        state={state}
+      />
       {TREE_SETTING_GROUPS
         .filter((group) => labKind === 'flower' || group.id !== 'flower')
-        .map((group) => (
-        <SchemaGroup
-          key={group.id}
-          fieldFilter={fieldFilter}
-          fields={fieldsForLab(TREE_SETTING_FIELD_SCHEMA[group.id], labKind)}
-          flat
-          getValue={(field) => readFieldValueFromSettings(state.settings, field)}
-          group={groupForLab(group, labKind)}
-          isDisabled={(field) => isFieldDisabled(state, field)}
-          onChange={(field, value) => actions.setField(field, value)}
-          showCaption={false}
-        />
-        ))}
+        .filter((group) => !baselineSpecies || ['plant', 'color'].includes(group.id))
+        .map((group) => {
+          if (group.id === 'plant' && labKind === 'tree') {
+            return (
+              <PlantSections
+                key={group.id}
+                actions={actions}
+                fieldFilter={fieldFilter}
+                state={state}
+              />
+            );
+          }
+          return (
+            <SchemaGroup
+              key={group.id}
+              fieldFilter={fieldFilter}
+              fields={fieldsForLab(TREE_SETTING_FIELD_SCHEMA[group.id], labKind, state)}
+              flat
+              getValue={(field) => readFieldValueFromSettings(state.settings, field)}
+              group={groupForLab(group, labKind)}
+              isDisabled={(field) => isFieldDisabled(state, field)}
+              onChange={(field, value, interaction) => actions.setField(field, value, {
+                snapshot: interaction ? Boolean(interaction.gestureStart) : true,
+                transient: Boolean(interaction?.transient),
+              })}
+              showCaption={false}
+            />
+          );
+        })}
       <RecipeJsonEditor actions={actions} state={state} />
     </>
   );

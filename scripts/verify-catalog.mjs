@@ -143,8 +143,9 @@ check('register rejects invalid entries', (() => {
   }
 })());
 
-// addSource against a local data URL-style fetch: spin a micro server
-const { createServer } = await import('node:http');
+// addSource against a deterministic in-process fetch fixture. The verifier
+// must not require permission to open a listening socket merely to exercise
+// URL resolution and remote-registry parsing.
 const manifest = JSON.stringify({
   entries: [{
     cluster: 'propgen',
@@ -158,14 +159,19 @@ const manifest = JSON.stringify({
     version: 1,
   }],
 });
-const server = createServer((request, response) => {
-  response.setHeader('content-type', 'application/json');
-  response.end(manifest);
+const originalFetch = globalThis.fetch;
+globalThis.fetch = async () => new Response(manifest, {
+  headers: { 'content-type': 'application/json' },
+  status: 200,
 });
-await new Promise((resolve) => { server.listen(0, resolve); });
-const port = server.address().port;
-const added = await isolated.addSource(`http://127.0.0.1:${port}/registry.json`, { name: 'test-remote' });
-server.close();
+let added;
+try {
+  added = await isolated.addSource('https://catalog.test/registry.json', {
+    name: 'test-remote',
+  });
+} finally {
+  globalThis.fetch = originalFetch;
+}
 check('addSource mounts remote entries', added === 1
   && isolated.get('remote/prop/bench') !== null);
 check('remote thumbnails resolved absolute',

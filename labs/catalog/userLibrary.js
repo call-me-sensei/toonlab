@@ -1,6 +1,5 @@
-// Local user library: catalog entries in IndexedDB. Save-from-any-lab writes
-// one of these; the catalog registers them at boot so user assets browse,
-// spawn, and export exactly like built-ins. Survives reloads by definition.
+// Local user library backed by Postgres. IndexedDB is read once by the
+// migration assistant, then retired after the server confirms the commit.
 
 const DB_NAME = 'toonlab.catalog';
 const STORE = 'entries';
@@ -46,34 +45,32 @@ export async function listLibraryEntries() {
       });
       if (!migration.ok) throw new Error(`workspace library migration: ${migration.status}`);
       state = await migration.json();
+      if (state.migrated && (state.report?.failures?.length ?? 0) === 0) {
+        indexedDB.deleteDatabase(DB_NAME);
+      } else {
+        throw new Error('workspace library migration retained IndexedDB because some entries failed');
+      }
     }
     return state.entries ?? [];
-  } catch {
-    return withStore('readonly', (store) => store.getAll());
+  } catch (error) {
+    console.error('Local Postgres library is unavailable.', error);
+    return [];
   }
 }
 
 export async function saveLibraryEntry(entry) {
-  try {
-    const response = await fetch(`/api/toonlab/library/${encodeURIComponent(entry.id)}`, {
-      body: JSON.stringify(entry),
-      headers: { 'content-type': 'application/json' },
-      method: 'PUT',
-    });
-    if (!response.ok) throw new Error(`workspace library: ${response.status}`);
-  } catch {
-    await withStore('readwrite', (store) => store.put(entry));
-  }
+  const response = await fetch(`/api/toonlab/library/${encodeURIComponent(entry.id)}`, {
+    body: JSON.stringify(entry),
+    headers: { 'content-type': 'application/json' },
+    method: 'PUT',
+  });
+  if (!response.ok) throw new Error(`workspace library: ${response.status}`);
   return entry.id;
 }
 
 export async function deleteLibraryEntry(id) {
-  try {
-    const response = await fetch(`/api/toonlab/library/${encodeURIComponent(id)}`, { method: 'DELETE' });
-    if (!response.ok) throw new Error(`workspace library: ${response.status}`);
-  } catch {
-    await withStore('readwrite', (store) => store.delete(id));
-  }
+  const response = await fetch(`/api/toonlab/library/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!response.ok) throw new Error(`workspace library: ${response.status}`);
 }
 
 /** Registers every stored entry into a catalog registry; returns count. */

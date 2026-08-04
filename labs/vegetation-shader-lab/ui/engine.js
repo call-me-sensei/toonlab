@@ -7,21 +7,25 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 import {
-  applyP18VegetationShader,
   applyVegetationShaderScope,
-  applyRetainedGrassShaderV2,
   createPlantFromRecipe,
-  disposeRetainedGrassShaderV2Materials,
-  disposeP18VegetationShaderMaterials,
   getVegetationShaderScopeFieldSchema,
+  VEGETATION_SHADER_SCOPES,
+} from '../../../src/vegetation/experimental.js';
+import {
+  applyP18VegetationShader,
+  disposeP18VegetationShaderMaterials,
+  restoreP18VegetationShader,
+} from '../../../src/vegetation/p18VegetationShaderMaterial.js';
+import {
+  applyRetainedGrassShaderV2,
+  disposeRetainedGrassShaderV2Materials,
   resolveRetainedGrassShaderV2Modules,
   restoreRetainedGrassShaderV2,
-  restoreP18VegetationShader,
   RETAINED_GRASS_SHADER_V2_FALLBACK_ID,
   RETAINED_GRASS_SHADER_V2_ID,
   syncRetainedGrassShaderV2Runtime,
-  VEGETATION_SHADER_SCOPES,
-} from '../../../src/vegetation/index.js';
+} from '../../../src/vegetation/retainedGrassShaderV2.js';
 import {
   createP18ReferenceRenderer,
   createP18ShaderPreviewScene,

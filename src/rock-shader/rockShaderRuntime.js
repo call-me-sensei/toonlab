@@ -6,6 +6,7 @@ import {
 import { createRockShaderSettings } from './rockShaderSettings.js';
 
 const ORIGINAL_MATERIALS = new WeakMap();
+const ORIGINAL_SHADOW_FLAGS = new WeakMap();
 let defaultTextureSet = null;
 
 function clamp01(value) {
@@ -21,7 +22,7 @@ function makeProceduralTexture({
   seed,
   color,
   variation = 0.12,
-  size = 64,
+  size = 256,
   colorSpace = THREE.SRGBColorSpace,
   channel = 'color',
 }) {
@@ -160,6 +161,8 @@ export function rockShaderSettingsToProfile(input = {}) {
   const {
     projection,
     material,
+    lighting,
+    shoreline,
     distanceTint,
     normals,
     striping,
@@ -178,6 +181,9 @@ export function rockShaderSettingsToProfile(input = {}) {
       saturation: projection.saturation,
       contrast: projection.contrast,
       brightness: projection.brightness,
+      nearDetailScale: projection.nearDetailScale,
+      nearDetailStrength: projection.nearDetailStrength,
+      nearDetailDistance: projection.nearDetailDistance,
       tint: tintArray(material.tint, [1, 1, 1]),
       metallic: material.metallic,
       smoothness: material.smoothness,
@@ -194,6 +200,15 @@ export function rockShaderSettingsToProfile(input = {}) {
         contrast: striping.contrast,
         color: tintArray(striping.color, [0.7, 0.68, 0.64]),
       },
+    },
+    lighting: {
+      exposure: lighting.exposure,
+      ambientFloor: lighting.ambientFloor,
+    },
+    shoreline: {
+      wetBandWidth: shoreline.wetBandWidth,
+      wetBandDarkening: shoreline.wetBandDarkening,
+      wetRoughness: shoreline.wetRoughness,
     },
     normals: {
       distance: normals.distance,
@@ -304,6 +319,9 @@ function createMaterialForSource({
   });
   rockMaterial.userData.toonLabRockShaderOwned = true;
   rockMaterial.userData.toonLabRockShaderPreset = settings.preset;
+  rockMaterial.userData.toonLabRockTextureSource = textures?.rock
+    ? 'provided'
+    : 'first-party-generated';
   rockMaterial.userData.environmentShaderExclude = true;
   return rockMaterial;
 }
@@ -333,6 +351,8 @@ export function applyRockShader(root, input = {}, {
   textures = {},
   include = null,
   name = 'Call Me Sensei Rock',
+  castShadow = true,
+  receiveShadow = true,
 } = {}) {
   const settings = createRockShaderSettings(input);
   const profile = rockShaderSettingsToProfile(settings);
@@ -341,6 +361,9 @@ export function applyRockShader(root, input = {}, {
     matched: 0,
     applied: 0,
     skipped: 0,
+    textureSource: textures?.rock ? 'provided' : 'first-party-generated',
+    usedGeneratedTextures: !textures?.rock,
+    shadowDefaultsApplied: 0,
   };
 
   root?.traverse?.((object) => {
@@ -356,6 +379,12 @@ export function applyRockShader(root, input = {}, {
 
     report.matched += 1;
     if (!ORIGINAL_MATERIALS.has(object)) ORIGINAL_MATERIALS.set(object, object.material);
+    if (!ORIGINAL_SHADOW_FLAGS.has(object)) {
+      ORIGINAL_SHADOW_FLAGS.set(object, {
+        castShadow: object.castShadow,
+        receiveShadow: object.receiveShadow,
+      });
+    }
     const originalMaterial = ORIGINAL_MATERIALS.get(object);
 
     if (settings.assetIntegration.vertexColorStrength > 0) ensureColorAttribute(object.geometry);
@@ -373,6 +402,9 @@ export function applyRockShader(root, input = {}, {
       name: sourceMaterials.length > 1 ? `${name} ${index + 1}` : name,
     }));
     object.material = Array.isArray(originalMaterial) ? nextMaterials : nextMaterials[0];
+    object.castShadow = Boolean(castShadow);
+    object.receiveShadow = Boolean(receiveShadow);
+    report.shadowDefaultsApplied += 1;
     object.userData.rockShaderPreset = settings.preset;
     report.applied += 1;
   });
@@ -386,11 +418,33 @@ export function restoreRockShader(root) {
     if (!object?.isMesh || !ORIGINAL_MATERIALS.has(object)) return;
     disposeOwnedMaterial(object.material);
     object.material = ORIGINAL_MATERIALS.get(object);
+    const flags = ORIGINAL_SHADOW_FLAGS.get(object);
+    if (flags) {
+      object.castShadow = flags.castShadow;
+      object.receiveShadow = flags.receiveShadow;
+      ORIGINAL_SHADOW_FLAGS.delete(object);
+    }
     ORIGINAL_MATERIALS.delete(object);
     delete object.userData.rockShaderPreset;
     restored += 1;
   });
   return restored;
+}
+
+/** Updates current scene inputs without changing the portable rock preset. */
+export function setRockShaderSceneState(root, { waterLevel } = {}) {
+  let updated = 0;
+  root?.traverse?.((object) => {
+    if (!object?.isMesh) return;
+    const materials = Array.isArray(object.material) ? object.material : [object.material];
+    for (const material of materials) {
+      const state = material?.userData?.toonLabRockSceneState;
+      if (!state) continue;
+      if (Number.isFinite(Number(waterLevel))) state.setWaterLevel(Number(waterLevel));
+      updated += 1;
+    }
+  });
+  return { updated, waterLevel: Number.isFinite(Number(waterLevel)) ? Number(waterLevel) : null };
 }
 
 export function disposeDefaultRockShaderTextures() {

@@ -308,6 +308,8 @@ export function createStylizedPaths({
     mesh.name = `PathRibbon-${style}`;
     mesh.receiveShadow = true;
     mesh.castShadow = false;
+    mesh.userData.groundFieldWrite = true;
+    mesh.userData.isPathRibbon = true;
     // Ground-hugging overlay: its contribution to the water grab/depth
     // passes is invisible at gameplay angles, and those passes redraw
     // everything (waterExclude is the AGENTS.md idiom for this).

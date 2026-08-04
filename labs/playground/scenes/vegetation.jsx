@@ -21,7 +21,7 @@ import {
 import {
   applyBroadleafEnvironment,
   createBroadleafTreeInstance,
-} from './treeDesignerBroadleaf.js';
+} from './toonlabBroadleaf.js';
 
 function TreeFoliageRig({ envPreset }) {
   useEffect(() => {

@@ -59,7 +59,7 @@ import {
 import {
   applyBroadleafEnvironment,
   createBroadleafTreeInstance,
-} from '../playground/scenes/treeDesignerBroadleaf.js';
+} from '../playground/scenes/toonlabBroadleaf.js';
 import {
   SEA_BED_CENTER_Z,
   WATER_SURFACE_CENTER_Z,

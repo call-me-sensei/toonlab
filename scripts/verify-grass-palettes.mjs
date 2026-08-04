@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import * as THREE from 'three';
 
 import {
   DEFAULT_GRASS_SETTINGS,
@@ -11,6 +12,13 @@ import {
   registerGrassPreset,
   resolveGrassColorPalette,
 } from '../src/vegetation/stylizedGrass.js';
+import {
+  GRASS_CLUMP_LODS,
+  RetainedGrassClumpField,
+  StylizedGrassClumpField,
+  createGrassClumpGeometry,
+} from '../src/vegetation/grassClump.js';
+import { resolveVegetationShaderPreset } from '../src/vegetation/vegetationShaders.js';
 
 assert.ok(GRASS_COLOR_PALETTES.length >= 8, 'grass must ship a useful palette range');
 assert.equal(new Set(GRASS_COLOR_PALETTES.map((entry) => entry.id)).size,
@@ -29,6 +37,112 @@ for (const palette of GRASS_COLOR_PALETTES) {
 const defaults = createGrassSettings();
 assert.equal(matchGrassColorPalette(defaults)?.id, 'sensei_meadow',
   'the studio-default grass colors should identify the matching palette');
+const authoredSrgb = [128 / 255, 192 / 255, 64 / 255];
+for (const input of [0x80c040, '#80c040', new THREE.Color('#80c040')]) {
+  const resolvedColor = createGrassSettings({ baseColor: input }).baseColor;
+  assert.ok(resolvedColor.every((channel, index) => (
+    Math.abs(channel - authoredSrgb[index]) < 1e-5
+  )), 'grass number/string/THREE.Color inputs must preserve the documented sRGB value');
+}
+assert.deepEqual(createGrassSettings({ baseColor: authoredSrgb }).baseColor, authoredSrgb,
+  'grass array colors must remain authored sRGB triplets');
+
+const clumpSettings = createGrassSettings({ preset: 'call_me_sensei_clump' });
+assert.equal(clumpSettings.bladesPerClump, 40,
+  'the first-party paint unit must be a composed 40-blade meadow clump');
+assert.equal(clumpSettings.groundAdoptStrength, 1,
+  'painted clumps must opt into P18-style ground-color adoption');
+assert.deepEqual(clumpSettings.groundAdoptTint, [1, 1, 1],
+  'the default meadow must adopt sampled ground color without whitening its roots');
+assert.equal(clumpSettings.leanStrength, 0.24,
+  'the meadow preset must keep blades upright instead of producing tangled patches');
+assert.equal(clumpSettings.washLift, 0.68,
+  'the meadow preset must retain the bright watercolor lift established by the parity lab');
+assert.equal(clumpSettings.washOpacity, 0.82,
+  'the meadow preset must layer translucent strokes instead of opaque dirty cutouts');
+const callMeSenseiGrassShader = resolveVegetationShaderPreset('call_me_sensei').grass;
+assert.equal(callMeSenseiGrassShader.tipHueShift, 0,
+  'the Call Me Sensei default must not rotate green ground toward yellow');
+assert.equal(callMeSenseiGrassShader.tipDesaturation, 0,
+  'the Call Me Sensei default must preserve the saturation relationship of the sampled ground');
+assert.ok(getGrassPresetOptions().some((option) => option.id === 'call_me_sensei_clump'));
+
+const expectedClumpTriangles = [280, 210, 154];
+for (const profile of GRASS_CLUMP_LODS) {
+  const geometry = createGrassClumpGeometry({ lod: profile.level });
+  assert.equal(geometry.userData.grassClump.triangleCount, expectedClumpTriangles[profile.level]);
+  assert.ok(Math.abs(geometry.userData.grassClump.effectiveCoverageRatio - 1) <= 0.12,
+    `LOD${profile.level} must preserve integrated blade coverage across camera distance`);
+  assert.equal(geometry.getAttribute('aBladeOrigin').count, geometry.getAttribute('position').count);
+  assert.equal(geometry.getAttribute('aBladeInfo').count, geometry.getAttribute('position').count);
+  assert.ok(Array.from(geometry.getAttribute('normal').array)
+    .every((component, index) => index % 3 === 1 ? component === 1 : component === 0),
+  'clump blades must use the stable upward-authored foliage normal');
+  geometry.dispose();
+}
+
+const clumpField = new StylizedGrassClumpField({
+  placements: [
+    { forward: [1, 0, 0], normal: [0, Math.SQRT1_2, Math.SQRT1_2], x: 0, y: 0, z: 0 },
+    { x: 60, y: 0, z: 0 },
+    { x: 75, y: 0, z: 0 },
+    { x: 90, y: 0, z: 0 },
+  ],
+});
+const lodCamera = new THREE.PerspectiveCamera();
+for (let frame = 0; frame < 4; frame += 1) clumpField.update(0.1, lodCamera);
+assert.deepEqual(clumpField.lodMeshes.map((mesh) => mesh.geometry.instanceCount), [1, 1, 2],
+  'clump records must move through near/mid/far LOD pools without an implicit hard cull');
+const retainedSurfaceNormal = Array.from(
+  clumpField.lodMeshes[0].geometry.getAttribute('iSurfaceNormal').array.slice(0, 3),
+);
+assert.ok(retainedSurfaceNormal.every((value, index) =>
+  Math.abs(value - [0, Math.SQRT1_2, Math.SQRT1_2][index]) < 1e-6),
+'clump instances must retain normalized terrain alignment for P18-style placement');
+const retainedSurfaceForward = Array.from(
+  clumpField.lodMeshes[0].geometry.getAttribute('iSurfaceForward').array.slice(0, 3),
+);
+assert.ok(Math.abs(retainedSurfaceForward[0] - 1) < 1e-6
+  && Math.abs(retainedSurfaceForward[1]) < 1e-6
+  && Math.abs(retainedSurfaceForward[2]) < 1e-6,
+'clump instances must retain a tangent forward axis for source-mesh transform parity');
+assert.ok(clumpField.lodMeshes.every((mesh) =>
+  mesh.material.userData.grassClump.groundColor.includes('ground field')));
+assert.ok(clumpField.lodMeshes.every((mesh) => mesh.material.transparent),
+  'the watercolor meadow preset must enable alpha blending on every LOD material');
+clumpField.setSun({ color: '#80c040' });
+const expectedSunLinear = new THREE.Color('#80c040');
+assert.ok(clumpField.lodMeshes.every((mesh) => (
+  ['r', 'g', 'b'].every((channel) => Math.abs(
+    mesh.material.uniforms.uSunColor.value[channel] - expectedSunLinear[channel]
+  ) < 1e-5)
+)), 'clump live color setters must decode sRGB strings exactly once');
+clumpField.dispose();
+
+const retainedGeometries = expectedClumpTriangles.map((triangleCount, level) => {
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute([
+    0, 0, 0,
+    0.1, 0, 0,
+    0, 0.3, 0,
+  ], 3));
+  geometry.setIndex([0, 1, 2]);
+  geometry.userData.grassClump = { bladeCount: 40, level, triangleCount };
+  return geometry;
+});
+const retainedMaterial = new THREE.MeshBasicMaterial();
+const retainedField = new RetainedGrassClumpField({
+  geometryLods: retainedGeometries,
+  materials: retainedMaterial,
+  placements: [{ matrix: new THREE.Matrix4().makeTranslation(2, 0, 0) }],
+});
+assert.equal(retainedField.lodMeshes[0].count, 1,
+  'authored SM/MI packs must retain one paint record as one clump instance');
+assert.deepEqual(Array.from(retainedField.lodMeshes[0].instanceMatrix.array.slice(12, 15)), [2, 0, 0],
+  'authored clump fields must preserve supplied instance matrices exactly');
+retainedField.dispose();
+retainedGeometries.forEach((geometry) => geometry.dispose());
+retainedMaterial.dispose();
 
 const original = createGrassSettings({
   cloudShadowStrength: 0.73,

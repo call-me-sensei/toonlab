@@ -1,362 +1,189 @@
 # ToonLab — guide for AI coding agents
 
-You are helping a developer use `@call-me-sensei/toonlab` (alias: `toonlab`),
-a stylized anime game kit for Three.js (WebGPU-first TSL materials, WebGL2
-fallback; 1 world unit = 1 meter). The look is NOT in any single API — it
-emerges from the assembly: sky feeds water reflections, an aligned sun rig +
-three-layer fog set the palette, cloud shadows tie ground/canopy/water
-together. Skipping the assembly produces gray, flat, "programmer-art" scenes.
+You are helping a developer use `@call-me-sensei/toonlab` 0.4.10, a
+WebGPU-first Three.js toolkit for anime-style characters and environments.
+Treat one world unit as one meter.
 
-For outdoor-world construction, tuning, or visual review, follow the shipped
-`agents/skills/codex/outdoor-world/SKILL.md` (or the matching Claude skill).
-It turns these guidelines into a repeatable build-and-QA workflow.
+## Source of truth
 
-## Golden path — a full world in minutes
+Before proposing an import or a scene-construction plan, read:
+
+- `docs/capability-status.md` for the current recommended-versus-experimental
+  product boundary;
+- `agents/references/runtime-entry-points.md` for the stable 0.4.10 package
+  boundary;
+- `agents/skills/codex/game-dev/SKILL.md` for existing-scene integration;
+- `agents/skills/codex/outdoor-world/SKILL.md` only for explicitly requested
+  outdoor experiments and QA;
+- `agents/skills/codex/asset-sourcing/SKILL.md` for OSS/Pro MCP routing;
+- `docs/styles-and-bundles.md` for treatment routing.
+
+The recommended workflow starts from a host-constructed scene. The host creates
+the renderer, layout, geometry, cameras, controls, animation, physics, lights,
+shadows, storage, loading pipeline, collision, placements, and frame loop.
+ToonLab styles labeled targets, supplies focused vegetation/water/assets, and
+helps discover missing assets. It does not reliably turn a one-shot prompt into
+a polished world.
+
+Do not advertise repository-only modules as npm APIs. In 0.4.10, lighting,
+camera behavior, game-feel behavior, gameplay VFX, path/village/prop/building
+assembly, and full-world coordination remain host-owned or pre-release
+experiments even when source or a lab exists in this checkout.
+
+## Public package areas and maturity
+
+Use only the exports in `package.json`. The recommended production areas are:
+
+- `./toon`, `./toon-settings`, `./character`
+- `./environment`, `./ground-shader`, `./rock-shader`
+- `./vegetation`, `./vegetation-shaders`, `./grass`, `./grass-palettes`
+- `./water`, `./water-settings` for a host-authored footprint, shore, and bed
+- `./post`, `./post-processing`
+- `./rockgen`, `./debrisgen`, `./texgen`, `./assetlib`
+- `./styles`, `./asset-policy`, `./loaders`, `./debug`
+
+Public `sky`, `cloud`, `weather`, `climate`, terrain/world helpers, ambient
+effects, and fauna remain useful qualification surfaces, but their complete
+scene outcome is experimental. API availability is not evidence that an agent
+can compose them into approved final art.
+
+The package verifier is authoritative. If documentation and exports disagree,
+fix the documentation or deliberately add and qualify an export; never work
+around the mismatch with a deep `src/` import in consumer code.
+
+## Recommended existing-scene foundation
 
 ```js
-import { createStylizedTerrain, createStylizedWorld } from '@call-me-sensei/toonlab';
+import {
+  applyEnvironmentShader,
+} from '@call-me-sensei/toonlab/environment';
+import { createCallMeSenseiGrassField } from '@call-me-sensei/toonlab/grass';
 
-// 1. Terrain: any seed is a valid world. waterCoverage is the "more water"
-//    knob; height/depth set mountain amplitude and basin depth; size takes
-//    a number or { x, z }; floatingIslands / sinkholes are one option each.
-const terrain = createStylizedTerrain({
-  seed: 42,
-  size: 1000,
-  archetype: 'lushKarst', // default: rolling meadow + localized outcrops + dramatic rim
+await applyEnvironmentShader(manufacturedRoot, {
+  preset: 'call_me_sensei',
+  scenario: 'exteriorDay',
 });
-const terrainRoot = new THREE.Group();
-terrainRoot.add(terrain.root);
-scene.add(terrainRoot);
 
-// 2. Everything else: environment shading, aligned sun + shadows, sky,
-//    water, clean LOD forests, instanced understory, follow-window grass,
-//    soft contact grounding, cloud shadows, collision.
-const world = await createStylizedWorld({
-  renderer, scene, camera,
-  terrain: { heightAt: terrain.heightAt, root: terrainRoot, size: terrain.meshExtent },
-  water: { level: terrain.waterLevel },
-  followTarget: characterRoot,               // splashes, wakes, grass push
+const grass = await createCallMeSenseiGrassField({ placements });
+scene.add(grass);
+
+renderer.setAnimationLoop(() => {
+  groundFieldPass.update();
+  grass.update(clock.getDelta(), camera);
+  renderer.render(scene, camera);
 });
-characterRoot.position.copy(terrain.spawn);  // probed: walkable, near shore
-// render loop, before rendering:
-world.update(delta);
 ```
 
-**Bring your own terrain** (no generator): the ONLY contract is a pure
-`heightAt(x, z) → meters` plus a displaced mesh under `terrain.root` with
-`frustumCulled = false`. Everything else (masks, scatter, collision,
-minimap) derives from `heightAt` and `water.level`. Even
-`heightAt = (x, z) => 12 * Math.sin(x / 90) * Math.cos(z / 90)` gives a
-complete shaded, forested, swimmable world.
+Apply Ground, Rock, Tree/Flower, Water, Toon, and Post through their matching
+focused runtimes. Do not change level layout or invent missing host systems
+unless the developer explicitly authorizes an experiment.
 
-Character: `applyToonShader(root, { settings: createToonSettings({ preset:
-'call_me_sensei' }) })` + `createCharacterRenderPasses` (call
-`passes.update()` per frame). Post: `createPostProcessingPipeline` with
-preset `call_me_sensei`; `post.render(delta)` replaces `renderer.render`.
-Minimap: `createWorldMinimap({ heightAt, size, waterLevel, onPick })` —
-call `minimap.setPlayer(x, z, heading)` per frame.
-Every visual cluster has a `default` and studio-managed `call_me_sensei`
-**style**. Style is the IP-wide rendition axis and composes over asset/system
-presets (for example Rock `boulder` or Water `river`); it must never appear as
-one more asset/condition in a preset picker. Historical
-`preset: 'call_me_sensei'` calls remain compatibility aliases.
+## Rendering and scene responsibilities
 
-## Quality rules (validated against reference-class modern anime worlds)
+- Align the visible sky sun direction with the host directional light.
+- Enable `castShadow` and `receiveShadow` deliberately. Terrain and cliff
+  masses must cast onto beaches, water receivers where supported, vegetation,
+  characters, and each other.
+- Keep indirect light high enough that cel shadows retain material identity.
+- Configure host scene fog and pass matching distance-fog settings to systems
+  that expose adapters.
+- Use named transient layers for current weather/time state. Do not persist
+  composed runtime state as authored style data.
+- Apply style bundles only after labeling roots by rendering domain. Bundles
+  select treatments; labels select destinations; scene state supplies current
+  conditions.
+- Preserve imported PBR maps and semantic material roles. Never infer a
+  production-safe material class from RGB alone.
 
-- Align the visible sky sun and the light rig, and match the hour: 2 PM sun
-  is HIGH (`sunDirection` y ≈ 0.8, warm-white); golden hour is LOW (y ≈ 0.4).
-- Three-layer atmosphere: scene.fog (set by createStylizedWorld) +
-  environment heightFog (`heightFogColor` luminous blue [0.63,0.8,0.98],
-  density ≈ 0.00035–0.00065, falloff ≈ 400) + restrained post depthCue
-  (~0.1–0.2, blue). Aerial cameras use the bottom of that range.
-  White or absent fog is the #1 giveaway of a bad scene. EVERY custom
-  surface must join the height-fog layer or it reads as pasted on —
-  `createStylizedWorld` wires water and forest far proxies automatically
-  (`setDistanceFog`); lower the density per aerial view or flyovers gray out.
-- Cast shadows: terrain `castShadow = true`, near rocks both flags, forests
-  `lod: { castShadow: true }` (only live near trees cast — correct).
-- Vividness is palette + saturation, not brightness: environment
-  `saturation ≈ 1.2`, `exposure ≈ 1.06`, `ambientStrength ≥ 0.3`,
-  `sunShadowStrength ≈ 0.72`, `shadowTintColor [0.68,0.74,0.94]`,
-  saturated cerulean zenith, two-tone cumulus with blue-shaded bottoms,
-  green-dominant canopy list with ONE gold accent variant (muddy autumn
-  mixes read as confetti), turquoise water ramp.
-- Compose vegetation in three height layers: dense LOD canopy (preset spacing
-  <= 7 m), bounded instanced shrubs/rosettes, and dense moving-window grass.
-  Cluster with `createNoisePatchMask`, but reject a threshold/seed that leaves
-  the hero region as a map-sized empty lawn.
-- Far trees use the default instanced low-poly volumetric crown proxy; trunks
-  are near-LOD only so aerial forests never become rows of one-pixel ticks.
-  Never bake near-leaf sprites into billboards or add a horizontal aerial cap;
-  those paths create dirty speckles and giant color blobs between views.
-- Cliffs: steep faces need material, not flat paint — set
-  `material.userData.envTriplanarMap` (painted stone tile) +
-  `triplanarDetail: 1`, `triplanarDetailScale ≈ 28`,
-  `triplanarEdgeHighlight` for painted lip highlights; keep per-vertex
-  paint LOW-frequency (bands finer than the mesh grid alias into zigzag
-  triangles) and gate meadow/gold paint hard by slope.
-- `createStylizedTerrain()` already supplies warm, horizontally banded
-  limestone with dark mineral seams as its triplanar cliff map. Do not replace
-  it with a low-contrast gray noise tile. Custom terrain must supply geology
-  of comparable contrast through `envTriplanarMap`.
-- `createStylizedTerrain()` defaults to `lushKarst`: green rolling land with
-  localized mossed outcrops, mountain-gated terraces, a dramatic karst rim,
-  shipped high-floor `envVertexAo`, and one deterministic castle silhouette.
-  Wall-to-wall bare karst is not the default.
-- Grounding stays luminous: generated terrain/rock AO is baked, while the
-  composed world adds one cool instanced contact field at opacity <= 0.18.
-  Never fake AO with opaque black decals.
-- Motion streaks for gliders, vehicles, dashes, or fauna use
-  `createMotionTrails({ target, anchors })`: its default is speed-gated,
-  0.2-second, narrow, translucent, and tapered at both ends. Never model
-  always-on trails as long constant-width white boxes or cylinders.
-- Objective/checkpoint rings use `createGlowRing()`: an open torus core,
-  restrained torus halo, and local shadow-free point glow. Never put a filled
-  plane/circle behind a large hoop; transparency over that screen area is a
-  veil, not atmosphere. Call `ring.update(delta, camera)` so near rings fade
-  before they dominate the screen.
-- Preserve Ambient FX's cutout near fade: petals/leaves within 0.45–1.35 m of
-  the camera collapse instead of becoming screen-sized pink/orange blobs.
-- Never let ground hover within ±1.6 m of water level over large areas
-  (broken water slivers); end the map in a hazy mountain rim;
-  `frustumCulled = false` on world-scale meshes.
-- Budgets: trees ≤ 3,000 via `StylizedForest` (volumetric far proxy —
-  pass `renderer` or you get the expensive legacy path), grass ≤ 155k
-  blades in a follow window, understory ≤ 2,400 shrubs + 6,200 rosettes,
-  startup < 10 s. Give every repeated mesh set
-  (rocks, cliff decor) a hi/lo distance LOD using TRUE 3D distance so
-  aerial cameras demote everything. Exclude above-water dressing from
-  water passes: `userData.waterExclude` (all passes) or
-  `waterGrabExclude` (refraction only, keeps the reflection).
-- Perf triage: add URL toggles per system and read the FPS meter — the
-  water scene passes (grab/depth/reflection) multiply every other cost, so
-  measure with and without water first. Scale them via
-  `water.settings.passes = { reflectionScale: 0.4, sceneColorScale: 0.6 }`.
+## Experimental outdoor formation gate
 
-## Subpath imports
+The following is a research and evaluation order, not a supported one-shot
+construction recipe. Use it only when the developer explicitly requests a
+world-building experiment. Record every manual composition step and product
+gap; never market a partially successful result as package behavior.
 
-`/styles` `/toon` `/environment` `/lighting` `/weather` `/atmospheric-condition` `/water` `/vegetation` (incl. scatter helpers +
-`StylizedForest`) `/vegetation-shaders` `/grass-palettes` `/sky` `/post` `/character` `/loaders` `/rockgen`
-`/debrisgen` `/pathgen` `/debug`; root adds `createStylizedTerrain`,
-`createStylizedWorld`, `createWorldCollision`, `createWorldMinimap`,
-`resolveWorldPreset`, `createStylizedPaths`.
+Build in this order:
 
-Authoring scope: Character, Tree, Grass, Flower, Ground, Rock, and Environment
-Shader Labs save reusable material treatments. Tree/Flower/Grass Generation
-Labs save asset identity and geometry. Tree, Grass, and Flower shaders share
-one Vegetation runtime family but serialize independently; Ground is not
-Vegetation. Water/Sky Labs save complete runtime-system presets with their
-shader controls embedded, so do not create separate Water Shader or Sky Shader
-documents. Current lighting, weather, camera, and interactions remain
-host-owned.
+1. macro terrain silhouette and water body;
+2. parent geology and continuous material coverage;
+3. connected primary and secondary rock structure;
+4. biome relationships and tapered vegetation fields;
+5. beach, shoreline, and underwater continuation;
+6. lighting, atmosphere, and restrained post;
+7. tertiary story dressing.
 
-For any style-bundle, multi-shader, or arbitrary-asset task, read
-`docs/styles-and-bundles.md` before editing. A bundle selects coordinated
-treatments; explicit asset labels select rendering destinations; scene state
-selects current conditions. Inventory and label every renderable root and
-material before final styling. Character anatomy, clothing, held weapons, and
-worn hero accessories normally route to the character toon shader; manufactured
-props, vegetation, rocks/debris, water/sky, and VFX retain their owning
-runtimes. Report unknown domains, material roles, mixed atlases without masks,
-unsupported transparency, and custom renderer exemptions. Never silently
-infer a production-safe route from object names, texture colors, or scene
-parenting.
+A cliff is a continuous terrain mass reinforced by overlapping modular rocks,
+not a row of props. Rotate, tilt, non-uniformly scale, bury, crop, and overlap
+reused rocks so visible copies do not expose the same silhouette, interval,
+crop, or seam. Use one parent geology unless the level explicitly authors a
+fault/contact. Hide every module back, base, terrain gap, and water-plane edge.
 
-New style bundles use independent `treeShader`, `grassShader`,
-`flowerShader`, and `groundShader` slots. The `vegetationShader` and
-`landscapeMaterial` aggregate slots remain compatibility inputs. Asset
-recipes, species, geometry, scatter, and current wind/weather never enter
-those shader slots.
+Grass and vegetation are ecological fields, not rectangles. Taper density at
+paths, lips, rock fields, wetlands, and backshore. A lone tree must read as an
+intentional landmark; otherwise form a canopy/sapling/understory relationship.
 
-Style bundle creation, parsing, validation, serialization, and resolution are
-OSS `/styles` APIs and require no database. `fetchStyleBundle` and hosted
-storage are optional transport/persistence. Bundle resolution does not
-currently traverse or classify a scene, so do not claim automatic routing
-unless the host implements it. Keep asset identity, domain labels, and runtime
-conditions out of the bundle.
+Continue the coast below water with a closed seabed, the same parent geology,
+submerged rocks, moving aquatic vegetation, depth color/attenuation, and an
+underwater camera treatment. Reject a hollow water plane or visible terrain
+underside.
 
-Treat `call_me_sensei` as the first-party reference bundle and optimize it for
-the best coordinated result across canonical domain implementations. Do not
-declare it complete merely because every slot contains that style id. Apply
-the completion gate and cross-domain review matrix in
-`docs/styles-and-bundles.md`; compatibility flattening is a fallback for
-incomplete assets, not the target that defines the signature look.
+Inspect gameplay, shore, below-cliff, underwater, flyover, and top-down views.
+Record every manual override as a package-default, skill, asset-policy, or
+test-harness deficiency.
 
-For asset sourcing and generation, also read `docs/open-asset-library.md`.
-Reuse an accepted asset first. If a procedural family has an approved,
-versioned stylized base set and has passed the documented reliability gate,
-generate directly and skip gallery search. Otherwise use curated CC0, then
-properly attributed CC-BY candidates; use image-to-3D only for a named
-remaining gap. Never claim an older generator is approved without the
-reliability evidence. Preserve base-set version, recipe, seed, domain/material
-labels, license provenance, and the Call Me Sensei verification result.
-ToonLab Pro may author and review base sets, but OSS must consume their
-portable artifacts without a database.
+## Assets and MCP
 
-Sky and Water keep authored and current-scene state separate. `.settings` is
-the portable authored baseline; `.renderedSettings` is the composition after
-named transient layers. Lighting, Weather, and other owners must use unique
-ids with `setSceneOverrideLayer`, clear only their own id with
-`clearSceneOverrideLayer`, and never persist the composed result. The manual
-`setSceneOverrides`/`clearSceneOverrides` pair owns only the `scene` layer;
-`clearAllSceneOverrideLayers` is for explicit host teardown.
+Feature-detect the connected ToonLab MCP surface.
 
-`lighting.attachWorld(world)` owns the world sun adapter plus private
-priority-100 Sky/Water layers. If Weather is present it also installs Lighting
-as Weather's sun/ambient/fog bridge: Lighting remains the sole writer, Weather
-provides modulation and private priority-200 Sky/Water layers, and either
-system removes only its own state on detach/dispose.
-The adapter is `world.setSun({ direction, color, sky })`; it aligns the real
-light/shadows with Grass, Flower, Forest, Ambient FX, Sky, and Water inputs.
-For a standalone custom Weather coordinator, supply paired `getSun`/`setSun`
-and baselines for any write-only cloud/surface adapters so teardown is exact.
+- OSS: inspect workspace/library, search the official local catalog, then use
+  `search_cc0_assets` and `import_cc0_asset` when policy allows.
+- Pro: inspect project/ToonLab libraries, use `search_public_gallery`, then
+  retrieve an approved asset with `get_toonlab_asset`.
 
-Sky documents contain exactly 46 portable art fields; constructor-only radius
-and quality are excluded. Sky quality is compile-time (`low`/`medium`/`high`
-= 2/3/4 cloud octaves, or custom `{ cloudOctaves: 1..5 }`), and
-`sky.setQuality()` rebuilds the material while preserving authored/layered
-state. Water quality is selected when constructing `WaterSurface`; a tier
-change requires replacing/rebuilding the surface, never `applySettings()`.
+Do not prescribe an OSS-only tool to Pro or a Pro-only tool to OSS. Official
+downloads must be immutable `https://assets.toonlab.io/official/...` URLs;
+reject private CDN, signed, `creation-files`, or expiring URLs. Store stable
+ID, source class, provenance, license, review status, checksum, and policy
+decision for every used asset.
 
-Lighting (`/lighting`) owns portable, versioned recipes and looks rather than
-a replacement renderer. Use `createLightingManager({ scene, camera, renderer,
-recipe, quality })`, call `update()` as the focus/camera moves, and save JSON
-with the recipe/look serializers. Luminaire, rig, look, and quality presets
-come from `getLightingPresetOptions(kind)`. Disc/tube area lights, IES, tag
-linking, and ToonLab Many Lights/Dynamic GI are explicit adapter intent;
-the capability report and diagnostics state each runtime fallback. Author and
-stress-test them in `/lighting-lab/`.
+The npm package contains no third-party media packs. Optional assets such as
+the CC0 mannequin are downloaded from immutable R2 or supplied by the host;
+they do not increase the package tarball.
 
-`createLightingManager` is the lower-level rig-realization API. For a composed
-world and day cycle, use `createLightingSystem(...)`, then call
-`lighting.attachWorld(world)` for the sun/Sky/Water ownership and Weather
-modulation bridge described above.
+## Repository-only work
 
-Paths/roads/bridges: `createStylizedWorld({ paths: { seed, auto: { count: 4,
-styles: ['dirt', 'stone'] } } })` routes seeded trails around slopes, bridges
-water crossings, parts grass/trees around the ribbon, and feeds the flattened
-profile to `world.collision.groundHeight` — use that (not raw `heightAt`) for
-character ground so bridges carry the walk. Minimap: pass `paths: world.paths`
-to `createWorldMinimap` for the network overlay.
+Files under `src/` can exist before their public contract is approved. For a
+repository-only prototype:
 
-Catalog (`@call-me-sensei/toonlab/catalog`): the whole procedural library,
-queryable and spawnable —
-`catalog.list({ tags, cluster, text })`, `catalog.get(id)`, and the headline
-`catalog.spawn(id, { seed })` → a PropAsset for any prop / building / tree /
-rock / debris entry (settings presets throw with their copy-paste snippet
-instead). `catalog.register(entry)` adds user assets;
-`catalog.addSource(url, { headers })` mounts remote registries (the pro
-seam). The browser Gallery at `/gallery/` searches third-party open assets;
-the procedural Catalog itself is a runtime API rather than a standalone lab.
+- label its documentation “repository-only” or “planned” at the top;
+- use relative internal imports in its examples, not package specifiers;
+- do not add it to `agents/references/runtime-entry-points.md`;
+- do not direct consumers to it from shipped skills;
+- add export, package-boundary, clean-consumer, and visual qualification before
+  describing it as stable.
 
-Villages (`/villagegen`): `createStylizedWorld({ pois: { seed, villages: 2,
-shrines: 1, pierHamlets: 1, size } })` → named settlements (seeded syllable
-names) with streets merged into the world path network, buildings facing
-their street behind picket fences, wells/lanterns/clutter by archetype, POI
-entries auto-connected by roads. `world.pois` feeds
-`createWorldMinimap({ markers })` labels. Fully-shadowed building facades
-need `parameters.sunShadowStrength ≈ 0.7` in worlds that run near-zero
-ambient (full-strength cast shadows crush large vertical masses to black).
+## Verification
 
-Fauna (`/fauna`) and ambient VFX (`/ambientfx`) are one option each:
-`createStylizedWorld({ fauna: { species: { birds: 40, fish: 80 } },
-ambientfx: { effects: { petals: true, fireflies: true } } })` — both join
-the world's fog/wind/cloud-shadow automatically.
+For package documentation and skills:
 
-Weather (`/weather`) is a cross-system coordinator, not an environment
-catch-all: `createStylizedWorld({ weather: { preset: 'snow' } })`, then
-`world.setWeather('thunderstorm', { duration: 4 })`. Its 21 shared conditions
-drive sky/sun/fog/cloud shadows, wind across vegetation/fauna/ambient FX,
-one-draw GPU rain/snow/sleet/hail/dust, water waves/ripples, lightning and
-thunder events. Surface `{ wetness, snowCover, ice }` values are host-facing
-outputs for custom terrain/prop/character materials. Labs should read
-`getWeatherPresetOptions()` rather than maintaining a private condition list.
+```bash
+npm run verify:skills
+npm run verify:docs
+npm run verify:package
+```
 
-Atmospheric Condition (`/atmospheric-condition`) owns portable air, ceiling,
-fog, precipitation, light, electrical, and flow state. The transferred
-15-profile library is explicitly the `call_me_sensei` set. It is neither a
-shader style nor a source-asset pack. Atmospheric Condition Lab authors its
-48-field documents through the shared Sky · Cloud · Atmosphere preview;
-Sky/Cloud/Atmosphere shader profiles and generated LUT/mask/noise/volume assets
-remain separate artifacts. That preview keeps two modes explicit: Live is a
-readable diagnostic reconstruction with near/middle/far visibility cues;
-Native is the immutable source-renderer capture at the four exact time
-anchors. Never describe Live as pixel parity or add diagnostic effects over a
-Native frame.
+For a release candidate:
 
-Gameplay VFX (`/vfxgen`): event-driven combat/movement effects, spawned at
-gameplay moments (not a world option) — `createVfxSystem({ seed, style,
-heightAt })` then `vfx.spawn('slash' | 'impact' | 'fireball' | 'footstep' |
-'landing', { at | follow, power, look })` and `vfx.update(delta, camera)`
-per frame. All bursts share TWO draw calls; slash trails / fireball cores
-are pooled meshes. `vfx.setDistanceFog(...)` joins the height-fog layer;
-`vfx.setTimeScale(0)` is hit-stop. Weapons + moves are batteries-included:
-`createStylizedWeapon({ type: 'sword' | 'greatsword' | 'spear' | 'dagger'
-| 'hammer' })` + `createMoveController({ weapon, vfx })` →
-`attack.play('slash' | 'overhead' | 'thrust' | 'spin' | 'plunge')` — authored
-phase-based motions whose event tracks fire the VFX at the right beats
-(plunge = the full crouch→leap→dive→landfall decomposition); weapon weight
-scales timing and hit power. Design interactively in the VFX Lab
-(`/vfx-lab/`): weapon picker + move triggers + schema panels, exports a
-recipe (style + seed + overrides) that drops straight into `createVfxSystem`.
-The `call_me_sensei` VFX style targets the reference action-RPG hit language
-(smooth gradient arcs, four-point star + shockwave circle per hit,
-hard-saturated pyro fireball). Demo loop: `examples/vfx-arena/`.
+```bash
+npm run verify:release
+npm pack --dry-run
+```
 
-Buildings (`/buildinggen`): seeded grammar exteriors —
-`buildingAsset({ type: 'cottage' | 'shed' | 'farmhouse' | 'watchtower' |
-'shrine', seed })` is a PropAsset (multi-circle footprint, buried foundation
-skirt for slopes ≤ ~20°, hi/lo LOD, `door` anchor with outward normal for
-street-facing placement). `createBuildingFromRecipe(recipe)` rebuilds
-deterministically; ≤ 6 draw calls per building.
+Install the resulting tarball in a clean consumer and test only its public
+imports. A successful build is not visual approval. Capture fresh screenshots,
+inspect console output, and compare near/far, lit/shadowed, gameplay/aerial,
+shore/underwater, and relevant LOD states.
 
-Props (`/propgen`): every placeable thing is a PropAsset —
-`createPropAsset({ asset: { type: 'lantern', variant: 'stoneToro', seed } })`
-or `propAssetFromObject(importedGlb)` (auto footprint + ground anchor).
-Place with ONE call: `placeAlongSpline({ asset, spline: world.paths.splines[0],
-spacing, offset, mask, heightAt: world.paths.heightAt, collision:
-world.collision, parent })` (fences/walls build continuously; point props
-instance with hi/lo LOD — call the returned `update(delta, camera)` per
-frame), or `scatterProps`/`placeProps`. Props added after `createStylizedWorld`
-need `applyEnvironmentShader(propsRoot, { parameters: { …fog } })` to join the
-look; pass a dry-land `mask` so dressing never marches into water.
-
-## Symptom table — check before debugging blind
-
-| Looks like | Cause → fix |
-|---|---|
-| Terrain gray/flat | environment shader never applied → put meshes under `terrain.root` |
-| Distant trees sharp saturated dots on hazed mountains | surface missing the height-fog layer → update ToonLab (far proxies/water auto-wired via `setDistanceFog`); custom surfaces must join it |
-| Distant water bright band "cutting into" mountains | same fog-layer mismatch → `waterSurface.setDistanceFog({ color, density })` |
-| Giant white "iceberg" wedges at far shorelines | outdated ToonLab (swash film climbed steep banks) → update |
-| Full-detail trees popping in aerial views | LOD by horizontal distance → update ToonLab (3D distance) |
-| Gold/orange tree with green-shadow or pink-crown leaves | outdated ToonLab (palette derivation broke on warm hues) → update |
-| Giant green/orange tree blobs | obsolete billboard ellipse/top-cap LOD → update ToonLab; current far trees are volumetric proxies |
-| Trees like confetti from the air | uniform scatter → `createNoisePatchMask`; palette too mixed → green-dominant + one gold |
-| White valley blotches | white height fog → sky-blue `heightFogColor` |
-| Fog has no effect | `heightFogFalloff` too small → ≈ 400 |
-| Everything pale/gray from the air | one fog density for all views → lower `heightFogDensity` for aerial cameras (terrain uniforms + `water/forest.setDistanceFog`) |
-| Cliff walls flat, untextured up close | planar UVs stretch on walls → `envTriplanarMap` + `triplanarDetail` |
-| Zigzag triangles on cliff walls | per-vertex paint finer than the grid, or hue bleeding through stone → low-frequency bands; luminance-only tint is built in |
-| Herringbone/moire on close cliffs | ground and cliff textures projected together, or band scale too small → use one dedicated cliff triplanar map at world scale (~28 m), with mipmaps and restrained contrast |
-| Flat light, no shadows | vertical/misaligned sun, nothing casts → align sun, enable castShadow |
-| Shadows are pitch-black holes | no indirect floor before shadow tint → use the composed `outdoorGameplay` / `call_me_sensei` defaults (`ambientStrength ≥ 0.3`, `sunShadowStrength ≈ 0.72`); tint cannot lift a zero light value |
-| Cliffs look like pale putty | low-contrast/no-geology triplanar map → use generated terrain's built-in limestone strata or provide a warm banded `envTriplanarMap`; keep `triplanarDetail: 1` |
-| Trees have black broccoli undersides/bases | shadow palette or far proxy colors too dark → use the `call_me_sensei` tree + vegetation shader and `outdoorGameplay` LOD; warm bark and lifted canopy/bark floors are coupled |
-| Grass looks sparse or pops away | low density or tiny static patch → use the `outdoorGameplay` moving window (18 blades/m², 52 m radius, soft fade, bounded 150k budget) |
-| Flight streaks look like rigid white poles | bespoke always-on boxes → use `createMotionTrails`; keep the default speed gate, short lifetime, opacity, and two-ended taper |
-| Valley lighting looks frozen/uniform | cloud field disabled or too weak → keep Call Me Sensei Weather active and call `world.update(delta)`; signature defaults use broad moving cloud pools at ~0.52 strength |
-| Water looks milky/powder blue | pale deep band plus broad soft reflections → use Call Me Sensei water; it keeps deeper blue body color, reflection ≤ 0.5, detail normals, and low lake wave life |
-| Ring reads as a giant teal veil | filled halo quad/disc or no screen guard → use `createGlowRing()` and call `ring.update(delta, camera)` |
-| Pink/orange particle fills the screen | petal/leaf near fade disabled → restore the default cutout near fade |
-| Mountains vanish when centered | frustum culling on displaced meshes → `frustumCulled = false` |
-| Minute-long startup | unique tree per placement → `StylizedForest` |
-| ~20 fps in a big world | full-res meshes in every water pass → volumetric forest proxies (pass `renderer`), hi/lo rock LOD, `waterExclude`/`waterGrabExclude`, pass scales, `?dpr=1` on retina |
-| Character walks through rocks/trees | blockers unregistered → `world.collision.addCircles([{x,z,radius}])` + `world.collision.resolve(character.position, 0.35)` per frame (trunks are pre-registered) |
-| Character floats over/sinks into water | float on `water.getHeightAt(x, z)` with chest at the waterline; calm swim default, fast stroke on Shift, `action.timeScale = clamp(speed/1.7, 0.75, 1.35)` |
-
-Full runbook with budgets and verification workflow:
-`agents/skills/*/outdoor-world/SKILL.md` in the repo; complete reference
-app: `examples/outdoor-world/`. Verify by headless Playwright screenshot
-(`--enable-unsafe-webgpu --enable-gpu`), not by assumption — and LOOK at
-the images.
+Database migrations and official catalog seed batches are append-only after
+release. New official catalog metadata must use the next numbered seed and
+immutable public R2 URLs. Never edit an applied migration or seed.

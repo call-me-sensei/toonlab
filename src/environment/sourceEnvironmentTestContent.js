@@ -23,7 +23,7 @@ import {
   classifyUrbanPropSurface,
   createUrbanAnimePropNodeMaterial,
   createUrbanPropShaderControls,
-} from '../../examples/urban-prop-shader/urbanPropMaterial.js';
+} from './urbanPropMaterial.js';
 
 const TOONLAB_SOURCE_PINE_LOD0_URL =
   '/assets-local/reference-materials/catalog-meshes/Trees/Pine/SM_Pine01/lod0.glb';

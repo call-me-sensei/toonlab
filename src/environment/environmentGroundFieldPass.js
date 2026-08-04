@@ -304,6 +304,12 @@ export function createEnvironmentGroundFieldPass({ renderer, scene, resolution =
   }
 
   return {
+    get ready() {
+      return Boolean(environmentGroundField.ready.value);
+    },
+    get writerCount() {
+      return writers.length;
+    },
     get colorTexture() {
       return colorTarget?.texture ?? null;
     },

@@ -1,6 +1,6 @@
-// OSS documentation pages. Everything documented here works offline with the
-// open-source package; hosted-only features are explicitly badged "Pro" and
-// link to toonlab.io. The settings reference renders the generated
+// OSS documentation pages. Package examples use only the stable 0.4.10 exports;
+// repository-only prototypes and hosted features are labeled explicitly, and
+// hosted features link to toonlab.io. The settings reference renders the generated
 // settings-reference.md from this folder.
 import { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -24,6 +24,7 @@ import snowSurfaceShaderRaw from './snow-surface-shader.md?raw';
 import openAssetLibraryRaw from './open-asset-library.md?raw';
 import generatedAssetLabelingRaw from './generated-asset-labeling.md?raw';
 import stylesAndBundlesRaw from './styles-and-bundles.md?raw';
+import capabilityStatusRaw from './capability-status.md?raw';
 import urbanPropSurfaceRolesRaw from './urban-prop-surface-roles.md?raw';
 import '../labs/shared/siteHeader.js';
 import './docs.css';
@@ -83,10 +84,10 @@ function Overview() {
       <div className="docs-eyebrow">Documentation</div>
       <h1>Build games with ToonLab and your AI coding agent</h1>
       <p className="docs-lede">
-        ToonLab is an open-source anime-style runtime for Three.js plus browser labs for authoring
-        shaders, assets, and world systems. Everything on this page runs from this repo or the npm
-        package — no account, no service. The optimal workflow adds an AI coding agent driving it
-        all through skills and MCP.
+        ToonLab is an open-source anime rendering and content-integration runtime for Three.js,
+        plus browser labs for focused shaders, assets, and system qualification. It is strongest
+        when an existing scene needs stylization and assets—not when an agent is asked to invent a
+        polished world in one prompt.
       </p>
 
       <h2>The pieces</h2>
@@ -96,14 +97,15 @@ function Overview() {
           <a href="https://www.npmjs.com/package/@call-me-sensei/toonlab" target="_blank" rel="noreferrer">
             <code>@call-me-sensei/toonlab</code>
           </a>
-          : toon and environment shading, water, sky, weather, vegetation, lighting, post, camera,
-          game feel, and procedural rocks, paths, and textures. MIT-licensed, WebGPU-first with a
-          WebGL2 fallback, zero bundled textures.
+          : recommended focused shading, vegetation, water, post, asset, and texture tools plus
+          public qualification APIs for experimental systems. Host games own scene construction,
+          lighting, camera behavior, gameplay, physics, and renderer setup in 0.4.10.
         </li>
         <li>
-          <strong>The labs</strong> — visual editors served by <code>npm run dev</code> (or hosted
-          at <a href="https://toonlab.io" target="_blank" rel="noreferrer">toonlab.io</a>). Every
-          lab exports a portable preset document the runtime loads.
+          <strong>The labs</strong> — focused editors and experiments served by <code>npm run
+          dev</code> (or hosted at <a href="https://toonlab.io" target="_blank"
+          rel="noreferrer">toonlab.io</a>). Check each lab&apos;s separate editor and npm status;
+          a visible lab is not automatically a production-ready workflow.
         </li>
         <li>
           <strong>The local MCP server</strong> — bundled with the package: your coding agent
@@ -134,24 +136,28 @@ function Overview() {
       </p>
       <p>
         <span className="docs-step-label">03</span>
-        <strong>Author looks visually, apply them from code.</strong> Tune shaders and world
-        systems in the labs, export presets, and compose them into a local style bundle. Bundle
-        JSON is an OSS artifact; a published bundle loaded with <code>fetchStyleBundle</code> is
-        an optional transport.
+        <strong>Author focused looks visually, apply them to supplied content.</strong> Tune one
+        shader, asset, or qualified system at a time, export portable presets, and compose only
+        the approved domains into a local style bundle.
       </p>
       <p>
         <span className="docs-step-label">04</span>
-        <strong>Prompt, run, iterate.</strong> Start from a goal prompt with a verifiable outcome
-        and let the agent check its own work — the <a href="#/prompts">prompt cookbook</a> has
-        ready-to-paste recipes.
+        <strong>Prompt, run, iterate in bounded steps.</strong> Give the agent an existing scene and
+        one verifiable integration goal. Whole-world generation, current Sky/Cloud composition,
+        and automatic terrain/biome/coast/cliff design remain experimental.
       </p>
 
       <h2>Start here</h2>
       <div className="docs-cards">
+        <a className="docs-card" href="#/capability-status">
+          <BookOpenText size={18} aria-hidden />
+          <strong>Current capability status</strong>
+          <span>What is recommended today and what remains experimental.</span>
+        </a>
         <a className="docs-card" href="#/library">
           <BookOpenText size={18} aria-hidden />
           <strong>Using the library</strong>
-          <span>Bootstrap a world, customize shaders, author assets, share your work.</span>
+          <span>Stylize an existing scene, author focused assets, and share portable settings.</span>
         </a>
         <a className="docs-card" href="#/styles-and-bundles">
           <Sparkles size={18} aria-hidden />
@@ -181,7 +187,7 @@ function Overview() {
         <a className="docs-card" href="#/prompts">
           <Sparkles size={18} aria-hidden />
           <strong>Prompt cookbook</strong>
-          <span>The first prompt to start a game, and recipes for the common jobs.</span>
+          <span>Bounded existing-scene integrations plus clearly labeled experiments.</span>
         </a>
         <a className="docs-card" href="#/reference">
           <TerminalSquare size={18} aria-hidden />
@@ -195,29 +201,22 @@ function Overview() {
 
 /* ----------------------------------------------------------------- library */
 
-const WORLD_SNIPPET = `import * as THREE from 'three';
-import { createStylizedTerrain, createStylizedWorld } from '@call-me-sensei/toonlab';
+const EXISTING_SCENE_SNIPPET = `import { applyEnvironmentShader } from '@call-me-sensei/toonlab/environment';
+import { createCallMeSenseiGrassField } from '@call-me-sensei/toonlab/grass';
 
-// Seeded terrain — any seed is a valid, playable world.
-const terrain = createStylizedTerrain({ seed: 42, size: 1000, archetype: 'terracedKarst' });
-const terrainRoot = new THREE.Group();
-terrainRoot.add(terrain.root);
-scene.add(terrainRoot);
-
-// Environment shading, sun + shadows, sky, water, LOD forests, grass,
-// fog, and collision — all on by default.
-const world = await createStylizedWorld({
-  renderer, scene, camera,
-  terrain: { heightAt: terrain.heightAt, root: terrainRoot, size: terrain.meshExtent },
-  water: { level: terrain.waterLevel },
-  weather: { preset: 'partlyCloudy', style: 'call_me_sensei' },
-  followTarget: character, // optional: splashes, wakes, grass push
+// The host already owns scene layout, geometry, cameras, lights, shadows,
+// collision, and placements. ToonLab styles the labeled content.
+await applyEnvironmentShader(manufacturedRoot, {
+  preset: 'call_me_sensei',
+  scenario: 'exteriorDay',
 });
-character.position.copy(terrain.spawn);
 
-const clock = new THREE.Clock();
+const grass = await createCallMeSenseiGrassField({ placements });
+scene.add(grass);
+
 renderer.setAnimationLoop(() => {
-  world.update(clock.getDelta());
+  groundFieldPass.update();
+  grass.update(clock.getDelta(), camera);
   renderer.render(scene, camera);
 });`;
 
@@ -234,16 +233,19 @@ const settings = createToonSettings({
 
 applyToonShader(characterRoot, { settings });`;
 
-const ASSET_SNIPPET = `import { createCatalog } from '@call-me-sensei/toonlab/catalog';
-import { propAssetFromObject } from '@call-me-sensei/toonlab/propgen';
+const ASSET_SNIPPET = `import { loadImportedAsset } from '@call-me-sensei/toonlab/assetlib';
 
-// Procedural catalog: every recipe/preset as a searchable manifest.
-const catalog = createCatalog();
-const tree = catalog.spawn('tree/broadleaf/sensei', { seed: 7 }); // grounded, collided, LOD'd
-
-// Imported models (e.g. a CC0 model imported through the local MCP server)
-// join the same placement pipeline — grounded, collided, instanced, LOD'd:
-const shrine = propAssetFromObject(importedGltf.scene);`;
+// assetRecipe comes from the connected ToonLab OSS or Pro MCP surface.
+// Official downloads use immutable https://assets.toonlab.io URLs.
+const loaded = await loadImportedAsset(assetRecipe);
+if (loaded.kind === 'model') {
+  loaded.object3D.traverse((object) => {
+    if (!object.isMesh) return;
+    object.castShadow = true;
+    object.receiveShadow = true;
+  });
+  scene.add(loaded.object3D);
+}`;
 
 const TEXGEN_SNIPPET = `import {
   createTextureSettings, evaluateTextureMaps,
@@ -312,21 +314,19 @@ function Library() {
         </span>
       </div>
 
-      <h2>A complete open world</h2>
+      <h2>Recommended: integrate into an existing scene</h2>
       <p>
-        <code>createStylizedWorld</code> composes environment shading, an aligned sun with real
-        shadows, sky, water, LOD forests, follow-window grass, unified fog, weather, and collision
-        in one call. Terrain is a pure contract — <code>heightAt(x, z)</code> in meters plus a
-        displaced mesh — so you can use the seeded generator or bring your own.
+        Your host supplies the scene layout, geometry, camera, lights, shadows, physics,
+        collision, placements, and frame loop. Label those existing targets, source any named
+        asset gaps through Gallery/MCP, then apply the matching focused ToonLab runtimes.
       </p>
-      <CodeBlock label="main.js" code={WORLD_SNIPPET} />
+      <CodeBlock label="main.js" code={EXISTING_SCENE_SNIPPET} />
       <p>
-        Archetypes: <code>terracedKarst</code>, <code>lakeland</code>, <code>alpine</code>,{' '}
-        <code>rollingPlains</code>, <code>archipelago</code>. Add solid props with{' '}
-        <code>world.collision.addCircles(...)</code> and a clickable minimap with{' '}
-        <code>createWorldMinimap</code>. The{' '}
-        <a href="/examples/outdoor-world/" target="_blank" rel="noreferrer">outdoor-world example</a>{' '}
-        is the reference project layout.
+        Public terrain, collision, minimap, Weather, Sky, and Cloud APIs remain available for
+        qualification, but complete terrain/biome/coast/cliff construction and current Sky/Cloud
+        composition are experimental outcomes. The{' '}
+        <a href="#/capability-status">capability-status document</a>{' '}
+        is the current product boundary.
       </p>
 
       <h2>What each import gives you</h2>
@@ -342,21 +342,27 @@ function Library() {
             <tr><td>/styles</td><td>Local, versioned style-bundle documents: create, validate, serialize, parse, and resolve coordinated domain settings without a database.</td></tr>
             <tr><td>/toon</td><td>Anime character shader: cel bands, face lighting, rim, hair highlights, outlines — 23 preset-serializable settings groups.</td></tr>
             <tr><td>/environment</td><td>Scene shader for texture packs and glTF: material-role classification, wrapped lighting, time-of-day, fog, cloud shadows.</td></tr>
-            <tr><td>/water</td><td>Gerstner-wave water with a calm→storm dial, breakers, foam, caustics, ripples, and a CPU spectrum mirror for buoyancy.</td></tr>
-            <tr><td>/sky</td><td>Gradient/sun/painterly-cloud/star system — 46 portable art fields per preset.</td></tr>
-            <tr><td>/atmospheric-condition</td><td>Portable 48-field atmospheric-condition recipes. The shipped fifteen-profile collection is the Call Me Sensei set; shader styles and generated source assets stay separate.</td></tr>
-            <tr><td>/weather</td><td>Cross-system coordinator: 21 conditions rendered through an independent IP-wide style, plus GPU precipitation and lightning; drives sky, water, wind, vegetation, and fog.</td></tr>
+            <tr><td>/water</td><td>Focused water treatment for a host-authored footprint, continuous shore, and closed seabed: waves, foam, caustics, ripples, underwater treatment, and buoyancy sampling.</td></tr>
+            <tr><td>/sky</td><td>Experimental outcome: public gradient/sun/cloud/star qualification API; not yet a recommended polished-scene authoring workflow.</td></tr>
+            <tr><td>/atmospheric-condition</td><td>Experimental composition: portable atmospheric recipes used while the world-system labs are qualified.</td></tr>
+            <tr><td>/weather</td><td>Experimental full-world composition: public condition and precipitation APIs whose cross-system assembly remains host-owned.</td></tr>
             <tr><td>/vegetation</td><td>Instanced grass and flower fields, procedural trees, palettes, masks, and scatter helpers.</td></tr>
-            <tr><td>/lighting</td><td>Versioned light recipes, budgets, runtime realization, and a data-only ToonLab handoff.</td></tr>
-            <tr><td>/post, /camera, /game-feel</td><td>Compositor pipeline, camera operator stack + director, and hit-stop/punch/flash game feel.</td></tr>
+            <tr><td>/cloud</td><td>Experimental outcome: public source/composition/appearance qualification APIs pending cleaned labs and controlled visual approval.</td></tr>
+            <tr><td>/post</td><td>Optional compositor pipeline and packaged post settings. The host owns renderer lifecycle and cameras.</td></tr>
             <tr><td>/texgen</td><td>Seamless CPU-baked PBR texture generator with 60+ presets and a natural-language recipe mapper.</td></tr>
-            <tr><td>/rockgen, /pathgen</td><td>Seeded rock generation and road/bridge networks routed over any terrain.</td></tr>
+            <tr><td>/rockgen, /debrisgen</td><td>Seeded rock and debris asset generation.</td></tr>
             <tr><td>/rock-shader</td><td>Reusable detailed rock material profiles, independent from rock generation.</td></tr>
-            <tr><td>/vfxgen, /ambientfx, /fauna</td><td>Gameplay VFX (trails, impacts, weapons), ambient particles (petals, fireflies), and GPU-animated creatures.</td></tr>
-            <tr><td>/catalog, /loaders, /debug</td><td>Searchable asset manifest with <code>catalog.spawn</code>, model loaders (GLB/VRM/PMX/FBX), and the schema-driven tuning panel.</td></tr>
+            <tr><td>/ambientfx, /fauna</td><td>Experimental composition: public ambient-particle and creature qualification APIs whose ecological placement and final scene timing remain host-owned.</td></tr>
+            <tr><td>/assetlib, /loaders, /debug</td><td>Open-asset loading, model loaders (GLB/VRM/PMX/FBX), and the schema-driven tuning panel.</td></tr>
           </tbody>
         </table>
       </div>
+      <p>
+        Public exports describe callable contracts, not a promise that an AI agent can compose
+        them into a polished scene. Lighting, camera behavior, game feel, gameplay VFX, paths,
+        automatic catalog placement, terrain/biome/coast/cliff design, underwater habitat, and
+        full-world composition are host-owned or experimental in 0.4.10.
+      </p>
       <p>
         The full cluster table with per-system deep dives is in the{' '}
         <a href={`${GITHUB}#whats-inside`} target="_blank" rel="noreferrer">README</a> and{' '}
@@ -392,10 +398,10 @@ function Library() {
 
       <h2>Create assets</h2>
       <p>
-        Assets come from seeded procedural generators, the texture generator, and anything you
-        import — including CC0 assets your agent pulls in through the{' '}
-        <a href="#/mcp">local MCP server</a>. All of them end up in the same placement pipeline:
-        grounded, collided, instanced, with true-3D-distance LODs.
+        Assets come from the project/library, Gallery, policy-permitted open sources, focused
+        procedural generators, and the texture generator. ToonLab MCP can discover and import
+        them with metadata and provenance. The host still owns placement, grounding, collision,
+        instancing, and level-wide LOD policy.
       </p>
       <CodeBlock label="Procedural + imported assets" code={ASSET_SNIPPET} />
       <CodeBlock label="Procedural textures" code={TEXGEN_SNIPPET} />
@@ -534,7 +540,7 @@ function Prompts() {
   return (
     <article>
       <div className="docs-eyebrow">Prompt cookbook</div>
-      <h1>Prompts that build games</h1>
+      <h1>Prompts for focused integrations</h1>
       <p className="docs-lede">
         These prompts assume the recommended setup — the runtime installed, the{' '}
         <a href={`${GITHUB}/tree/main/agents`} target="_blank" rel="noreferrer">ToonLab skills</a>{' '}
@@ -545,23 +551,23 @@ function Prompts() {
       <div className="docs-callout">
         <Lightbulb size={16} aria-hidden />
         <span>
-          Pattern: <strong>goal → constraints → definition of done.</strong> Let the agent choose
-          APIs (that is what the skills are for), but always give it something observable to
-          verify — &quot;until I can walk to the shoreline&quot; beats &quot;set up a world&quot;.
+          Pattern: <strong>supplied scene → one bounded role → observable definition of
+          done.</strong> &quot;Apply the rock treatment to these cliff meshes and verify these three
+          cameras&quot; is a supported brief; &quot;build a beautiful open world&quot; is an experiment.
         </span>
       </div>
 
-      <h2>Start a game</h2>
+      <h2>Start with an existing scene</h2>
       <PromptBlock
         title="The first prompt"
-        prompt={`Using the ToonLab game-dev skill, set up a new Three.js + Vite project with
-@call-me-sensei/toonlab. Build a 1 km seeded open world (archetype "lakeland")
-with the bundled toon-shaded mannequin as the playable character, water, sky,
-the "call_me_sensei" weather style, post-processing, and a follow camera with
-game feel. Follow the skill's assembly order and frame-loop contract, then run
-the dev server and fix issues until I can walk from spawn to the shoreline
-and swim.`}
-        note="The game-dev skill carries the assembly order and the frame-loop contract, so the agent wires update order and render ownership correctly on the first try."
+        prompt={`Using the ToonLab game-dev skill, integrate @call-me-sensei/toonlab into this
+existing Three.js scene. Inventory and label the character, manufactured,
+ground, rock, tree, grass, flower, water, and post targets. Reuse project assets
+first, then use whichever ToonLab OSS or Pro MCP surface is connected for named
+asset gaps. Apply each matching runtime, preserve provenance, and verify the
+supplied gameplay, close, and wide cameras. Do not redesign terrain, coastline,
+biome, lighting, camera, or gameplay unless I explicitly request an experiment.`}
+        note="Focused integration is the recommended path. Run one material or asset family at a time when the scene is large."
       />
 
       <h2>Dress the world with assets</h2>
@@ -578,11 +584,12 @@ only for a named gap that neither reliable generation nor open assets cover.`}
         note="Gallery discovery is optional. The chosen route must preserve provenance, semantic labels, and Call Me Sensei verification."
       />
       <PromptBlock
-        title="Procedural set dressing"
-        prompt={`Using the ToonLab outdoor-world and rockgen skills, scatter cliff rocks along
+        title="Experimental procedural set dressing"
+        prompt={`As an experiment, use the ToonLab outdoor-world and rockgen skills to scatter cliff rocks along
 the north ridge and add a stepped stone path from the village to the shrine
-with an arched plank bridge over the river. Keep everything walkable — the
-path should flatten heightAt and register collision.`}
+with an arched plank bridge over the river. Keep every host-owned transform,
+collision, and terrain edit explicit; record where the skills or APIs were
+insufficient and do not describe the result as automatic world construction.`}
       />
       <PromptBlock
         title="Seeded recipes from the catalog"
@@ -620,20 +627,21 @@ or exemption.`}
         note="The bundle chooses coordinated treatments; durable asset labels determine where those treatments apply."
       />
 
-      <h2>Atmosphere and feel</h2>
+      <h2>Experimental atmosphere and feel</h2>
       <PromptBlock
         title="Weather as drama"
-        prompt={`Using the ToonLab weather and lighting skills, add a day/night cycle and a
+        prompt={`As an experiment, use the ToonLab weather and lighting skills to add a day/night cycle and a
 thunderstorm that rolls in at dusk: wind ramps in the grass and trees, rain
 streaks and ripples the water, lightning drives the sky flash and the light
-rig, and the storm clears to fireflies at night.`}
+rig, and the storm clears to fireflies at night. List all host adapters and
+do not present the result as a supported full-world workflow.`}
       />
       <PromptBlock
         title="Anime combat feedback"
-        prompt={`Using the ToonLab game-feel and vfxgen skills, make the sword swing feel
+        prompt={`As a host-owned experiment, use the ToonLab game-feel and VFX guidance to make the sword swing feel
 anime: 60 ms hit-stop on contact, a camera punch, a trail ribbon that follows
 the blade, impact sparks, and a one-frame white flash on the target. Keep it
-all through the game-feel runtime so time scaling stays consistent.`}
+inside the game runtime and record the missing ToonLab package surfaces.`}
       />
 
       <h2>
@@ -974,10 +982,34 @@ function RockShaderDocs() {
   );
 }
 
+/* --------------------------------------------------------- capability status */
+
+let capabilityStatusHtmlCache = null;
+
+function capabilityStatusHtml() {
+  if (capabilityStatusHtmlCache) return capabilityStatusHtmlCache;
+  capabilityStatusHtmlCache = marked.parse(capabilityStatusRaw, { async: false }).replace(
+    /<h([123])>([^<]+)<\/h\1>/g,
+    (_match, level, title) => `<h${level} id="${slugify(title)}">${title}</h${level}>`,
+  );
+  return capabilityStatusHtmlCache;
+}
+
+function CapabilityStatus() {
+  const html = useMemo(capabilityStatusHtml, []);
+  return (
+    <article>
+      <div className="docs-eyebrow">Current product boundary</div>
+      <div className="docs-md" dangerouslySetInnerHTML={{ __html: html }} />
+    </article>
+  );
+}
+
 /* --------------------------------------------------------------------- app */
 
 const SECTIONS = [
   { hash: '', label: 'Overview', component: Overview },
+  { hash: '#/capability-status', label: 'Capability status', component: CapabilityStatus },
   { hash: '#/library', label: 'Using the library', component: Library },
   {
     hash: '#/styles-and-bundles',

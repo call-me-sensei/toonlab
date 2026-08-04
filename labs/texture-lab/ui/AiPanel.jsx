@@ -79,29 +79,16 @@ export function AiPanel({ actions, state }) {
               onChange={(event) => actions.setAi({ models: { ...ai.models, [ai.provider]: event.target.value } })}
             />
           </label>
-          <label className="tx-ai-label">
-            <span>API key</span>
-            <input
-              className="tk-text-field"
-              autoComplete="off"
-              placeholder={ai.provider === 'gemini' ? 'AIza…' : 'sk-…'}
-              spellCheck={false}
-              type="password"
-              value={ai.keys[ai.provider]}
-              onChange={(event) => actions.setAi({ keys: { ...ai.keys, [ai.provider]: event.target.value } })}
-            />
-          </label>
           <p className="tx-ai-note">
-            Your key is stored only in this browser (localStorage) and sent only to
-            {ai.provider === 'gemini' ? ' generativelanguage.googleapis.com' : ' api.openai.com'}.
-            Small/cheap models work well here — the mapping task is tiny.
+            Configure {ai.provider === 'gemini' ? 'GEMINI_API_KEY' : 'OPENAI_API_KEY'} in
+            the local server environment. The key never reaches browser code.
           </p>
         </div>
       )}
       {ai.provider === 'offline' && (
         <p className="tx-ai-note">
           No key needed: a built-in mapper matches your words against the preset library and
-          wear/color modifiers. Add a Gemini or OpenAI key for far smarter mapping.
+          wear/color modifiers. Configure a Gemini or OpenAI server key for smarter mapping.
         </p>
       )}
 

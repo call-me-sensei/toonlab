@@ -33,7 +33,7 @@ function finiteNumber(value, fallback, { min = -Infinity, max = Infinity } = {})
 }
 
 function colorArray(value, fallback) {
-  if (value?.isColor) return [value.r, value.g, value.b];
+  if (value?.isColor) return value.clone().convertLinearToSRGB().toArray();
   if (Array.isArray(value) && value.length >= 3) {
     const next = value.slice(0, 3).map(Number);
     return next.every(Number.isFinite) ? next : fallback.slice();
@@ -41,7 +41,10 @@ function colorArray(value, fallback) {
   if (typeof value === 'number' || typeof value === 'string') {
     try {
       const color = new THREE.Color(value);
-      return [color.r, color.g, color.b];
+      // Public color arrays are authored sRGB values. THREE.Color stores
+      // constructor inputs in linear working space; convert back before the
+      // material's sRGB setter decodes them once.
+      return color.convertLinearToSRGB().toArray();
     } catch {
       return fallback.slice();
     }
@@ -82,6 +85,7 @@ export const DEFAULT_GRASS_SETTINGS = Object.freeze({
   gustFrequency: 0.35,
   gustResponse: 1,
   gustSpeed: 1.6,
+  leanStrength: 1,
   pushRadius: 0.9,
   shadowStrength: 0.9,
   shadowTint: Object.freeze([0.42, 0.47, 0.62]),
@@ -93,6 +97,8 @@ export const DEFAULT_GRASS_SETTINGS = Object.freeze({
   windResponse: 1,
   windSpeed: 1.0,
   windStrength: 0.16,
+  washLift: 0,
+  washOpacity: 1,
 });
 
 /** Document `type` discriminator for portable grass presets. */
@@ -115,6 +121,29 @@ const grassPresetRegistry = new Map([
     label: 'Call Me Sensei',
     settings: Object.freeze({}),
   })],
+  ['call_me_sensei_clump', Object.freeze({
+    description: 'Paint-ready Call Me Sensei meadow clump: 40 overlapping curved blades with a broad planted footprint, ground-derived color, and three runtime LODs.',
+    label: 'Call Me Sensei Clump',
+    settings: Object.freeze({
+      backlitStrength: 0.38,
+      baseColor: Object.freeze([0.172518, 0.317708, 0.052621]),
+      bladeHeightRange: Object.freeze([0.38, 0.82]),
+      bladeWidthRange: Object.freeze([0.065, 0.105]),
+      bladesPerClump: 40,
+      clumpRadius: 0.68,
+      groundAdoptHeight: 0.88,
+      groundAdoptStrength: 1,
+      // Exact neutral adoption is the signature default: the sampled terrain
+      // sets the planted palette without an exposure lift that can make pale
+      // ground produce visibly bleached roots.
+      groundAdoptTint: Object.freeze([1, 1, 1]),
+      leanStrength: 0.24,
+      tipColor: Object.freeze([0.62, 0.84, 0.28]),
+      washLift: 0.68,
+      washOpacity: 0.82,
+      windResponse: 0.55,
+    }),
+  })],
   // Genshin-style clumped meadow, after StylizedStation's "ULTIMATE Guide to
   // Making Genshin Grass": several blades per placement splaying from a
   // shared base, strong root-to-tip gradient, soft height-masked wind, no
@@ -134,7 +163,12 @@ const grassPresetRegistry = new Map([
     }),
   })],
 ]);
-const BUILT_IN_GRASS_PRESET_IDS = new Set(['default', 'call_me_sensei', 'anime_clump']);
+const BUILT_IN_GRASS_PRESET_IDS = new Set([
+  'default',
+  'call_me_sensei',
+  'call_me_sensei_clump',
+  'anime_clump',
+]);
 
 /**
  * Registers a named grass preset so it resolves in `createGrassSettings({
@@ -191,7 +225,7 @@ export function createGrassSettings(options = {}) {
     baseColor: colorArray(source.baseColor, base.baseColor),
     bladeHeightRange: vectorArray(source.bladeHeightRange, base.bladeHeightRange, 2),
     bladeWidthRange: vectorArray(source.bladeWidthRange, base.bladeWidthRange, 2),
-    bladesPerClump: Math.round(finiteNumber(source.bladesPerClump, base.bladesPerClump, { min: 1, max: 16 })),
+    bladesPerClump: Math.round(finiteNumber(source.bladesPerClump, base.bladesPerClump, { min: 1, max: 64 })),
     clumpRadius: finiteNumber(source.clumpRadius, base.clumpRadius, { min: 0, max: 1 }),
     cloudShadowCoverage: finiteNumber(source.cloudShadowCoverage, base.cloudShadowCoverage, { min: 0, max: 1 }),
     cloudShadowScale: finiteNumber(source.cloudShadowScale, base.cloudShadowScale, { min: 0.0001 }),
@@ -203,6 +237,7 @@ export function createGrassSettings(options = {}) {
     gustFrequency: finiteNumber(source.gustFrequency, base.gustFrequency, { min: 0 }),
     gustResponse: finiteNumber(source.gustResponse, base.gustResponse, { min: 0 }),
     gustSpeed: finiteNumber(source.gustSpeed, base.gustSpeed, { min: 0 }),
+    leanStrength: finiteNumber(source.leanStrength, base.leanStrength, { min: 0, max: 2 }),
     pushRadius: finiteNumber(source.pushRadius, base.pushRadius, { min: 0 }),
     shadowStrength: finiteNumber(source.shadowStrength, base.shadowStrength, { min: 0, max: 1 }),
     shadowTint: colorArray(source.shadowTint, base.shadowTint),
@@ -214,6 +249,8 @@ export function createGrassSettings(options = {}) {
     windResponse: finiteNumber(source.windResponse, base.windResponse, { min: 0 }),
     windSpeed: finiteNumber(source.windSpeed, base.windSpeed),
     windStrength: finiteNumber(source.windStrength, base.windStrength, { min: 0 }),
+    washLift: finiteNumber(source.washLift, base.washLift, { min: 0, max: 1 }),
+    washOpacity: finiteNumber(source.washOpacity, base.washOpacity, { min: 0.1, max: 1 }),
   };
 }
 
@@ -287,15 +324,21 @@ const GRASS_FIELD_DEFINITIONS = Object.freeze({
       type: 'vector2',
     },
     bladesPerClump: {
-      description: 'Blades grown from each placement. 1 keeps the classic lone-blade field; higher values build anime-style clumps whose blades share a base and splay apart. Construction-only.',
+      description: 'Blades grown from each placement or authored into each paintable clump mesh. 1 keeps the classic lone-blade field; the first-party meadow clump uses 40. Construction-only.',
       label: 'Blades Per Clump',
-      range: { max: 16, min: 1, step: 1 },
+      range: { max: 64, min: 1, step: 1 },
       type: 'number',
     },
     clumpRadius: {
       description: 'Base scatter radius in meters for the extra blades of a clump. Small values read as one tuft; larger values loosen the clump. Construction-only.',
       label: 'Clump Radius',
-      range: { max: 0.3, min: 0, step: 0.005 },
+      range: { max: 1, min: 0, step: 0.005 },
+      type: 'number',
+    },
+    leanStrength: {
+      description: 'Authored static splay of each blade before live wind and interaction. Low values form clean upright meadow strokes; high values form wild bent grass.',
+      label: 'Static Lean',
+      range: { max: 2, min: 0, step: 0.01 },
       type: 'number',
     },
   },
@@ -371,6 +414,18 @@ const GRASS_FIELD_DEFINITIONS = Object.freeze({
       description: 'Multiplier applied to the adopted ground color — lift or warm the sampled terrain albedo before it colors the blades.',
       label: 'Ground Adopt Tint',
       type: 'color',
+    },
+    washLift: {
+      description: 'Procedural watercolor wash lift. Irregularly pulls blade strokes toward the active sun color without requiring a texture.',
+      label: 'Watercolor Wash Lift',
+      range: { max: 1, min: 0, step: 0.01 },
+      type: 'number',
+    },
+    washOpacity: {
+      description: 'Layer opacity of the procedural watercolor blade strokes. Values below 1 soften each stroke against the terrain and sky.',
+      label: 'Watercolor Stroke Opacity',
+      range: { max: 1, min: 0.1, step: 0.01 },
+      type: 'number',
     },
   },
   lighting: {
@@ -630,7 +685,11 @@ export function registerSerializedGrassPreset(input, options = {}) {
 // existing callers keep working unchanged.
 export class StylizedGrassField extends THREE.Mesh {
   constructor(options = {}) {
-    const { placements = [], vegetationShader = null } = cleanObject(options);
+    const {
+      groundField = true,
+      placements = [],
+      vegetationShader = null,
+    } = cleanObject(options);
     const settings = createGrassSettings(options);
     const { bladeHeightRange, bladeWidthRange } = settings;
 
@@ -673,7 +732,7 @@ export class StylizedGrassField extends THREE.Mesh {
     geometry.instanceCount = bladeCount;
     geometry.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1e5);
 
-    const material = createGrassNodeMaterial(settings, vegetationShader);
+    const material = createGrassNodeMaterial(settings, vegetationShader, { groundField });
     setSrgbColor(material.uniforms.uBaseColor.value, settings.baseColor);
     setSrgbColor(material.uniforms.uTipColor.value, settings.tipColor);
     setSrgbColor(material.uniforms.uSunColor.value, settings.sunColor);
@@ -717,12 +776,15 @@ export class StylizedGrassField extends THREE.Mesh {
     uniforms.uGustFrequency.value = settings.gustFrequency;
     uniforms.uGustResponse.value = settings.gustResponse;
     uniforms.uGustSpeed.value = settings.gustSpeed;
+    uniforms.uStaticLean.value = settings.leanStrength;
     uniforms.uWindResponse.value = settings.windResponse;
     uniforms.uPushRadius.value = settings.pushRadius;
     uniforms.uGroundAdoptStrength.value = settings.groundAdoptStrength;
     uniforms.uGroundAdoptHeight.value = settings.groundAdoptHeight;
     // Multiplier data, not an sRGB color — no colorspace conversion.
     uniforms.uGroundAdoptTint.value.setRGB(...settings.groundAdoptTint);
+    uniforms.uWashLift.value = settings.washLift;
+    uniforms.uWashOpacity.value = settings.washOpacity;
     uniforms.uBacklitStrength.value = settings.backlitStrength;
     uniforms.uCloudShadowStrength.value = settings.cloudShadowStrength;
     uniforms.uCloudShadowCoverage.value = settings.cloudShadowCoverage;
@@ -735,6 +797,9 @@ export class StylizedGrassField extends THREE.Mesh {
     setSrgbColor(uniforms.uSunColor.value, settings.sunColor);
     setSrgbColor(uniforms.uSkyColor.value, settings.skyColor);
     setSrgbColor(uniforms.uShadowTint.value, settings.shadowTint);
+    this.material.transparent = settings.washOpacity < 0.999;
+    this.material.depthWrite = true;
+    this.material.needsUpdate = true;
     return this.settings;
   }
 

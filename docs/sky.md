@@ -1,5 +1,11 @@
 # Sky Shader
 
+> **Experimental in the current product boundary.** These APIs remain public
+> for lab cleanup, compatibility, and focused qualification, but Sky authoring
+> and its composition with Cloud, Weather, Lighting, Water, and Post are not
+> yet a recommended production workflow. See
+> [What ToonLab is ready for today](capability-status.md).
+
 `@call-me-sensei/toonlab/sky` owns the portable appearance contract for the
 visible background sky: the authored gradient/color-curve treatment, visible
 horizon presentation, sun and moon disc/halo treatment, and stars.

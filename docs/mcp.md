@@ -58,7 +58,13 @@ The OSS server currently exposes:
 
 - `get_workspace_info` — workspace path, version, and migration status.
 - `search_assets` / `get_asset` — built-in procedural catalog, saved library,
-  lab documents, presets, imports, and exports.
+  complete official Gallery catalog, lab documents, presets, imports, and
+  exports. Use `source: "official"` for released R2-backed assets. Official
+  rock search summaries include `metadata.dimensionsMeters` (`width`,
+  `height`, and `depth` in meters), family/profile, taxonomy, release wave,
+  revision, and recipe hash. Follow `nextOffset` until null, use this compact
+  metadata to shortlist, then call `get_asset` only for the finalists that
+  need the full recipe and file list.
 - `list_my_creations` / `get_my_creation` / `save_creation` — direct local
   project persistence.
 - `generate_asset` — deterministic seeded recipes from built-in catalog

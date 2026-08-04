@@ -5,7 +5,7 @@
 
 import {
   validateTreeRecipeDocument,
-} from '../../src/vegetation/index.js';
+} from '../../src/vegetation/experimental.js';
 import {
   BUILT_IN_TREE_PRESETS,
   loadLocalTreePresets,

@@ -1,6 +1,13 @@
 /* Tree Lab workspace layout. Regions opt back into pointer events;
  * the root (#app) is pointer-transparent so the canvas gets the viewport. */
 
+/* Deterministic catalog/QA captures are the renderer, not screenshots of the
+ * editor chrome. The engine sets this attribute only for explicit
+ * front/side/back capture URLs, so the interactive lab remains unchanged. */
+body[data-capture-view] #app {
+  display: none;
+}
+
 .td-root {
   position: fixed;
   inset: 0;
@@ -405,4 +412,30 @@
 .td-lod-preview .tk-segmented button {
   min-width: 43px;
   padding-inline: var(--space-1);
+}
+.tk-baseline-editor {
+  align-items: center;
+  display: grid;
+  gap: 5px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+}
+
+.tk-baseline-editor > .tk-input,
+.tk-baseline-editor > .tk-select {
+  min-width: 0;
+  width: 100%;
+}
+
+.tk-baseline-reset {
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font: var(--type-caption);
+  padding: 2px 0;
+}
+
+.tk-baseline-reset:hover {
+  text-decoration: underline;
 }

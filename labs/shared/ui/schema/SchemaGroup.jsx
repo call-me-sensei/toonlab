@@ -32,7 +32,7 @@ export function SchemaGroup({
         disabled={Boolean(disabled)}
         disabledReason={typeof disabled === 'string' ? disabled : null}
         field={field}
-        onChange={(value) => onChange(field, value)}
+        onChange={(value, interaction) => onChange(field, value, interaction)}
         value={getValue(field)}
       />
     );

@@ -23,3 +23,4 @@ export * from './waterShoreStateField.js';
 export * from './waterShoreMaterial.js';
 export * from './waterRain.js';
 export * from './waterVegetation.js';
+export * from './waterUnderwaterAtmosphere.js';

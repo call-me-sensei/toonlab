@@ -1,5 +1,11 @@
 # Cloud shader
 
+> **Experimental in the current product boundary.** The portable settings and
+> compatibility runtime remain available for lab cleanup and qualification,
+> but Cloud authoring and complete sky/world composition are not yet a
+> recommended production workflow. See
+> [What ToonLab is ready for today](capability-status.md).
+
 `@call-me-sensei/toonlab/cloud` defines the reusable appearance of an
 authored sky-dome cloud stack. Cloud Shader is an independent style-bundle
 domain. It is not a sky-gradient preset, weather condition, generated cloud
@@ -39,7 +45,7 @@ sets; it must not be merged into Cloud Shader Lab.
 
 ## Exact ownership
 
-Cloud Shader owns 16 live, serializable settings in four groups:
+Cloud Shader owns 31 live, serializable settings in four groups:
 
 | Group | Fields |
 | --- | --- |
@@ -139,7 +145,7 @@ The default preview rules are:
 - no terrain in Cloud Focus;
 - Day at 13:00;
 - no weather condition and no particles;
-- all 16 shader controls live;
+- all 31 shader controls live;
 - P18 Framing available as a second camera view;
 - Dawn, Day, Sunset, Night, and continuous time as preview-only inputs;
 - weather-condition stress testing explicit and optional.

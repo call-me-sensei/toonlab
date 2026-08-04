@@ -1,5 +1,10 @@
 # Gameplay VFX (vfxgen) — integration notes
 
+> **Repository-only status:** `src/vfxgen/` and its arena are not exported by
+> the 0.4.10 npm package. The notes below describe pre-release internal wiring;
+> consumers must keep gameplay VFX host-owned and must not invent a
+> `@call-me-sensei/toonlab/vfxgen` import.
+
 The normative product, schema, authoring, template, runtime, quality, and
 Charged Energy Shot requirements live in
 [VFX authoring architecture](../../docs/vfx-authoring.md). This file is the
@@ -102,7 +107,7 @@ hit power — the same `overhead` reads as a dagger flick or a hammer commit.
 ```js
 import {
   createMoveController, createStylizedWeapon, createVfxSystem,
-} from '@call-me-sensei/toonlab/vfxgen';
+} from '../src/vfxgen/index.js'; // repository checkout only
 
 const weapon = createStylizedWeapon({ type: 'greatsword' });
 characterHand.add(weapon.root);            // or an actor anchor group
@@ -131,7 +136,7 @@ import {
   createVfxEffectFromTemplate,
   createVfxSourceRuntime,
   createVfxSystem,
-} from '@call-me-sensei/toonlab/vfxgen';
+} from '../src/vfxgen/index.js'; // repository checkout only
 
 const chargedShot = createVfxEffectFromTemplate('charged-energy-shot', {
   id: 'player.arm-cannon.charged',
@@ -174,7 +179,7 @@ vfx.update(delta, camera);
 ## Host usage (standalone — works in any Three.js scene)
 
 ```js
-import { createVfxSystem } from '@call-me-sensei/toonlab/vfxgen';
+import { createVfxSystem } from '../src/vfxgen/index.js'; // repository checkout only
 
 const vfx = createVfxSystem({
   seed: 42,

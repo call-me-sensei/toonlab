@@ -71,23 +71,10 @@ const BACKDROP_OPTIONS = [
   { label: 'Dark', value: 'dark' },
 ];
 
-// BYO-key storage follows texture-lab's convention (toonlab.texture-lab.ai.v1).
-// The key is sent as x-auth-token through the proxy; a server-side
-// TOONLAB_POLYPIZZA_KEY (when set) overrides it at the proxy.
-export const POLYPIZZA_KEY_STORAGE = 'toonlab.asset-lab.polypizza-key.v1';
-
 // Local per-user override for registry-disabled sources ({ sourceId: true })
 // — the owner's review workflow: unreviewed sources ship enabled:false in
 // sources.js, a reviewer flips them on locally to evaluate in this lab.
 export const SOURCE_OVERRIDE_STORAGE = 'toonlab.asset-lab.enabled-sources.v1';
-
-function readStoredKey() {
-  try {
-    return localStorage.getItem(POLYPIZZA_KEY_STORAGE) ?? '';
-  } catch {
-    return '';
-  }
-}
 
 function readSourceOverrides() {
   try {
@@ -114,9 +101,6 @@ export function App({ engine, boot = {} }) {
   const [split, setSplit] = useState(boot.split ?? 0.5);
   const [lightsOn, setLightsOn] = useState({ fill: false, sky: true, sun: true });
   const [backdrop, setBackdrop] = useState(boot.backdrop ?? 'studio');
-  const [ppKey, setPpKey] = useState(readStoredKey);
-  const [keyDraft, setKeyDraft] = useState('');
-  const [editingKey, setEditingKey] = useState(false);
   const [sourceOverrides, setSourceOverrides] = useState(readSourceOverrides);
   const lastShow = useRef(null);
 
@@ -127,17 +111,6 @@ export function App({ engine, boot = {} }) {
     const next = { ...sourceOverrides, [source]: true };
     try { localStorage.setItem(SOURCE_OVERRIDE_STORAGE, JSON.stringify(next)); } catch { /* session only */ }
     setSourceOverrides(next);
-  };
-
-  const savePpKey = () => {
-    const value = keyDraft.trim();
-    try {
-      if (value) localStorage.setItem(POLYPIZZA_KEY_STORAGE, value);
-      else localStorage.removeItem(POLYPIZZA_KEY_STORAGE);
-    } catch { /* private mode — key lives for this session only */ }
-    setPpKey(value);
-    setKeyDraft('');
-    setEditingKey(false);
   };
 
   const styleOptions = useMemo(() => getEnvironmentPresetOptions(), []);
@@ -191,7 +164,7 @@ export function App({ engine, boot = {} }) {
     }
     const timer = setTimeout(() => {
       const search = source === 'polypizza'
-        ? searchPolyPizza({ apiKey: ppKey || null, apiUrl: POLYPIZZA_PROXY_API, limit: 48, query })
+        ? searchPolyPizza({ apiKey: null, apiUrl: POLYPIZZA_PROXY_API, limit: 48, query })
         : searchAmbientcg({ apiUrl: AMBIENTCG_PROXY_API, limit: 80, query });
       search
         .then((loaded) => { if (!cancelled) setRefs(curateAssetRefs(loaded, sourceInfo)); })
@@ -203,7 +176,7 @@ export function App({ engine, boot = {} }) {
         });
     }, 300);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [source, kind, sourceEnabled, LOCAL_INDEX_SOURCES.includes(source) ? null : query, source === 'polypizza' ? ppKey : null]);
+  }, [source, kind, sourceEnabled, LOCAL_INDEX_SOURCES.includes(source) ? null : query]);
 
   const categories = useMemo(() => collectAssetCategories(refs).slice(0, 16), [refs]);
   const results = useMemo(() => filterAssetRefs(refs, {
@@ -444,33 +417,10 @@ export function App({ engine, boot = {} }) {
         </div>
         {source === 'polypizza' ? (
           <div className="asset-key">
-            {ppKey && !editingKey ? (
-              <p className="asset-key-status">
-                API key saved ·{' '}
-                <button className="asset-key-link" onClick={() => setEditingKey(true)} type="button">change</button>
-              </p>
-            ) : (
-              <>
-                <label>Poly Pizza API key</label>
-                <input
-                  className="tk-text-field"
-                  onChange={(event) => setKeyDraft(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === 'Enter') savePpKey(); }}
-                  placeholder="paste key…"
-                  type="password"
-                  value={keyDraft}
-                />
-                <div className="asset-key-row">
-                  <Button onClick={savePpKey}>Save key</Button>
-                  <a
-                    className="asset-key-link"
-                    href="https://poly.pizza/settings/api"
-                    rel="noreferrer"
-                    target="_blank"
-                  >Get a free key ↗</a>
-                </div>
-              </>
-            )}
+            <p className="asset-key-status">
+              Configure <span className="mono">POLYPIZZA_API_KEY</span> in the local server environment.
+              The key is never sent to browser code.
+            </p>
           </div>
         ) : null}
         {indexError ? <p className="asset-error">{indexError}</p> : null}

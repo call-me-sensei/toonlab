@@ -18,7 +18,6 @@ import { applyToonShader, createCharacterRenderPasses, createToonSettings } from
 import { createPostProcessingPipeline } from '@call-me-sensei/toonlab/post';
 import { loadModelAsset } from '@call-me-sensei/toonlab/loaders';
 import {
-  createEnvironmentGroundFieldPass,
   setEnvironmentPlayer,
   setEnvironmentState,
   setGlobalWind,
@@ -301,6 +300,7 @@ async function main() {
       root: terrainRoot,
       size: { depth: terrain.meshExtent.z * 0.8, width: terrain.meshExtent.x * 0.8 },
     },
+    groundField: { resolution: Number(params.get('groundres')) || 2048 },
     // Blank canvas: the forest returns with the rebuilt vegetation pass.
     trees: params.has('trees') ? {
       center: { x: 0, z: 0 },
@@ -381,13 +381,9 @@ async function main() {
     if (obj.isMesh && obj.userData?.isPathRibbon) obj.userData.groundFieldWrite = true;
   });
 
-  // Ground field (the RVT stand-in): renders once here — static terrain —
-  // and republishes only if a writer's signature changes.
-  const groundField = createEnvironmentGroundFieldPass({
-    renderer,
-    resolution: Number(params.get('groundres')) || 2048,
-    scene,
-  });
+  // createStylizedWorld owns the RVT-equivalent ground field so every grass
+  // clump receives the same terrain/path color contract by default.
+  const groundField = world.groundField;
 
   // Global wind: one direction for the whole world (grass today; trees,
   // sheen, and wind lines adopt it in the unified-wind phase).
@@ -641,7 +637,6 @@ async function main() {
     views[activeView].update(delta);
     dayCycle.update(delta);
     setEnvironmentPlayer(character.position);
-    groundField.update();
     document.body.dataset.groundFieldReady = String(Boolean(groundField.colorTexture));
     mixer.update(delta);
     if (!params.has('nochar')) passes.update();

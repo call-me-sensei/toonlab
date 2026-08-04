@@ -8,18 +8,25 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { createWalkPreviewActions, installWalkPreviewController } from '../../shared/walkPreview.js';
 import { StylizedGrassField } from '../../../src/vegetation/index.js';
+import { installGroundSurface } from './groundSurface.js';
 
 export function createSceneDressing({ engine, store }) {
   const { camera, controls, scene } = engine;
 
+  // Portable Ground Shader disc + one ground-field capture (see
+  // groundSurface.js). Installed before the meadow so blades sample a field
+  // that already reflects the shader's ground color.
+  const groundSurface = installGroundSurface({ engine });
+
   // --- Grass meadow (always on) --------------------------------------------
-  // Reference anime-style density: each placement is one GPU-instanced blade in a
-  // single draw call, so half a million is cheap. Clump-scattered (natural
-  // tussocks, not white noise) across the visible ground, fading out before
-  // the meadow edge. Scene dressing, not document data — Math.random is fine.
+  // Reference anime-style density, clump-scattered around the subject. Even
+  // though this is one draw call, each blade still costs CPU allocation,
+  // buffer upload, vertex work, and shadow/depth processing. Keep the editor
+  // default deliberately bounded; the query override remains available for
+  // presentation captures that want a denser meadow.
   // ?grass=<n> overrides the blade budget (0 disables).
   const grassParam = new URLSearchParams(window.location.search).get('grass');
-  const bladeBudget = grassParam === null ? 750_000 : Math.max(0, Number(grassParam) || 0);
+  const bladeBudget = grassParam === null ? 90_000 : Math.max(0, Number(grassParam) || 0);
   let grass = null;
   if (bladeBudget > 0) {
     const BLADES_PER_CLUMP = 9;
@@ -46,7 +53,16 @@ export function createSceneDressing({ engine, store }) {
         filled += 1;
       }
     }
-    grass = new StylizedGrassField({ placements });
+    grass = new StylizedGrassField({
+      // Blade roots adopt the Ground Shader's color from the ground-field
+      // capture, so the meadow sits in the shader's ground instead of
+      // floating on a flat-color disc. Kept subtle — stronger values wash
+      // the blade palette toward the ground tint.
+      groundAdoptStrength: 0.35,
+      groundField: true,
+      placements,
+      vegetationShader: store.getState().settings.plant.stylePreset,
+    });
     // Fade the blades out before the meadow edge — never a hard rim.
     grass.material.uniforms.uFadeStart.value = MEADOW_RADIUS * 0.8;
     grass.material.uniforms.uFadeEnd.value = MEADOW_RADIUS;
@@ -137,5 +153,5 @@ export function createSceneDressing({ engine, store }) {
     moveHorizontal: moveWithTreeCollision,
   });
 
-  return { grass };
+  return { grass, groundSurface };
 }

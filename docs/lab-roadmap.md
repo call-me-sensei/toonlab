@@ -9,6 +9,11 @@ Adding another asset noun does not automatically create another lab. New
 archetypes normally become modes, templates, source packs, or recipes inside
 one of the labs below.
 
+Package specifiers shown for rows whose Library status is `Migration required`
+or `Not started` are proposed targets, not current 0.4.10 exports. Only
+`package.json` and `agents/references/runtime-entry-points.md` define the
+shipping npm surface.
+
 ## Two independent status axes
 
 A lab page and an npm library are different deliverables. Every roadmap card

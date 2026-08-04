@@ -1,15 +1,15 @@
-// Grass foliage layer — grass is a BLADE SYSTEM (StylizedGrassField), not a
-// mesh prop, so painting it gets its own layer type with the same interface
-// as LandscapeFoliageLayer: records are clump placements; each add/remove
-// rebuilds the field (blade counts stay small enough that a rebuild per
-// stroke sample batch is fine, and the grass shader/wind come for free).
+// Grass foliage layer — every paint record is one StylizedGrassClumpField
+// tuft, not one blade. It keeps the same interface as LandscapeFoliageLayer:
+// add/erase/undo operate on stable clump placements while the field owns the
+// shared tapered geometry, Grass Shader material, wind, ground adoption, and
+// camera LOD assignment.
 
 import * as THREE from 'three';
 
 import {
   createGrassSettings,
-  StylizedGrassField,
 } from '../vegetation/stylizedGrass.js';
+import { StylizedGrassClumpField } from '../vegetation/grassClump.js';
 import {
   FOLIAGE_INSTANCE_STRIDE,
   FOLIAGE_INSTANCE_STRIDE_V2,
@@ -29,7 +29,9 @@ export class GrassFoliageLayer extends THREE.Group {
     this.paletteId = paletteId;
     this.heightAt = heightAt;
     this.rules = rules;
-    this.settings = createGrassSettings(document?.settings ?? {});
+    this.settings = createGrassSettings(document?.settings ?? {
+      preset: 'call_me_sensei_clump',
+    });
     this._nextId = 1;
     this.records = new Map();
     this._hash = new Map();
@@ -59,16 +61,18 @@ export class GrassFoliageLayer extends THREE.Group {
     }
     if (!this.records.size) return;
     const placements = [...this.records.values()].map((record) => ({
+      scale: record.scale,
       x: record.x,
       y: record.y,
+      yaw: record.yaw,
       z: record.z,
     }));
-    this._field = new StylizedGrassField({ ...this.settings, placements });
+    this._field = new StylizedGrassClumpField({ ...this.settings, placements });
     // r185: building the grass NodeMaterial against a scene with fog emits
     // WGSL referencing an undeclared uniform (GPUValidationError,
     // "unresolved value nodeUniformN") — grass-lab never hits it because its
     // stage has no fog. Grass sits near the camera; skipping fog is invisible.
-    this._field.material.fog = false;
+    for (const mesh of this._field.lodMeshes) mesh.material.fog = false;
     this.add(this._field);
   }
 
@@ -173,7 +177,7 @@ export class GrassFoliageLayer extends THREE.Group {
     this.addInstances(records);
   }
 
-  update(delta) {
+  update(delta, camera = null) {
     if (this._rebuildQueued) this._rebuildNow();
     for (let i = this._retired.length - 1; i >= 0; i -= 1) {
       this._retired[i].ticks += 1;
@@ -182,7 +186,7 @@ export class GrassFoliageLayer extends THREE.Group {
         this._retired.splice(i, 1);
       }
     }
-    this._field?.update?.(delta);
+    this._field?.update?.(delta, camera);
   }
 
   dispose() {

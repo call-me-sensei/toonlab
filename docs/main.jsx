@@ -199,12 +199,16 @@ function Overview() {
         <li>
           <strong>The local MCP server</strong> — bundled with the package: your coding agent
           searches the procedural catalog and public CC0 sources, reads and saves presets, and
-          imports assets into an on-disk <code>.toonlab/</code> workspace. Stdio, no OAuth.
+          imports assets into an on-disk <code>.toonlab/</code> workspace. With optional local
+          provider keys it also exposes image generation, Meshy 7 image/multiview-to-3D, the
+          selected-image-model concept-to-Meshy workflow, and Tripo generation/segmentation.
+          Stdio, no OAuth.
         </li>
         <li>
-          <strong>Hosted generation and library</strong> <ProBadge /> — toonlab.io adds a remote
-          MCP server with AI generation (concept art, seamless textures, image→3D), stored
-          characters, a cloud library, and the public gallery.
+          <strong>Managed generation and cloud library</strong> <ProBadge /> — toonlab.io adds a
+          remote MCP server with managed credentials, credits/refunds, durable workers, stored
+          characters, a cloud library, and the public gallery. Pro hosts the providers; it does
+          not define a different Meshy workflow.
         </li>
       </ul>
 
@@ -238,6 +242,11 @@ function Overview() {
 
       <h2>Start here</h2>
       <div className="docs-cards">
+        <a className="docs-card" href="/examples/walkable-reference/">
+          <Sparkles size={18} aria-hidden />
+          <strong>Walkable reference scene</strong>
+          <span>Scene Three as one independent file: change time, character, and style bundle, or disable each shader domain.</span>
+        </a>
         <a className="docs-card" href="#/capability-status">
           <BookOpenText size={18} aria-hidden />
           <strong>Current capability status</strong>
@@ -547,7 +556,11 @@ const LOCAL_TOOLS = [
   ['import_cc0_asset', 'Download a CC0 asset plus attribution manifest into .toonlab/imports.'],
   ['validate_asset_candidate', 'Evaluate provenance, license, source class, and anime fit against policy.'],
   ['record_asset_gap', 'Create the canonical JSON and Markdown record required before custom work.'],
-  ['get_generation_capabilities', 'Explains what generation the local server offers (procedural recipes only).'],
+  ['get_generation_capabilities', 'Configured local image/3D providers, models, supported kinds, and limits.'],
+  ['generate_ai_asset', 'Run BYO-key image generation, Meshy 7 image/multiview-to-3D or selected-image-model concept-to-Meshy, and Tripo generation/segmentation.'],
+  ['get_generation_job', 'Poll one local provider workflow and its parent/child stages.'],
+  ['get_generation_jobs', 'List local provider workflows for batch polling and recovery.'],
+  ['save_generated_asset', 'Persist a ready generated artifact and provenance into the local Library.'],
 ];
 
 function Mcp() {
@@ -628,9 +641,12 @@ function Mcp() {
         </a>.
       </p>
       <p>
-        Note the boundary: the local <code>generate_asset</code> produces <strong>seeded
-        procedural recipes</strong> from the built-in catalog — deterministic and free. AI
-        generation (diffusion images, textures, 3D models) is a hosted Pro feature.
+        Note the boundary: local <code>generate_asset</code> produces <strong>seeded procedural
+        recipes</strong> from the built-in catalog — deterministic and free. The separate local
+        <code>generate_ai_asset</code> uses provider keys from your Node environment. Meshy text
+        explicitly runs selected <code>image_model</code> concept generation before Meshy 7;
+        Tripo handles segmentation. Pro hosts the same provider workflows with managed credentials,
+        credits/refunds, durable workers, OAuth, and cloud storage.
       </p>
 
       <h2>

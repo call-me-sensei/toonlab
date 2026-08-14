@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="A minimal walkable reference scene using public @call-me-sensei/toonlab APIs." />
   <link rel="icon" href="data:," />
-  <title>ToonLab walkable reference</title>
+  <title>ToonLab — Walkable Reference</title>
   <style>
     :root { color-scheme: dark; font: 13px/1.35 Inter, ui-sans-serif, system-ui, sans-serif; }
     * { box-sizing: border-box; }
@@ -21,7 +22,6 @@
     button, .back-link { cursor: pointer; text-decoration: none; }
     .back-link { white-space: nowrap; color: #bfe6d1; }
     .character-control { display: grid; grid-template-columns: 1fr auto auto; gap: 5px; }
-    .full-row { grid-column: 1 / -1; }
     #domains { margin-top: 12px; padding-top: 10px; border-top: 1px solid rgb(255 255 255 / 16%); }
     .domain { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; }
     .domain input { accent-color: #66d49e; }
@@ -43,16 +43,20 @@
       <label for="time">Time</label><select id="time"><option value="partly_cloudy">Partly Cloudy</option><option value="golden_hour">Golden Hour</option><option value="moonlit">Moonlit</option><option value="overcast">Overcast</option></select>
       <label for="style-bundle">Style Bundle</label><select id="style-bundle"><option value="call-me-sensei">Call Me Sensei</option></select>
       <label for="character-url">Character</label><div class="character-control"><input id="character-url" type="url" placeholder="Model URL (.glb, .vrm, .fbx, .pmx)" aria-label="Custom character model URL"><button id="use-character" type="button">Load</button><button id="use-mannequin" type="button">Default</button></div>
-      <label for="view">Review view</label><select id="view"><option value="overview">Overview</option><option value="rocks">480 rocks</option><option value="shadow-rock">Rock shadow receiver</option><option value="shadow-bench">Bench shadow receiver</option><option value="tree-bark">Tree bark fallback</option><option value="shore">Water + foam shadow</option><option value="sky">Sky &amp; clouds</option></select>
-      <span>Cloud shadow</span><strong id="cloud-shadow">Starting…</strong>
-      <span>Tree bark</span><strong id="tree-bark">Starting…</strong>
-      <span>Tree shadow</span><strong id="tree-shadow">Starting…</strong>
       <span>Package</span><strong id="package">—</strong>
     </div>
     <div id="domains" aria-label="Shader domains"></div>
     <div id="status">Starting…</div>
     <div id="controls"><strong>WASD</strong> move · <strong>Shift</strong> sprint · <strong>Space</strong> jump/swim · drag to orbit · wheel to zoom</div>
   </aside>
-  <script type="module" src="/scene-three.js"></script>
+  <script type="module">
+    import('/examples/walkable-reference/main.js').catch((error) => {
+      console.error(error);
+      const status = document.querySelector('#status');
+      status.dataset.error = 'true';
+      status.textContent = error.stack || error.message;
+      document.body.dataset.toonlabReady = 'false';
+    });
+  </script>
 </body>
 </html>

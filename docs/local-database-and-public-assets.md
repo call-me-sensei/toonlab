@@ -43,6 +43,7 @@ The development server binds to `127.0.0.1` by default. Provider keys remain
 in the Node environment and are never returned to browser code:
 
 - `TRIPO_API_KEY`
+- `MESHY_API_KEY` or comma-separated `MESHY_API_KEYS`
 - `GEMINI_API_KEY`
 - `OPENAI_API_KEY`
 - `ARK_API_KEY`

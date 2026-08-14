@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { access, readFile } from 'node:fs/promises';
 
 async function source(path) {
   return readFile(new URL(path, import.meta.url), 'utf8');
@@ -9,8 +9,11 @@ const entry = await source('../labs/playground/ecctrlMain.jsx');
 const character = await source('../labs/playground/ShowcaseCharacter.jsx');
 const controllerScene = await source('../labs/playground/scenes/showcases/controllerScene.jsx');
 const indoorScene = await source('../labs/playground/scenes/showcases/indoorRoomScene.jsx');
-const walkableScene = await source('../labs/playground/scenes/showcases/walkableSampleScene.jsx');
 const walkableHost = await source('../labs/playground/scenes/showcases/WalkableSceneHost.jsx');
+const sceneRegistry = await source('../labs/playground/scenes/showcases/sceneRegistry.js');
+const referenceHtml = await source('../examples/walkable-reference/index.html');
+const referenceScene = await source('../examples/walkable-reference/main.js');
+const playgroundHtml = await source('../playground/index.html');
 const physicsReadiness = await source('../labs/playground/scenes/showcases/walkablePhysicsReadiness.jsx');
 const indoorInfrastructure = await source('../labs/playground/scenes/indoorScene.jsx');
 const waterSceneComponents = await source('../labs/playground/scenes/waterScenes.jsx');
@@ -31,8 +34,6 @@ assert.match(character, /groundStabilizer:\s*\{\s*lockGrounded:\s*false\s*\}/,
   'Ecctrl adapter must not enable a second grounded-body lock');
 assert.match(character, /upright:\s*false/,
   'Ecctrl adapter must leave upright balance to the physics controller');
-assert.match(walkableScene, /ground=\{seaBedHeight\}/);
-assert.match(walkableScene, /waterApiRef=\{waterApiRef\}/);
 assert.match(controllerScene, /ground=\{FLAT_GROUND\}/);
 assert.match(indoorScene, /ground=\{ground\}/);
 assert.match(walkableHost, /createWalkableCharacterRuntime|<Character/);
@@ -51,15 +52,45 @@ assert.match(physicsReadiness, /gate\.begin\(token\)/);
 assert.match(physicsReadiness, /gate\?\.complete\(token\)/);
 assert.doesNotMatch(physicsReadiness, /setTimeout|requestAnimationFrame/,
   'physics readiness must be lifecycle-driven rather than timing-driven');
-assert.doesNotMatch(walkableScene, /physicsProps=|timeStep/,
-  'individual showcase scenes must not reactivate Rapier fixed-step interpolation');
-assert.match(entry, /runtime\.inspector/);
+assert.match(entry, /examples\/walkable-reference/,
+  'The retired water playground route must redirect to the independent reference scene');
+assert.doesNotMatch(sceneRegistry, /walkable-sample|WalkableSampleScene/,
+  'The old playground-composed walkable scene must not remain registered');
+assert.match(playgroundHtml, /params\.get\('scene'\) !== 'water'/,
+  'Legacy scene=water links must redirect before the old playground mounts');
+assert.match(referenceHtml, /id="time"/);
+assert.match(referenceHtml, /id="style-bundle"/);
+assert.match(referenceHtml, /id="character-url"/);
+assert.match(referenceHtml, /aria-label="Shader domains"/);
+assert.match(referenceHtml, /class="back-link"/);
+assert.doesNotMatch(referenceHtml, /Cloud shadow|Tree bark|Tree shadow/,
+  'Internal QA telemetry must not leak into the public reference panel');
+assert.match(referenceScene, /createWalkableCharacterRuntime/);
+assert.match(referenceScene, /createCharacterControllerProfile/);
+assert.match(referenceScene, /let jumpRequested = false/,
+  'Stationary jump input must be queued until the animation frame consumes it');
+assert.match(referenceScene, /const groundedAtFrameStart = body\.userData\.canJump/,
+  'Jump animation must receive the pre-launch grounded state');
+assert.match(referenceScene, /landed: landedThisFrame/,
+  'The reference must explicitly signal jump landing to the shared character runtime');
+assert.match(referenceScene, /createSceneSurfaceRuntime/);
+assert.match(referenceScene, /createSceneStyleRuntime/);
+assert.match(referenceScene, /discovery:\s*'scene-labels', mode:\s*'strict', watch:\s*true/,
+  'The reference scene must demonstrate one strict watched style-bundle application');
+assert.match(referenceScene, /runtime\.collision\.assertReady\(\)/,
+  'The reference scene must fail closed when package-owned collision is incomplete');
+assert.match(referenceScene, /createOfficialCatalogAssetRuntime/);
+assert.match(referenceScene, /rock-0002/);
+assert.match(referenceScene, /rock-0007/);
+assert.match(referenceScene, /rock-0303/);
+assert.match(referenceScene, /runtime\.inspector\.setDomainEnabled/,
+  'The reference scene must expose per-domain shader comparison');
+assert.match(referenceScene, /surface\.audit\(/,
+  'The reference scene must enforce the package surface integration audit');
+assert.match(referenceScene, /requestedSkyCondition[\s\S]*partly_cloudy/,
+  'The default reference sky must remain visibly partly cloudy');
 assert.match(character, /ENABLE_NATIVE_ANIMATION \|\| ENABLE_IDLE_ANIMATION \|\| ENABLE_WALKING_ANIMATION/,
   'native animation mode must initialize the shared character animation runtime');
-assert.match(entry, /discovery:\s*'scene-labels'/,
-  'Walkable scene must use package-owned label discovery');
-assert.match(entry, /watch:\s*true/,
-  'Walkable scene must watch async and replacement targets');
 assert.match(waterHud, /toonlab-style-inspector/);
 assert.match(waterHud, /setDomainEnabled/);
 assert.match(waterHud, /exact pre-ToonLab state/);
@@ -77,7 +108,7 @@ assert.match(catalogRock, /setPlacement\(next\);\s*completePhysicsReadiness\(\);
   'catalog physics readiness must complete in the collider placement commit');
 assert.doesNotMatch(catalogRock, /inspector\.registerApplication/,
   'Playground must not duplicate package inspector registration');
-for (const scene of [controllerScene, indoorScene, walkableScene]) {
+for (const scene of [controllerScene, indoorScene]) {
   assert.match(scene, /<WalkableSceneHost/);
   assert.doesNotMatch(scene, /<Ecctrl|<KeyboardControls|<Physics/,
     'showcase scene files must consume the shared controller host');
@@ -92,7 +123,7 @@ for (const retiredImplementation of [
   'setLocomotionActionWeights',
 ]) {
   assert.equal(
-    [entry, character, controllerScene, indoorScene, walkableScene, indoorInfrastructure]
+    [entry, character, controllerScene, indoorScene, referenceScene, indoorInfrastructure]
       .some((text) => text.includes(retiredImplementation)),
     false,
     `Playground must not restore ${retiredImplementation}`,
@@ -103,8 +134,15 @@ assert.ok(entry.split('\n').length < 500, 'Playground entry remains orchestratio
 assert.ok(character.split('\n').length < 400, 'R3F character binding remains adapter-sized');
 assert.ok(waterSceneComponents.split('\n').length < 900,
   'water showcase helpers stay split by HUD, sky, atmosphere, and water runtime concerns');
-for (const scene of [controllerScene, indoorScene, walkableScene]) {
+for (const scene of [controllerScene, indoorScene]) {
   assert.ok(scene.split('\n').length < 260, 'individual showcase scene files remain composition-sized');
 }
 
-console.log('Playground walkable runtime migration verification passed.');
+await assert.rejects(
+  access(new URL('../labs/playground/scenes/showcases/walkableSampleScene.jsx', import.meta.url)),
+  'The retired playground walkable composition must be deleted, not hidden behind another option',
+);
+assert.ok(referenceScene.split('\n').length < 800,
+  'The independent reference must remain reviewable as one scene composition file');
+
+console.log('Independent walkable reference and retired playground migration verification passed.');

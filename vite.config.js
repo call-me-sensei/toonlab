@@ -380,6 +380,7 @@ export default defineConfig(({ mode }) => {
         vfxLab: resolve(__dirname, 'vfx-lab/index.html'),
         treeLabLegacy: resolve(__dirname, 'tree-designer/index.html'),
         outdoorWorld: resolve(__dirname, 'examples/outdoor-world/index.html'),
+        walkableReference: resolve(__dirname, 'examples/walkable-reference/index.html'),
         vfxArena: resolve(__dirname, 'examples/vfx-arena/index.html'),
         // Hub-listed demos — without inputs they resolve in dev but 404 in
         // production builds.

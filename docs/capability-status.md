@@ -5,6 +5,22 @@ This page is the public expectation contract for `@call-me-sensei/toonlab`
 workflow, regardless of whether they write the integration themselves or use a
 coding agent.
 
+## Executable walkable reference
+
+`/examples/walkable-reference/` is the canonical Scene Three implementation. It
+is an independent scene file rather than another option inside Playground. It
+uses public package entry points for the character runtime, semantic style
+labels, strict style-bundle application, surface placement, conservative
+collision, official 480-rock loading, meadow LOD, sky/cloud conditions, water,
+shared shadows, and the per-domain shader inspector. The page lets developers
+change time, load a character URL, select an available style bundle, and return
+to Labs. Legacy `playground/?scene=water` links redirect to this reference.
+
+The example is deliberately a reference integration, not a promise that the
+package invents scene composition or semantic material intent from unlabeled
+content. The host supplies objects and layout; ToonLab validates labels and
+applies the supported runtime behavior consistently.
+
 ## The short version
 
 For a correctly constructed and semantically labeled Three.js scene, ToonLab
@@ -18,6 +34,14 @@ level. The host still supplies coherent geometry, scene layout, asset choices,
 semantic material labels, gameplay, and cameras. Strict mode detects missing
 or unsafe contracts and stops before mutation; it does not hide uncertainty by
 guessing.
+
+The OSS MCP can also use developer-supplied provider keys for local image and
+3D generation. Meshy 7 supports image-to-3D and 2–4-image multi-view input.
+Text-to-Meshy is intentionally a two-stage workflow: ToonLab creates a concept
+PNG/JPEG with the selected `image_model`, then submits it to Meshy and tracks
+both stages. Tripo remains available for direct text/image/multiview generation
+and model segmentation. ToonLab Pro adds managed credentials, credits, durable
+workers, OAuth, and cloud persistence; Meshy itself is not Pro-only.
 
 ## Supported first-pass contract
 
@@ -77,6 +101,10 @@ ToonLab 0.4.19 does not currently:
 - repair broken topology, UVs, source textures, rigging, or animation data;
 - infer precise compound collision, navigation, gameplay, camera behavior, or streaming; or
 - replace multi-view visual review with telemetry or a single screenshot.
+
+Local generation also does not hide provider differences: Meshy does not
+segment models, and a text prompt cannot bypass its required concept-image
+stage. Call `get_generation_capabilities` before selecting a provider or model.
 
 These are explicit product boundaries. They are not tasks that a style bundle
 quietly performs.

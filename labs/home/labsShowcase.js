@@ -140,7 +140,7 @@ function example(definition) {
 
 export const DEMOS_SHOWCASE = Object.freeze([
   example({ href: '/playground/', i: 'V01', id: 'playground', jp: '遊場', title: 'Character & Interaction Playground', desc: 'Walk a character through composed ToonLab systems.' }),
-  example({ href: '/playground/?scene=water&sample=walkable', i: 'V02', id: 'water-playground', jp: '散策', title: 'Walkable Sample Scene', desc: 'Walk through a composed scene using ToonLab character, meadow, environment, water, and material systems.' }),
+  example({ href: '/examples/walkable-reference/', i: 'V02', id: 'water-playground', jp: '散策', title: 'Walkable Reference Scene', desc: 'Walk through the exact Scene Three clean-consumer baseline using only documented ToonLab npm APIs.' }),
   example({ href: '/examples/outdoor-world/?villages=2&shrines=1', i: 'V03', id: 'outdoor-world', jp: '世界', title: 'Outdoor World Example', desc: 'Inspect terrain, water, vegetation, paths, and settlements together.' }),
   example({ href: '/examples/vfx-arena/', i: 'V04', id: 'vfx-arena', jp: '闘技', title: 'VFX & Game Feel Arena', desc: 'Inspect combat effects, timing, feedback, and performance.' }),
   example({ href: '/examples/fauna-demo/', i: 'V05', id: 'fauna', jp: '動物', title: 'Fauna & Population Example', desc: 'Inspect wildlife variants, movement, habitat rules, and budgets.' }),

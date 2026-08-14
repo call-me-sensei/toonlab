@@ -281,7 +281,11 @@ of UTF-8 data.
 | `import_cc0_asset` | `source`, `id`, `kind?`, `resolution?`, `name?`, `domain?`, `policy?` | Downloads files and writes attribution/provenance into the workspace. |
 | `validate_asset_candidate` | normalized candidate plus `policy?` | Returns the policy decision without hiding denied candidates. |
 | `record_asset_gap` | `id`, `domain`, `kind`, `reason`, optional evidence fields | Returns canonical JSON and Markdown gap records for the client to write. |
-| `get_generation_capabilities` | none | Reports that managed image/3D generation is a hosted Pro capability. |
+| `get_generation_capabilities` | none | Reports the locally configured image and 3D providers, supported kinds, models, and limits. |
+| `generate_ai_asset` | `kind`, provider/model inputs, prompt or source images | Uses the developer's server-side provider keys. Meshy 7 accepts image or 2–4 view inputs; Meshy text mode first creates a PNG/JPEG concept through the selected `image_model`, then submits it to Meshy as one trackable local workflow. Tripo supports direct text/image/multiview generation and segmentation. |
+| `get_generation_job` | `job_id` | Returns one local provider workflow, including parent/child stages and ready artifacts. |
+| `get_generation_jobs` | optional filters | Lists local generation workflows for polling and recovery. |
+| `save_generated_asset` | `job_id`, optional name/tags | Persists a ready generated artifact and provenance into the local Library. |
 
 Search tools can access the network; creation and Lab-state tools operate only
 inside the selected local workspace. Imported files retain their source URL,
@@ -290,10 +294,17 @@ license, attribution, stable id, and policy decision.
 ## OSS and Pro boundary
 
 Open source owns the local workflow: disk persistence, procedural generation,
-CC0 discovery/import, and stdio MCP. ToonLab Pro can use the same conceptual
-tool schemas with cloud adapters, adding remote Streamable HTTP + OAuth,
-private cloud libraries, cross-device/team sync, and managed image/3D
-generation providers.
+CC0 discovery/import, stdio MCP, and optional bring-your-own-key image/3D
+generation. ToonLab Pro uses the same conceptual tool schemas with hosted
+adapters, adding remote Streamable HTTP + OAuth, managed provider credentials,
+credits and refunds, durable isolated workers, private cloud libraries, and
+cross-device/team sync.
+
+For OSS, provider credentials stay in the local Node environment. Configure
+only the providers you intend to use. Meshy 7 supports image-to-3D and
+multi-image-to-3D; a text request is explicitly a two-stage selected-image-
+model concept followed by Meshy. Meshy does not provide model segmentation,
+so choose Tripo when segmentation is required.
 
 There is intentionally no per-user ownership boundary in the OSS server: the
 developer who grants an MCP client access to a `.toonlab` workspace grants it

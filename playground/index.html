@@ -5,6 +5,19 @@
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath d='M0 0H100V78L78 100H0Z' fill='%23e8332e'/%3E%3Ctext x='50' y='72' font-size='64' font-weight='900' font-family='Hiragino Sans, Yu Gothic, Noto Sans JP, sans-serif' fill='white' text-anchor='middle'%3E%E3%83%88%3C/text%3E%3C/svg%3E" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Playground — ToonLab</title>
+    <script>
+      // The old water/sample URL now resolves to the independently authored
+      // Scene Three reference. Preserve developer-selected character, renderer,
+      // quality, style bundle, and review parameters while removing retired
+      // playground routing flags.
+      (function () {
+        var params = new URLSearchParams(window.location.search);
+        if (params.get('sample') !== 'walkable' && params.get('scene') !== 'water') return;
+        params.delete('scene');
+        params.delete('sample');
+        window.location.replace('/examples/walkable-reference/?' + params.toString() + window.location.hash);
+      })();
+    </script>
     <link rel="stylesheet" href="/labs/shared/hud.css" />
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }

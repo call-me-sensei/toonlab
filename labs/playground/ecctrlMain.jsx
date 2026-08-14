@@ -293,7 +293,7 @@ function FreeCameraControls({ controllerRef }) {
 
 function EcctrlApp() {
   const activeShowcase = resolveShowcaseScene(
-    WATER_SCENE_ENABLED ? 'walkable-sample' : INDOOR_SCENE_ENABLED ? 'indoor-room' : 'controller',
+    INDOOR_SCENE_ENABLED ? 'indoor-room' : 'controller',
   );
   const ActiveShowcaseScene = activeShowcase.Component;
   const [waterSettings, setWaterSettings] = useState(() => createInitialWaterSettings());
@@ -457,4 +457,16 @@ function EcctrlApp() {
   );
 }
 
-createRoot(document.getElementById('app')).render(<EcctrlApp />);
+if (WATER_SCENE_ENABLED) {
+  const params = new URLSearchParams(window.location.search);
+  params.delete('scene');
+  params.delete('sample');
+  params.delete('controller');
+  const query = params.toString();
+  const destination = window.location.pathname.startsWith('/labs/')
+    ? '/labs/walkable-reference'
+    : '/examples/walkable-reference/';
+  window.location.replace(`${destination}${query ? `?${query}` : ''}${window.location.hash}`);
+} else {
+  createRoot(document.getElementById('app')).render(<EcctrlApp />);
+}

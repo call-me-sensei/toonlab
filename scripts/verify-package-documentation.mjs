@@ -161,6 +161,26 @@ assert.match(docsApp, new RegExp(
 ));
 assert.match(docsApp, /EXISTING_SCENE_SNIPPET/);
 assert.doesNotMatch(docsApp, /Build a 1 km seeded open world/);
+assert.match(docsApp, /Meshy 7 image\/multiview-to-3D/,
+  'Public docs app must describe OSS Meshy generation');
+assert.match(docsApp, /local\s*<code>generate_ai_asset<\/code> uses provider keys/,
+  'Public MCP page must distinguish local BYO-key AI generation from deterministic recipes');
+assert.doesNotMatch(docsApp, /AI\s*generation \(diffusion images, textures, 3D models\) is a hosted Pro feature/,
+  'Public MCP page must not retain the old Pro-only AI-generation claim');
+
+const mcpGuide = documents.find(({ path }) => path === join(packageRoot, 'docs', 'mcp.md'))?.source ?? '';
+assert.match(mcpGuide, /`generate_ai_asset`/,
+  'MCP guide must list the OSS provider-generation tool');
+assert.match(mcpGuide, /developer's server-side provider keys/,
+  'MCP guide must distinguish OSS BYO-key generation from Pro hosted providers');
+assert.doesNotMatch(mcpGuide, /managed image\/3D generation is a hosted Pro capability/,
+  'MCP guide must not describe all provider generation as Pro-only');
+
+const localDatabaseGuide = documents.find(
+  ({ path }) => path === join(packageRoot, 'docs', 'local-database-and-public-assets.md'),
+)?.source ?? '';
+assert.match(localDatabaseGuide, /MESHY_API_KEY/,
+  'Local database/provider guide must document Meshy credentials');
 
 assert.match(runtimeEntryPoints.source, /not package entry points in this release/);
 assert.match(runtimeEntryPoints.source, /package users must not[\s\S]*import them/);

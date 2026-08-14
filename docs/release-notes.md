@@ -13,6 +13,10 @@ runtime entry points.
 
 Highlights include:
 
+- bring-your-own-key OSS generation through local MCP and the Generate page,
+  including Meshy 7 image/multi-image-to-3D, selected-image-model concept-to-
+  Meshy text workflows, Tripo direct model generation/segmentation, durable
+  local polling, and explicit saving into the Library;
 - Gallery-style private Library discovery by name, description, type, and
   durable normalized tags across browser UI, local/hosted persistence, and
   OSS/Pro MCP, including tag-aware save and edit flows. Version 0.4.19 makes

@@ -5,6 +5,9 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig({
+  server: {
+    fs: { allow: [resolve(root, '../..')] },
+  },
   // Vite otherwise prebundles `three` and `three/webgpu` as independent
   // dependency entries. Both wrap three.core.js, so the browser observes two
   // module identities even though npm has correctly deduped the package.

@@ -338,7 +338,7 @@ try {
   await cp(join(root, 'quality', 'level-d-consumer', 'scene-two.html'), join(reviewRoot, 'scene-two.html'));
   await cp(join(root, 'quality', 'level-d-consumer', 'scene-two.js'), join(reviewRoot, 'scene-two.js'));
   await cp(join(root, 'quality', 'level-d-consumer', 'scene-three.html'), join(reviewRoot, 'scene-three.html'));
-  await cp(join(root, 'quality', 'level-d-consumer', 'scene-three.js'), join(reviewRoot, 'scene-three.js'));
+  await cp(join(root, 'examples', 'walkable-reference', 'main.js'), join(reviewRoot, 'scene-three.js'));
   await cp(join(root, 'quality', 'level-d-consumer', 'vite.config.js'), join(reviewRoot, 'vite.config.js'));
   await cp(packedPath, join(reviewRoot, packed.filename));
   for (const extension of ['vrm', 'fbx']) {
@@ -426,8 +426,8 @@ try {
     'Third scene must use the public surface runtime rather than scene-local alignment glue');
   assert.match(thirdScene, /surface\.createGrassField/,
     'Third scene must delegate meadow scatter and finite-water exclusion to the package');
-  assert.match(thirdScene, /runtime\.apply\(CALL_ME_SENSEI_STYLE_BUNDLE/,
-    'Third scene must have one strict public bundle-application boundary');
+  assert.match(thirdScene, /runtime\.apply\(styleBundle\.document/,
+    'Third scene must apply the user-selected resolved bundle through one strict public boundary');
   assert.match(thirdScene, /createOfficialCatalogAssetRuntime/,
     'Third scene must load real official catalog GLBs through the public asset runtime');
   assert.match(thirdScene, /toonlabCloudShadowSource/,
@@ -440,8 +440,14 @@ try {
     assert.match(thirdScene, new RegExp(assetId),
       `Third scene must include verified official catalog asset ${assetId}`);
   }
-  assert.doesNotMatch(thirdScene, /setSkyPreset|SKY_PRESETS/,
-    'Third scene must prove the Call Me Sensei physical sky baseline without consumer repair calls');
+  assert.match(thirdScene, /partly_cloudy:[\s\S]*preset:\s*'partlyCloudy'/,
+    'Third scene must default to the reviewed partly-cloudy physical sky while exposing time changes');
+  assert.match(thirdScene, /createWalkableCharacterRuntime/,
+    'Third scene must use the public reusable walkable-character runtime');
+  assert.match(thirdScene, /requestedCharacterUrl/,
+    'Third scene must accept a developer-supplied character URL');
+  assert.match(thirdScene, /runtime\.inspector\.setDomainEnabled/,
+    'Third scene must keep reversible per-domain shader inspection');
   assert.match(viteConfig, /exclude:\s*\[[^\]]*'@call-me-sensei\/toonlab'[^\]]*'three'/s,
     'Level D consumer must prevent duplicate Three.js prebundle identities');
   assert.match(viteConfig, /dedupe:\s*\[['"]three['"]\]/,

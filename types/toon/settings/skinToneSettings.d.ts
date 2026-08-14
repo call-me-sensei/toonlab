@@ -1,0 +1,30 @@
+export function createSkinToneSettings(options?: any): {
+    enabled: boolean;
+    faceMaxDirectLight: any;
+    faceMinimumIndirectLight: any;
+    faceShadowBrightness: any;
+    faceShadowSaturation: any;
+    faceShadowTint: any;
+    faceShadowTintStrength: any;
+    skinMaxDirectLight: any;
+    skinMinimumIndirectLight: any;
+    skinShadowBrightness: any;
+    skinShadowSaturation: any;
+    skinShadowTint: any;
+    skinShadowTintStrength: any;
+};
+export const DEFAULT_SKIN_TONE_SETTINGS: Readonly<{
+    enabled: true;
+    faceMaxDirectLight: 100;
+    faceMinimumIndirectLight: 0.35;
+    faceShadowBrightness: 1;
+    faceShadowSaturation: 1;
+    faceShadowTint: number[];
+    faceShadowTintStrength: 1;
+    skinMaxDirectLight: 100;
+    skinMinimumIndirectLight: 0.35;
+    skinShadowBrightness: 0.92;
+    skinShadowSaturation: 1;
+    skinShadowTint: number[];
+    skinShadowTintStrength: 1;
+}>;

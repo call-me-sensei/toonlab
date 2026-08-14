@@ -1,0 +1,77 @@
+export function createShadowColorSettings(options?: any): {
+    enabled: boolean;
+    lowSaturationFallbackColor: any;
+    selfShadowAlbedoMulStrength: any;
+    selfShadowAreaHSVStrength: any;
+    selfShadowAreaHueOffset: any;
+    selfShadowAreaSaturationBoost: any;
+    selfShadowAreaValueMul: any;
+    selfShadowTintColor: any;
+    transitionAreaHueOffset: any;
+    transitionAreaIntensity: any;
+    transitionAreaSaturationBoost: any;
+    transitionAreaTintColor: any;
+    transitionAreaValueMul: any;
+};
+export const DEFAULT_SHADOW_COLOR_SETTINGS: Readonly<{
+    enabled: true;
+    lowSaturationFallbackColor: number[];
+    selfShadowAlbedoMulStrength: 0;
+    selfShadowAreaHSVStrength: 1;
+    selfShadowAreaHueOffset: 0;
+    selfShadowAreaSaturationBoost: 0.2;
+    selfShadowAreaValueMul: 0.68;
+    selfShadowTintColor: number[];
+    transitionAreaHueOffset: 0.01;
+    transitionAreaIntensity: 1;
+    transitionAreaSaturationBoost: 0.36;
+    transitionAreaTintColor: number[];
+    transitionAreaValueMul: 1;
+}>;
+export const REFERENCE_SHADOW_COLOR_SETTINGS: Readonly<{
+    selfShadowAreaValueMul: 0.7;
+    transitionAreaSaturationBoost: 0.5;
+    enabled: true;
+    lowSaturationFallbackColor: number[];
+    selfShadowAlbedoMulStrength: 0;
+    selfShadowAreaHSVStrength: 1;
+    selfShadowAreaHueOffset: 0;
+    selfShadowAreaSaturationBoost: 0.2;
+    selfShadowTintColor: number[];
+    transitionAreaHueOffset: 0.01;
+    transitionAreaIntensity: 1;
+    transitionAreaTintColor: number[];
+    transitionAreaValueMul: 1;
+}>;
+export const SHADOW_COLOR_PRESETS: Readonly<{
+    baseline: Readonly<{
+        enabled: true;
+        lowSaturationFallbackColor: number[];
+        selfShadowAlbedoMulStrength: 0;
+        selfShadowAreaHSVStrength: 1;
+        selfShadowAreaHueOffset: 0;
+        selfShadowAreaSaturationBoost: 0.2;
+        selfShadowAreaValueMul: 0.68;
+        selfShadowTintColor: number[];
+        transitionAreaHueOffset: 0.01;
+        transitionAreaIntensity: 1;
+        transitionAreaSaturationBoost: 0.36;
+        transitionAreaTintColor: number[];
+        transitionAreaValueMul: 1;
+    }>;
+    reference: Readonly<{
+        selfShadowAreaValueMul: 0.7;
+        transitionAreaSaturationBoost: 0.5;
+        enabled: true;
+        lowSaturationFallbackColor: number[];
+        selfShadowAlbedoMulStrength: 0;
+        selfShadowAreaHSVStrength: 1;
+        selfShadowAreaHueOffset: 0;
+        selfShadowAreaSaturationBoost: 0.2;
+        selfShadowTintColor: number[];
+        transitionAreaHueOffset: 0.01;
+        transitionAreaIntensity: 1;
+        transitionAreaTintColor: number[];
+        transitionAreaValueMul: 1;
+    }>;
+}>;

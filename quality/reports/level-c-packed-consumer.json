@@ -1,0 +1,10 @@
+{
+  "gate": "Level C",
+  "correction": "lock",
+  "schedulerUpdates": 1,
+  "targetY": 1.2,
+  "package": {
+    "name": "@call-me-sensei/toonlab",
+    "version": "0.4.14"
+  }
+}

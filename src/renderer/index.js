@@ -1,0 +1,9 @@
+export {
+  TOONLAB_RENDERER_BACKENDS,
+  TOONLAB_RENDERER_CONFIGURATION_VERSION,
+  configureToonLabRenderer,
+  createToonLabRendererOptions,
+  createToonLabRendererProfile,
+  detectToonLabRendererBackend,
+  stabilizeToonLabWebGPUResourceLifetime,
+} from './rendererConfiguration.js';

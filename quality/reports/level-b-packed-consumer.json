@@ -1,0 +1,17 @@
+{
+  "gate": "Level B",
+  "audit": {
+    "blockingIssueCount": 0,
+    "exemptionCount": 0,
+    "issueCount": 14,
+    "routeCount": 3,
+    "targetCount": 3,
+    "warningCount": 14
+  },
+  "bundleId": "call-me-sensei",
+  "verified": true,
+  "package": {
+    "name": "@call-me-sensei/toonlab",
+    "version": "0.4.14"
+  }
+}

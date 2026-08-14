@@ -1,0 +1,96 @@
+export function createSpecularSettings(options?: any): {
+    defaultColor: any;
+    defaultIntensity: any;
+    defaultMidPoint: any;
+    defaultPower: any;
+    defaultRange: any;
+    defaultShowInShadowArea: any;
+    directionMode: "light" | "view";
+    enabled: boolean;
+    eyeIntensity: any;
+    eyeMidPoint: any;
+    eyePower: any;
+    eyeRange: any;
+    eyeShowInShadowArea: any;
+    faceIntensity: any;
+    hairIntensity: any;
+    hairPower: any;
+    maskChannel: any;
+    maskMap: any;
+    maskStrength: any;
+    metalIntensity: any;
+    skinIntensity: any;
+    sourceMaskMode: "off" | "source";
+};
+export function resolveSpecularForMaterial(settings: any, { isEye, isFace, isHair, isMetal, isOutline, isSkin, maskMap, }?: {
+    isEye?: boolean;
+    isFace?: boolean;
+    isHair?: boolean;
+    isMetal?: boolean;
+    isOutline?: boolean;
+    isSkin?: boolean;
+    maskMap?: any;
+}): {
+    color: any;
+    directionModeValue: any;
+    enabled: boolean;
+    intensity: any;
+    maskChannel: any;
+    maskMap: any;
+    maskStrength: any;
+    midPoint: any;
+    power: any;
+    range: any;
+    showInShadowArea: any;
+    useMask: boolean;
+};
+export const SPECULAR_MASK_CHANNELS: Readonly<{
+    r: 0;
+    red: 0;
+    x: 0;
+    g: 1;
+    green: 1;
+    y: 1;
+    b: 2;
+    blue: 2;
+    z: 2;
+    a: 3;
+    alpha: 3;
+    w: 3;
+}>;
+export const SPECULAR_SOURCE_MASK_MODES: Readonly<{
+    off: "off";
+    source: "source";
+}>;
+export const SPECULAR_DIRECTION_MODES: Readonly<{
+    light: "light";
+    view: "view";
+}>;
+export const SPECULAR_DIRECTION_MODE_VALUES: Readonly<{
+    light: 0;
+    view: 1;
+}>;
+export const DEFAULT_SPECULAR_SETTINGS: Readonly<{
+    defaultColor: number[];
+    defaultIntensity: 0.075;
+    defaultMidPoint: 0.72;
+    defaultPower: 56;
+    defaultRange: 0.12;
+    defaultShowInShadowArea: 0.25;
+    directionMode: "light";
+    enabled: true;
+    eyeIntensity: 0.62;
+    eyeMidPoint: 0.35;
+    eyePower: 18;
+    eyeRange: 0.18;
+    eyeShowInShadowArea: 1;
+    faceIntensity: 0.025;
+    hairIntensity: 0.18;
+    hairPower: 40;
+    maskChannel: 0;
+    maskMap: any;
+    maskStrength: 1;
+    metalIntensity: 0.075;
+    skinIntensity: 0.025;
+    sourceMaskMode: "off";
+}>;

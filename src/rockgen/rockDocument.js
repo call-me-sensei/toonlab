@@ -1,0 +1,598 @@
+// Rock document: the JSON-serializable source of truth for one rock /
+// cliff / mountain project. Legacy procedural documents use a flat ordered
+// list of SDF pieces (left-folded with their combine ops) plus sculpt edits.
+// Source-mesh reference documents instead carry `reference.sourceMode =
+// 'mesh-template'`; their required piece is compatibility-only and is never
+// meshed by the SDF path.
+// `revision` is a runtime dirty counter (never serialized); every mutation
+// helper bumps it so compileDocument's cache and the lab's schedulers can
+// tell stale work from fresh.
+
+import {
+  createRockPieceSettings,
+  createRockSurfaceSettings,
+  createRockgenMeshingSettings,
+} from './rockgenSettings.js';
+import {
+  normalizeRockgenPresetName,
+  normalizeRockgenStyleName,
+  resolveRockgenPreset,
+} from './rockgenPresets.js';
+import { compileDocument } from './sdf/fieldCompiler.js';
+
+/** Document type tag stamped on saved rockgen project JSON. */
+export const ROCKGEN_PROJECT_DOCUMENT_TYPE = 'toonlab/rockgen-project';
+
+/** Current schema version for rockgen project documents. */
+export const ROCKGEN_PROJECT_SCHEMA_VERSION = 5;
+
+/** Sparse source-mesh edits are packed into the portable document so normal
+ * sculpting remains below the hosted creation-document limit. Runtime state
+ * is still the convenient array form consumed by the editor and compiler. */
+export const ROCKGEN_MAX_MESH_EDIT_OPERATIONS = 200;
+export const ROCKGEN_MAX_MESH_EDIT_DELTAS = 10_000;
+export const ROCKGEN_MESH_EDIT_ENCODING = 'base64-f32le-v1';
+
+const COMBINE_OPS = Object.freeze(['union', 'smoothUnion', 'subtract', 'intersect']);
+
+function positiveInteger(value, fallback = 0) {
+  const number = Math.round(Number(value));
+  return Number.isFinite(number) && number > 0 ? number : fallback;
+}
+
+function lodRatiosOption(value) {
+  if (!Array.isArray(value) || value.length === 0) return [1, 0.5, 0.25];
+  const ratios = value
+    .map(Number)
+    .filter((ratio) => Number.isFinite(ratio) && ratio > 0 && ratio <= 1)
+    .sort((left, right) => right - left);
+  if (ratios.length === 0) return [1, 0.5, 0.25];
+  if (ratios[0] !== 1) ratios.unshift(1);
+  return [...new Set(ratios)].slice(0, 3);
+}
+
+function lodTrianglesOption(value, targetTriangles, lodRatios) {
+  if (Array.isArray(value)) {
+    const levels = value
+      .slice(0, 3)
+      .map((entry) => positiveInteger(entry, 0))
+      .filter((entry) => entry > 0);
+    if (levels.length > 0) {
+      for (let index = 1; index < levels.length; index += 1) {
+        levels[index] = Math.min(levels[index], levels[index - 1]);
+      }
+      return levels;
+    }
+  }
+  const lod0 = positiveInteger(targetTriangles, 0);
+  return lod0 > 0
+    ? lodRatios.map((ratio) => Math.max(Math.round(lod0 * ratio), 1))
+    : [];
+}
+
+function bytesToBase64(bytes) {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return globalThis.btoa(binary);
+}
+
+function base64ToBytes(value) {
+  const binary = globalThis.atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+function unpackMeshEdits(value) {
+  if (!value || typeof value !== 'object' || value.encoding !== ROCKGEN_MESH_EDIT_ENCODING) return [];
+  if (typeof value.data !== 'string' || value.data.length === 0) return [];
+  try {
+    const bytes = base64ToBytes(value.data);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    let offset = 0;
+    const readUint32 = () => {
+      if (offset + 4 > view.byteLength) throw new Error('truncated mesh-edit stream');
+      const result = view.getUint32(offset, true);
+      offset += 4;
+      return result;
+    };
+    const readFloat32 = () => {
+      if (offset + 4 > view.byteLength) throw new Error('truncated mesh-edit stream');
+      const result = view.getFloat32(offset, true);
+      offset += 4;
+      return result;
+    };
+    const operationCount = Math.min(readUint32(), ROCKGEN_MAX_MESH_EDIT_OPERATIONS);
+    const edits = [];
+    let remaining = ROCKGEN_MAX_MESH_EDIT_DELTAS;
+    for (let operationIndex = 0; operationIndex < operationCount && remaining > 0; operationIndex += 1) {
+      const meshIndex = readUint32();
+      const storedDeltaCount = readUint32();
+      const keptDeltaCount = Math.min(storedDeltaCount, remaining);
+      const deltas = [];
+      for (let deltaIndex = 0; deltaIndex < storedDeltaCount; deltaIndex += 1) {
+        const delta = [readUint32(), readFloat32(), readFloat32(), readFloat32()];
+        if (deltaIndex < keptDeltaCount) deltas.push(delta);
+      }
+      if (deltas.length > 0) edits.push({ deltas, meshIndex });
+      remaining -= deltas.length;
+    }
+    return edits;
+  } catch {
+    return [];
+  }
+}
+
+function meshEditsOption(value, packedValue = null) {
+  const source = Array.isArray(value) ? value : unpackMeshEdits(packedValue);
+  if (!Array.isArray(source)) return [];
+  let remaining = ROCKGEN_MAX_MESH_EDIT_DELTAS;
+  return source.slice(-ROCKGEN_MAX_MESH_EDIT_OPERATIONS).flatMap((entry) => {
+    if (remaining <= 0) return [];
+    if (!entry || typeof entry !== 'object' || !Array.isArray(entry.deltas)) return [];
+    const deltas = entry.deltas.slice(0, remaining).flatMap((delta) => {
+      if (!Array.isArray(delta) || delta.length < 4) return [];
+      const vertexIndex = Math.round(Number(delta[0]));
+      const x = Number(delta[1]);
+      const y = Number(delta[2]);
+      const z = Number(delta[3]);
+      if (vertexIndex < 0 || ![vertexIndex, x, y, z].every(Number.isFinite)) return [];
+      if (x === 0 && y === 0 && z === 0) return [];
+      return [[vertexIndex, x, y, z]];
+    });
+    if (deltas.length === 0) return [];
+    remaining -= deltas.length;
+    return [{
+      deltas,
+      meshIndex: Math.max(0, Math.round(Number(entry.meshIndex) || 0)),
+    }];
+  });
+}
+
+function packMeshEdits(value) {
+  const edits = meshEditsOption(value);
+  if (edits.length === 0) return null;
+  const deltaCount = edits.reduce((total, entry) => total + entry.deltas.length, 0);
+  const bytes = new Uint8Array(4 + edits.length * 8 + deltaCount * 16);
+  const view = new DataView(bytes.buffer);
+  let offset = 0;
+  const writeUint32 = (number) => {
+    view.setUint32(offset, number >>> 0, true);
+    offset += 4;
+  };
+  const writeFloat32 = (number) => {
+    view.setFloat32(offset, number, true);
+    offset += 4;
+  };
+  writeUint32(edits.length);
+  for (const edit of edits) {
+    writeUint32(edit.meshIndex);
+    writeUint32(edit.deltas.length);
+    for (const [vertexIndex, x, y, z] of edit.deltas) {
+      writeUint32(vertexIndex);
+      writeFloat32(x);
+      writeFloat32(y);
+      writeFloat32(z);
+    }
+  }
+  return {
+    data: bytesToBase64(bytes),
+    deltaCount,
+    encoding: ROCKGEN_MESH_EDIT_ENCODING,
+    operationCount: edits.length,
+  };
+}
+
+/**
+ * Portable identity for a source-GLB project. Geometry stays outside the JSON
+ * document; the document stores only the stable catalog id, deterministic
+ * generation/deformation seed, and exact LOD contract needed to rebuild and
+ * decode the first-party GLB source.
+ */
+export function createRockReferenceIdentity(options = null) {
+  if (!options || typeof options !== 'object') return null;
+  const id = String(options.id ?? '').trim();
+  if (!id) return null;
+  const lodRatios = lodRatiosOption(options.lodRatios);
+  const lodTriangles = lodTrianglesOption(
+    options.lodTriangles,
+    options.targetTriangles,
+    lodRatios,
+  );
+  const topFinish = ['bare', 'custom', 'grass', 'sand', 'snow', 'source']
+    .includes(options.topFinish)
+    ? options.topFinish
+    : 'source';
+  return {
+    archetype: String(options.archetype ?? '').trim(),
+    catalogVersion: positiveInteger(options.catalogVersion, 1),
+    family: String(options.family ?? '').trim(),
+    id,
+    lodRatios: lodTriangles.length > 0
+      ? lodTriangles.map((triangles) => triangles / lodTriangles[0])
+      : lodRatios,
+    lodTriangles,
+    meshEdits: meshEditsOption(options.meshEdits, options.meshEditsPacked),
+    role: String(options.role ?? '').trim(),
+    series: String(options.series ?? '').trim(),
+    sourceMode: 'mesh-template',
+    surfaceMode: options.surfaceMode === 'generated' ? 'generated' : 'source',
+    targetTriangles: positiveInteger(options.targetTriangles, lodTriangles[0] ?? 0),
+    topFinish,
+    variation: Math.min(Math.max(Number(options.variation) || 0, 0), 1),
+    variationSeed: Math.round(Number(options.variationSeed) || 0) >>> 0,
+  };
+}
+
+function vector3Option(value, fallback) {
+  if (Array.isArray(value) && value.length >= 3) {
+    const parts = value.slice(0, 3).map(Number);
+    if (parts.every(Number.isFinite)) return parts;
+  }
+  return [...fallback];
+}
+
+function createRockTransform(options = null) {
+  const source = options && typeof options === 'object' ? options : {};
+  const scale = vector3Option(source.scale, [1, 1, 1]).map((entry) => Math.max(entry, 0.001));
+  return {
+    position: vector3Option(source.position, [0, 0, 0]),
+    rotation: vector3Option(source.rotation, [0, 0, 0]),
+    scale,
+  };
+}
+
+// Drawn outline for 'sketch' shapes: [[x, y], ...] in the piece's local XY
+// plane (3+ points, implicit close). Invalid or missing -> null; the
+// compiler falls back to the ellipsoid until an outline is drawn.
+function outlineOption(value) {
+  if (!Array.isArray(value) || value.length < 3) return null;
+  const points = [];
+  for (const entry of value) {
+    if (!Array.isArray(entry) || entry.length < 2) return null;
+    const px = Number(entry[0]);
+    const py = Number(entry[1]);
+    if (!Number.isFinite(px) || !Number.isFinite(py)) return null;
+    points.push([px, py]);
+  }
+  return points;
+}
+
+function createCombine(options = null) {
+  const source = options && typeof options === 'object' ? options : {};
+  return {
+    blend: Math.max(Number(source.blend) || 0, 0),
+    op: COMBINE_OPS.includes(source.op) ? source.op : 'union',
+  };
+}
+
+function helperOption(value) {
+  if (!value || typeof value !== 'object') return null;
+  const kind = String(value.kind ?? '').trim();
+  return kind ? { kind } : null;
+}
+
+function nextId(prefix, entries) {
+  let highest = 0;
+  for (const entry of entries) {
+    const match = /^\w+-(\d+)$/.exec(String(entry.id ?? ''));
+    if (match) highest = Math.max(highest, Number(match[1]));
+  }
+  return `${prefix}-${highest + 1}`;
+}
+
+/**
+ * Creates one rock piece. Accepts a registered piece-preset name, or a
+ * partial piece object (`{ name, seed, combine, transform, shape, noise,
+ * warp, facet, strata, falloff }`). Ids are assigned when the piece is
+ * added to a document.
+ */
+export function createRockPiece(optionsOrPresetName = null) {
+  let source = optionsOrPresetName;
+  if (typeof source === 'string') {
+    source = resolveRockgenPreset(source).piece;
+  }
+  source = source && typeof source === 'object' ? source : {};
+  const helper = helperOption(source.helper);
+  return {
+    combine: createCombine(source.combine),
+    ...(helper ? { helper } : {}),
+    hidden: Boolean(source.hidden),
+    id: typeof source.id === 'string' ? source.id : null,
+    name: String(source.name ?? 'Rock'),
+    outline: outlineOption(source.outline),
+    seed: Math.round(Number(source.seed) || 0),
+    transform: createRockTransform(source.transform),
+    ...createRockPieceSettings(source),
+  };
+}
+
+/**
+ * Creates a rock document. `options` may be a preset name string or
+ * `{ seed, preset, style, reference, name, pieces, sculptEdits, surface,
+ * meshing }`.
+ * With no explicit pieces, one piece is built from the preset (default
+ * 'boulder').
+ */
+export function createRockDocument(options = null) {
+  const source = typeof options === 'string'
+    ? { preset: options }
+    : options && typeof options === 'object' ? options : {};
+  // Preset and style are portable identity, not merely Lab UI metadata. A
+  // custom/scratch document may explicitly use `preset: null`; otherwise the
+  // historical no-argument default remains Boulder.
+  const presetId = source.preset === null ? null : normalizeRockgenPresetName(source.preset);
+  const styleId = normalizeRockgenStyleName(source.style);
+  const preset = resolveRockgenPreset(presetId ?? 'boulder', { style: styleId });
+
+  const document = {
+    meshing: createRockgenMeshingSettings(source.meshing ?? preset.meshing),
+    name: String(source.name ?? preset.label ?? 'Untitled Rock'),
+    pieces: [],
+    preset: presetId,
+    reference: createRockReferenceIdentity(source.reference),
+    revision: 0,
+    schemaVersion: ROCKGEN_PROJECT_SCHEMA_VERSION,
+    sculptEdits: [],
+    seed: Math.round(Number(source.seed) || 0) >>> 0,
+    style: styleId,
+    surface: createRockSurfaceSettings(source.surface ?? preset.surface),
+    type: ROCKGEN_PROJECT_DOCUMENT_TYPE,
+  };
+
+  const pieceSources = Array.isArray(source.pieces) && source.pieces.length > 0
+    ? source.pieces
+    : preset.kind === 'document' && Array.isArray(preset.pieces) && preset.pieces.length > 0
+      ? preset.pieces
+      : [preset.piece ?? {}];
+  for (const pieceSource of pieceSources) {
+    addPieceToDocument(document, createRockPiece(pieceSource));
+  }
+  for (const edit of Array.isArray(source.sculptEdits) ? source.sculptEdits : []) {
+    applySculptEdit(document, edit);
+  }
+  document.revision = 0;
+  return document;
+}
+
+function rockValuesEqual(left, right) {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right)
+      && left.length === right.length
+      && left.every((value, index) => rockValuesEqual(value, right[index]));
+  }
+  if (left && right && typeof left === 'object' && typeof right === 'object') {
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    return leftKeys.length === rightKeys.length
+      && leftKeys.every((key) => Object.hasOwn(right, key)
+        && rockValuesEqual(left[key], right[key]));
+  }
+  return false;
+}
+
+function rebaseRockValue(current, oldBase, newBase) {
+  if (rockValuesEqual(current, oldBase)) return structuredClone(newBase);
+  if (Array.isArray(current)) {
+    if (!Array.isArray(oldBase) || !Array.isArray(newBase)) return structuredClone(current);
+    const keyedObjects = current.every((entry) => entry && typeof entry === 'object' && entry.id)
+      && oldBase.every((entry) => entry && typeof entry === 'object' && entry.id)
+      && newBase.every((entry) => entry && typeof entry === 'object' && entry.id);
+    if (!keyedObjects) return structuredClone(current);
+    const oldById = new Map(oldBase.map((entry) => [entry.id, entry]));
+    const newById = new Map(newBase.map((entry) => [entry.id, entry]));
+    return current.map((entry) => (
+      oldById.has(entry.id) && newById.has(entry.id)
+        ? rebaseRockValue(entry, oldById.get(entry.id), newById.get(entry.id))
+        : structuredClone(entry)
+    ));
+  }
+  if (current && typeof current === 'object'
+    && oldBase && typeof oldBase === 'object'
+    && newBase && typeof newBase === 'object') {
+    return Object.fromEntries(Object.keys(current).map((key) => [
+      key,
+      Object.hasOwn(oldBase, key) && Object.hasOwn(newBase, key)
+        ? rebaseRockValue(current[key], oldBase[key], newBase[key])
+        : structuredClone(current[key]),
+    ]));
+  }
+  return structuredClone(current);
+}
+
+/**
+ * Apply another IP-wide rock style without replacing the selected asset or
+ * destroying edits. Values still equal to the old style baseline adopt the
+ * new baseline; authored differences remain intact.
+ */
+export function rebaseRockDocumentStyle(document, style = 'default') {
+  const current = createRockDocument(document);
+  const oldBase = createRockDocument({
+    preset: current.preset,
+    seed: current.seed,
+    style: current.style,
+  });
+  const nextStyle = normalizeRockgenStyleName(style);
+  const newBase = createRockDocument({
+    preset: current.preset,
+    seed: current.seed,
+    style: nextStyle,
+  });
+  const rebased = rebaseRockValue(current, oldBase, newBase);
+  const normalized = createRockDocument({
+    ...rebased,
+    preset: current.preset,
+    reference: current.reference,
+    style: nextStyle,
+  });
+  normalized.revision = Math.max(Number(document?.revision) || 0, 0) + 1;
+  return normalized;
+}
+
+/** Marks the document dirty after direct settings mutation. */
+export function bumpDocumentRevision(document) {
+  document.revision += 1;
+  return document.revision;
+}
+
+/** Adds a piece (assigning a unique id if needed) and returns it. */
+export function addPieceToDocument(document, piece) {
+  if (!piece.id || document.pieces.some((entry) => entry.id === piece.id)) {
+    piece.id = nextId('piece', document.pieces);
+  }
+  document.pieces.push(piece);
+  bumpDocumentRevision(document);
+  return piece;
+}
+
+/** Removes a piece by id; returns true when a piece was removed. */
+export function removePieceFromDocument(document, pieceId) {
+  const index = document.pieces.findIndex((entry) => entry.id === pieceId);
+  if (index === -1) return false;
+  document.pieces.splice(index, 1);
+  bumpDocumentRevision(document);
+  return true;
+}
+
+/** Appends a sculpt edit (assigning a unique id) and returns it. */
+export function applySculptEdit(document, edit) {
+  const applied = {
+    blend: Math.max(Number(edit.blend) || 0, 0),
+    center: vector3Option(edit.center, [0, 0, 0]),
+    end: edit.end ? vector3Option(edit.end, [0, 0, 0]) : null,
+    id: null,
+    radius: Math.max(Number(edit.radius) || 0.1, 0.001),
+    shape: edit.shape === 'capsule' ? 'capsule' : 'sphere',
+    tool: edit.tool === 'subtract' ? 'subtract' : 'add',
+  };
+  applied.id = nextId('edit', document.sculptEdits);
+  document.sculptEdits.push(applied);
+  bumpDocumentRevision(document);
+  return applied;
+}
+
+/** Removes the most recent sculpt edit; returns it (or null). */
+export function undoLastSculptEdit(document) {
+  const edit = document.sculptEdits.pop() ?? null;
+  if (edit) bumpDocumentRevision(document);
+  return edit;
+}
+
+/** World-space AABB of the document's surface: `{ min: [3], max: [3] }`. */
+export function computeDocumentBounds(document) {
+  const { bounds } = compileDocument(document, { includeHelpers: false });
+  return { max: [...bounds.max], min: [...bounds.min] };
+}
+
+/** Serializes a document to JSON (dropping the runtime `revision`). */
+export function serializeRockDocument(document, { pretty = false } = {}) {
+  const { revision, ...serializable } = document;
+  if (serializable.reference?.sourceMode === 'mesh-template') {
+    const { meshEdits, ...reference } = serializable.reference;
+    serializable.reference = {
+      ...reference,
+      ...(meshEdits?.length > 0 ? { meshEditsPacked: packMeshEdits(meshEdits) } : { meshEdits: [] }),
+    };
+  }
+  return JSON.stringify(serializable, null, pretty ? 2 : undefined);
+}
+
+// Ordered migrations: index N upgrades a version-N document to N+1.
+// v2 moves the selected asset preset and IP-wide style into the portable
+// project itself. Old projects had those values only in browser-local entry
+// metadata, so standalone v1 JSON safely falls back to custom/default.
+// v3 adds optional descriptor-only reference identity and its LOD contract.
+// v4 adds sparse vertex deltas for editable source-mesh projects. v5 packs
+// those deltas as float32 binary in portable JSON so normal sculpt sessions
+// fit the hosted creation limit. Existing preset/custom projects remain
+// reference-free.
+const MIGRATIONS = Object.freeze([
+  (document) => ({
+    ...document,
+    preset: typeof document.preset === 'string' ? document.preset : null,
+    schemaVersion: 2,
+    style: typeof document.style === 'string' ? document.style : 'default',
+  }),
+  (document) => ({
+    ...document,
+    reference: document.reference && typeof document.reference === 'object'
+      ? document.reference
+      : null,
+    schemaVersion: 3,
+  }),
+  (document) => ({
+    ...document,
+    reference: document.reference && typeof document.reference === 'object'
+      ? { ...document.reference, meshEdits: document.reference.meshEdits ?? [] }
+      : null,
+    schemaVersion: 4,
+  }),
+  (document) => {
+    if (!document.reference || typeof document.reference !== 'object') {
+      return { ...document, schemaVersion: 5 };
+    }
+    const { meshEdits, ...reference } = document.reference;
+    return {
+      ...document,
+      reference: {
+        ...reference,
+        ...(Array.isArray(meshEdits) && meshEdits.length > 0
+          ? { meshEditsPacked: packMeshEdits(meshEdits) }
+          : { meshEdits: [] }),
+      },
+      schemaVersion: 5,
+    };
+  },
+]);
+
+/**
+ * Parses, validates, and coerces a rock document from JSON (string or
+ * already-parsed object). Unknown fields are dropped, missing fields get
+ * defaults, and older schema versions are migrated. Throws with a
+ * descriptive message on structural problems.
+ */
+export function deserializeRockDocument(jsonOrObject) {
+  let source = jsonOrObject;
+  if (typeof source === 'string') {
+    try {
+      source = JSON.parse(source);
+    } catch (error) {
+      throw new Error(`Invalid rock document JSON: ${error.message}`);
+    }
+  }
+  if (!source || typeof source !== 'object' || Array.isArray(source)) {
+    throw new Error('Rock document must be a JSON object.');
+  }
+  if (source.type !== ROCKGEN_PROJECT_DOCUMENT_TYPE) {
+    throw new Error(`Rock document type must be "${ROCKGEN_PROJECT_DOCUMENT_TYPE}".`);
+  }
+  let version = Number(source.schemaVersion);
+  if (!Number.isFinite(version)) version = ROCKGEN_PROJECT_SCHEMA_VERSION;
+  if (version > ROCKGEN_PROJECT_SCHEMA_VERSION) {
+    throw new Error(
+      `Rock document schema version ${version} is newer than supported version ${ROCKGEN_PROJECT_SCHEMA_VERSION}.`,
+    );
+  }
+  let migrated = source;
+  for (; version < ROCKGEN_PROJECT_SCHEMA_VERSION; version += 1) {
+    migrated = MIGRATIONS[version - 1](migrated);
+  }
+  if (!Array.isArray(migrated.pieces) || migrated.pieces.length === 0) {
+    throw new Error('Rock document must contain at least one piece.');
+  }
+  return createRockDocument({
+    meshing: migrated.meshing,
+    name: migrated.name,
+    pieces: migrated.pieces,
+    preset: migrated.preset,
+    reference: migrated.reference,
+    sculptEdits: migrated.sculptEdits,
+    seed: migrated.seed,
+    style: migrated.style,
+    surface: migrated.surface,
+  });
+}

@@ -1,0 +1,80 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+dist-ssr/
+build/
+.toonlab/
+
+# Local credentials and machine-specific configuration.
+.env
+.env.*
+!.env.example
+
+# Private test assets — licensed content that must never enter the public
+# repo. The labs discover models/environments dropped in here (see
+# docs/characters.md). Back this folder up — it is not in git.
+assets-local/
+.local-reference/
+
+# Retained vendor/comparison workspaces. Keep these files locally for visual
+# research, but never ship or commit them as part of the first-party labs.
+examples/p18-grass-clump-parity/
+examples/source-catalog/
+examples/verdant-world/
+labs/shared/p18/
+labs/shared/reference/environment-reference/
+labs/sky-lab/
+labs/cloud-shader-lab/
+labs/sensei-sky-lab/
+labs/rock-catalog-preview/
+labs/rock-lab/
+rock-catalog-preview/
+sensei-sky-lab/
+src/rockgen/reference/
+src/environment/sourceEnvironmentTestContent.js
+src/ground-shader/p18GroundShaderMaterial.js
+src/ground-shader/p18GroundShaderSettings.js
+src/vegetation/p18VegetationShaderMaterial.js
+src/vegetation/p18VegetationStyleOverlay.js
+scripts/capture-verdant-world.mjs
+scripts/build-rock-reference-profiles.mjs
+scripts/generate-rock-reference-variations.mjs
+scripts/generate-sensei-sky-assets.mjs
+scripts/lib/rock-variation-builder.mjs
+scripts/verify-sensei-sky.mjs
+
+# Generated/private research artifacts — keep local; source documentation
+# remains under docs/research/.
+artifacts/research/
+artifacts/woody-baseline/
+
+# Licensed reference texture — supply your own painted stone tile; the
+# outdoor-world example runs without it (cliffs just skip the triplanar
+# detail layer).
+examples/outdoor-world/stone.png
+
+# Generated local-asset manifests (npm run assets:local)
+labs/shared/localCharacterAssets.generated.js
+labs/shared/localEnvironmentAssets.generated.js
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

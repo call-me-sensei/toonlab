@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import {
   createPlantFromRecipe,
   recipeFromSettings,
+  resolveVegetationShaderPreset,
   settingsFromRecipe,
 } from '../../../src/vegetation/experimental.js';
 import { createLabRenderer, whenRendererReady } from '../../shared/rendererFactory.js';
@@ -123,6 +124,28 @@ function runtimeRecipeForThumbnail(preset) {
   };
 }
 
+function isMonochromeGalleryPreset(preset) {
+  return preset?.options?.galleryMonochrome?.version >= 2
+    || /^local_gallery_tree_\d+$/.test(String(preset?.id ?? ''));
+}
+
+function applyThumbnailStyle(plant, preset) {
+  if (!isMonochromeGalleryPreset(preset)) return;
+  const styleId = typeof preset.options?.vegetationShader === 'string'
+    ? preset.options.vegetationShader
+    : 'default';
+  plant.setVegetationShader?.(resolveVegetationShaderPreset(styleId, {
+    foliage: {
+      // The candidate recipe owns the hue family. Thumbnails must use the
+      // same zero-hue-variation treatment as the live editor instead of the
+      // default seeded ±36° card shifts that made one tree look multicolored.
+      hueShift: 0,
+      hueVariation: 0,
+      styleColorStrength: 0,
+    },
+  }));
+}
+
 // Slices one batch's atlas readback into per-preset data URLs. Node-backend
 // RTs are written top-down (docs/tsl-conventions.md gotcha 6;
 // src/shaders-tsl/chunks/pass-depth-color.js shadowClipAdjustWebGPU/GL and
@@ -137,6 +160,7 @@ function sliceAtlasBatch(pixels, batch, cache, rendered) {
   canvas2d.width = NODE_TILE_SIZE;
   canvas2d.height = NODE_TILE_SIZE;
   const ctx2d = canvas2d.getContext('2d');
+  const batchRendered = {};
 
   batch.forEach(({ key, preset, ok }, index) => {
     if (!ok) return; // creation/render failed for this tile — leave uncached
@@ -156,11 +180,13 @@ function sliceAtlasBatch(pixels, batch, cache, rendered) {
     ctx2d.putImageData(imageData, 0, 0);
     const url = canvas2d.toDataURL('image/jpeg', 0.82);
     rendered[preset.id] = url;
+    batchRendered[preset.id] = url;
     cache[preset.id] = { key, url };
   });
+  return batchRendered;
 }
 
-async function renderThumbnailsNode(missing) {
+async function renderThumbnailsNode(missing, { onProgress } = {}) {
   const cache = readCache();
   const rendered = {};
   const renderer = getNodeThumbRenderer();
@@ -170,6 +196,7 @@ async function renderThumbnailsNode(missing) {
   const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 200);
   const atlas = getNodeThumbAtlas();
   const retired = [];
+  let completed = 0;
 
   for (let offset = 0; offset < missing.length; offset += NODE_ATLAS_BATCH) {
     const batch = missing.slice(offset, offset + NODE_ATLAS_BATCH);
@@ -187,6 +214,7 @@ async function renderThumbnailsNode(missing) {
       let plant = null;
       try {
         plant = createPlantFromRecipe(runtimeRecipeForThumbnail(entry.preset));
+        applyThumbnailStyle(plant, entry.preset);
         plant.setSun({
           direction: [0.45, 0.75, 0.5], color: [1.0, 0.96, 0.86], sky: [0.72, 0.87, 1.0],
         });
@@ -219,12 +247,15 @@ async function renderThumbnailsNode(missing) {
       console.warn('Thumbnail atlas readback failed:', error);
     }
 
+    let batchRendered = {};
     if (pixels) {
-      sliceAtlasBatch(pixels, batch, cache, rendered);
+      batchRendered = sliceAtlasBatch(pixels, batch, cache, rendered);
       // Persist per batch, not once at the end: a long queue interrupted by
       // a reload (or a failing tile later in the queue) keeps its progress.
       writeCache(cache);
     }
+    completed += batch.length;
+    onProgress?.({ completed, total: missing.length, rendered: batchRendered });
 
     // Yield a frame between batches so the workspace stays interactive while
     // the queue drains — without this, a cold cache froze the scene until
@@ -245,8 +276,8 @@ async function renderThumbnailsNode(missing) {
 // earlier render is still in flight) share one renderer/atlas — queue them
 // instead of letting their render+readback cycles interleave.
 let nodeRenderQueue = Promise.resolve();
-function queueRenderThumbnailsNode(missing) {
-  const run = () => renderThumbnailsNode(missing);
+function queueRenderThumbnailsNode(missing, options = {}) {
+  const run = () => renderThumbnailsNode(missing, options);
   nodeRenderQueue = nodeRenderQueue.then(run, run);
   return nodeRenderQueue;
 }
@@ -279,4 +310,31 @@ export function getPresetThumbnails(presets, { onUpdate } = {}) {
     })
     .catch((error) => console.warn('Node-backend thumbnail render failed:', error));
   return result;
+}
+
+/**
+ * Explicitly render and cache every requested gallery thumbnail. The gallery
+ * already renders cache misses in the background, but this promise-based API
+ * gives the author a visible, repeatable "capture" action for a whole batch.
+ * `onProgress` receives `{ completed, total, rendered }` after each tile.
+ */
+export function capturePresetThumbnails(presets, { onProgress } = {}) {
+  const cache = readCache();
+  const missing = [];
+  let cached = 0;
+  for (const preset of presets) {
+    const key = optionsHash(preset);
+    const entry = cache[preset.id];
+    if (entry?.key === key) cached += 1;
+    else missing.push({ key, preset });
+  }
+  const total = presets.length;
+  onProgress?.({ completed: cached, total, rendered: {} });
+  if (!missing.length) return Promise.resolve({});
+
+  return queueRenderThumbnailsNode(missing, {
+    onProgress: ({ completed, rendered }) => {
+      onProgress?.({ completed: cached + completed, total, rendered });
+    },
+  });
 }

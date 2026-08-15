@@ -295,6 +295,7 @@
     "verify:localization": "node scripts/verify-localization.mjs",
     "verify:lab-asset-provenance": "node scripts/verify-lab-asset-provenance.mjs",
     "verify:lab-preview": "node scripts/verify-lab-preview.mjs",
+    "verify:library-preview": "node scripts/verify-library-preview-coverage.mjs",
     "verify:public-labs": "node scripts/verify-public-lab-authoring.mjs",
     "verify:vegetation-labs": "node scripts/verify-vegetation-lab-readiness.mjs",
     "verify:water-lab": "node scripts/verify-water-lab-contract.mjs",

@@ -13,13 +13,11 @@
     <toonlab-site-header active="library"></toonlab-site-header>
     <main class="home-main gal-main">
       <section id="libraryIndex">
-        <div class="lib-heading">
-          <div class="gal-toolbar">
-            <h1>Library</h1>
-            <span class="jp">ライブラリ</span>
-          </div>
-          <div class="lib-tools">
-            <span id="libraryStatus" class="gal-section-note mono"></span>
+        <div class="gal-toolbar">
+          <h1>Library</h1>
+          <span class="jp">ライブラリ</span>
+          <span id="libraryStatus" class="gal-section-note mono"></span>
+          <form id="libraryFilters" class="gal-filters tl-control-row">
             <input id="librarySearch" class="tl-input gal-search" type="search" placeholder="Search your library…" />
             <select id="libraryType" class="tl-input lib-filter" aria-label="Filter by creation type">
               <option value="">All types</option>
@@ -28,10 +26,9 @@
               <option value="">All tags</option>
             </select>
             <button id="clearFilters" class="tl-btn" type="button" hidden>Clear</button>
-          </div>
+          </form>
         </div>
-        <p class="home-sub">Named lab creations, generated assets, and style bundles saved in your local Postgres database.</p>
-        <div id="libraryGrid" class="gal-grid lib-grid"></div>
+        <div id="libraryGrid" class="gal-grid"></div>
         <div id="libraryEmpty" class="tl-empty" hidden>
           <span class="lib-empty-icon" aria-hidden="true">🌸</span>
           <strong id="libraryEmptyTitle">Nothing saved yet</strong>

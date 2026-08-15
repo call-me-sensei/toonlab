@@ -627,6 +627,7 @@ function setupEmbeddedStage({
   frame.title = `${assetId} — source vs Call Me Sensei style, live`;
   frame.allow = 'fullscreen';
   els.stage.appendChild(frame);
+  let frameLoaded = false;
 
   const engine = () => frame.contentWindow?.__assetLabEngine;
   const frameWin = () => frame.contentWindow;
@@ -637,6 +638,9 @@ function setupEmbeddedStage({
   spinner.setAttribute('aria-hidden', 'true');
   loading.append(spinner, el('span', null, `Loading ${kind} — downloading & applying Call Me Sensei style…`));
   els.stage.appendChild(loading);
+  frame.addEventListener('load', () => {
+    frameLoaded = true;
+  });
 
   const errorBox = el('div', 'asset-loading asset-loading--error');
   const errorText = el('span');
@@ -660,6 +664,10 @@ function setupEmbeddedStage({
       const dataset = frame.contentDocument?.body?.dataset;
       ready = dataset?.modelReady;
       message = (dataset?.modelError ?? '').slice(0, 160);
+      if (!message) message = (dataset?.runtimeError ?? '').slice(0, 160);
+      if (!assetLabControls && frameLoaded && frame.contentDocument?.querySelector('canvas')) {
+        ready = 'true';
+      }
     } catch {
       return; // iframe not ready yet
     }
@@ -670,7 +678,7 @@ function setupEmbeddedStage({
       loading.remove();
       errorText.textContent = `Live preview couldn't load this asset${message ? ` (${message})` : ''} — `;
       if (!errorBox.isConnected) els.stage.appendChild(errorBox);
-    } else if (!errorBox.isConnected && !loading.isConnected) {
+    } else if (assetLabControls && !errorBox.isConnected && !loading.isConnected) {
       els.stage.appendChild(loading); // style/res switch kicked off a new load
     }
   }, 300);

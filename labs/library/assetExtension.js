@@ -4,11 +4,10 @@ import {
   isLibraryModel,
   libraryEntryInfo,
   libraryFormat,
-  libraryImageUrl,
+  libraryLivePreview,
   libraryResultFile,
-  libraryTextureRecipe,
-  libraryWaterDocument,
   rawLibraryDocument,
+  stageLibraryLivePreview,
 } from './libraryEntry.js';
 
 const REVISION_PAGE_SIZE = 25;
@@ -128,34 +127,26 @@ export async function bootLibraryAsset({ assetId, el, els, setupEmbeddedStage, s
 
   const info = libraryEntryInfo(activeEntry);
   const file = libraryResultFile(activeEntry);
-  const preview = libraryImageUrl(activeEntry);
-  const textureRecipe = libraryTextureRecipe(activeEntry);
-  const waterDocument = libraryWaterDocument(activeEntry);
+  const livePreview = libraryLivePreview(activeEntry);
 
-  if (isLibraryModel(activeEntry) && file?.url) {
+  if ((isLibraryModel(activeEntry) || livePreview?.mode === 'model') && file?.url) {
     setupStage('model', {
       download: { url: file.url },
-      thumbnailUrl: preview,
+      thumbnailUrl: null,
     }, { scanStylize: false });
-  } else if (textureRecipe) {
+  } else if (livePreview?.mode === 'lab') {
+    stageLibraryLivePreview(activeEntry);
     setupEmbeddedStage({
-      kind: 'texture',
-      labUrl: `/texture-lab/?textureRecipe=${encodeURIComponent(JSON.stringify(textureRecipe))}&style=call_me_sensei`,
-      supportsCompare: true,
-      thumbnailUrl: preview,
+      kind: livePreview.kind,
+      labUrl: livePreview.labUrl,
+      supportsCompare: livePreview.supportsCompare,
+      thumbnailUrl: null,
     });
-  } else if (waterDocument) {
-    setupEmbeddedStage({
-      kind: 'water',
-      labUrl: `/water-lab/?waterDoc=${encodeURIComponent(JSON.stringify(waterDocument))}`,
-      supportsCompare: false,
-      thumbnailUrl: preview,
-    });
-  } else if (preview) {
-    els.stage.style.backgroundImage = `url("${String(preview).replaceAll('"', '%22')}")`;
+  } else if (livePreview?.mode === 'image' && file?.url) {
+    els.stage.style.backgroundImage = `url("${String(file.url).replaceAll('"', '%22')}")`;
   } else {
     els.stage.classList.add('asset-stage--pack');
-    els.stage.append(el('div', 'lib-preview-unavailable', 'No rendered preview is stored for this creation'));
+    els.stage.append(el('div', 'lib-preview-unavailable', 'This creation type has no live preview surface'));
   }
 
   const panel = document.querySelector('.asset-panel');
@@ -180,8 +171,7 @@ export async function bootLibraryAsset({ assetId, el, els, setupEmbeddedStage, s
   const historyCopy = document.createElement('div');
   historyCopy.append(el('span', 'lib-eyebrow', 'Version history'), el('h2', null, 'Revisions'),
     el('p', null, 'Restoring creates a new revision; history is never rewritten.'));
-  const nameCurrent = button('Name current version');
-  historyHead.append(historyCopy, nameCurrent);
+  historyHead.append(historyCopy);
   const revisionList = el('div', 'lib-revision-list');
   const revisionStatus = el('p', 'lib-status mono');
   revisionStatus.role = 'status';
@@ -266,7 +256,9 @@ export async function bootLibraryAsset({ assetId, el, els, setupEmbeddedStage, s
     els.actions.replaceChildren();
     const styleBundle = activeEntry.type === 'style-bundle'
       || rawLibraryDocument(activeEntry)?.schema === 'toonlab/style-bundle';
-    const href = styleBundle ? `/styles/?bundle=${encodeURIComponent(activeEntry.id)}` : currentInfo.href;
+    const href = styleBundle
+      ? `/styles/?bundle=${encodeURIComponent(activeEntry.id)}`
+      : livePreview?.labUrl ?? currentInfo.href;
     if (href) {
       const action = el('a', 'pill', styleBundle ? 'Open style bundle' : currentInfo.actionLabel ?? 'Open in lab');
       action.href = href;
@@ -356,10 +348,6 @@ export async function bootLibraryAsset({ assetId, el, els, setupEmbeddedStage, s
   }
 
   edit.addEventListener('click', () => { setModal(editDialog, dialogs); labelInput.focus(); });
-  nameCurrent.addEventListener('click', () => {
-    const current = revisions.find((revision) => revision.isCurrent);
-    if (current) openRevision(current);
-  });
   editDialog.close.addEventListener('click', () => setModal(null, dialogs));
   revisionDialog.close.addEventListener('click', () => setModal(null, dialogs));
   for (const dialog of dialogs) {

@@ -86,6 +86,19 @@
           </div>
         </div>
 
+        <section class="lib-history" aria-labelledby="historyTitle">
+          <div class="lib-history-heading">
+            <div>
+              <span class="lib-eyebrow">Version history</span>
+              <h2 id="historyTitle">Revisions</h2>
+              <p>Every meaningful save is kept. Restoring a version creates a new revision, so history is never rewritten.</p>
+            </div>
+            <button id="nameCurrentVersion" class="tl-btn" type="button">Name current version</button>
+          </div>
+          <div id="revisionList" class="lib-revision-list"></div>
+          <p id="revisionStatus" class="lib-status mono" role="status"></p>
+        </section>
+
         <details class="lib-json">
           <summary>Document JSON</summary>
           <pre id="detailJson" class="mono"></pre>
@@ -116,6 +129,40 @@
               <div class="lib-form-actions">
                 <button id="deleteEntry" class="tl-btn lib-danger" type="button">Delete</button>
                 <button class="tl-btn tl-btn--primary" type="submit">Save changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div id="revisionModal" class="lib-modal" hidden>
+          <div class="lib-modal-panel" role="dialog" aria-modal="true" aria-labelledby="revisionModalTitle">
+            <div class="lib-modal-header">
+              <div>
+                <span class="lib-eyebrow">Version details</span>
+                <h2 id="revisionModalTitle">Name this version</h2>
+              </div>
+              <button id="closeRevision" class="lib-modal-close" type="button" aria-label="Close version dialog">×</button>
+            </div>
+            <form id="revisionForm" class="lib-card">
+              <input name="revisionId" type="hidden" />
+              <label class="lib-field">
+                <span>Name <small>Optional, and unique within this creation.</small></span>
+                <input class="tl-input" name="name" maxlength="120" placeholder="Client-approved lighting" />
+              </label>
+              <label class="lib-field">
+                <span>Version tags <small>Separate from the creation’s searchable tags.</small></span>
+                <input class="tl-input" name="tags" maxlength="329" placeholder="approved, milestone" />
+              </label>
+              <label class="lib-field">
+                <span>Note</span>
+                <textarea class="tl-input" name="note" rows="4" maxlength="2000"></textarea>
+              </label>
+              <label class="lib-revision-pin">
+                <input name="pinned" type="checkbox" />
+                Pin this version
+              </label>
+              <div class="lib-form-actions">
+                <button class="tl-btn tl-btn--primary" type="submit">Save version details</button>
               </div>
             </form>
           </div>

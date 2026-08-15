@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path';
 import { readWorkspaceFile, resolveWorkspacePath } from './workspace.mjs';
 import {
   clearLabState,
+  annotateCreationRevision,
   cancelGenerationJob,
   createGenerationJob,
   databaseInfo,
@@ -11,14 +12,18 @@ import {
   hasLegacyImport,
   finishGenerationJob,
   getCatalogAsset,
+  getCreationRevision,
   getGenerationJob,
   listCatalogAssets,
   listGenerationJobs,
+  listCreationRevisions,
   listLibraryEntries,
   migrateLegacy,
   providerConfiguration,
   readLabState,
   readObject,
+  resolveStyleBundleEntry,
+  restoreCreationRevision,
   saveLibraryEntry,
   saveObject,
   setLabState,
@@ -513,6 +518,45 @@ export function toonlabWorkspacePlugin({ rootDirectory = process.cwd(), workspac
       }
 
       if (url.pathname.startsWith('/api/toonlab/library/')) {
+        const resolvedMatch = url.pathname.match(/^\/api\/toonlab\/library\/([^/]+)\/resolved$/);
+        if (resolvedMatch) {
+          if (request.method !== 'GET') return methodNotAllowed(response, ['GET']);
+          return sendJson(response, 200, {
+            bundle: await resolveStyleBundleEntry(decodeURIComponent(resolvedMatch[1])),
+          });
+        }
+        const revisionMatch = url.pathname.match(/^\/api\/toonlab\/library\/([^/]+)\/revisions(?:\/([^/]+))?(?:\/(restore))?$/);
+        if (revisionMatch) {
+          const creationId = decodeURIComponent(revisionMatch[1]);
+          const revisionId = revisionMatch[2] ? decodeURIComponent(revisionMatch[2]) : null;
+          if (!revisionId && request.method === 'GET') {
+            const history = await listCreationRevisions(creationId, {
+              limit: url.searchParams.get('limit'),
+              offset: url.searchParams.get('offset'),
+            });
+            return sendJson(response, 200, history);
+          }
+          if (revisionId && !revisionMatch[3] && request.method === 'GET') {
+            return sendJson(response, 200, {
+              revision: await getCreationRevision(creationId, revisionId),
+            });
+          }
+          if (revisionId && revisionMatch[3] === 'restore' && request.method === 'POST') {
+            return sendJson(response, 200, {
+              entry: await restoreCreationRevision(creationId, revisionId),
+            });
+          }
+          if (revisionId && !revisionMatch[3] && request.method === 'PATCH') {
+            return sendJson(response, 200, {
+              revision: await annotateCreationRevision(
+                creationId,
+                revisionId,
+                await readJsonBody(request),
+              ),
+            });
+          }
+          return methodNotAllowed(response, revisionId ? ['GET', 'PATCH', 'POST'] : ['GET']);
+        }
         const id = decodeURIComponent(url.pathname.slice('/api/toonlab/library/'.length));
         if (request.method === 'PUT') {
           const entry = await readJsonBody(request);

@@ -23,6 +23,18 @@ const tagNormalizationMigration = await readFile(
   new URL('../database/migrations/0006_normalize_creation_tags.sql', import.meta.url),
   'utf8',
 );
+const revisionMigration = await readFile(
+  new URL('../database/migrations/0007_creation_revisions.sql', import.meta.url),
+  'utf8',
+);
+const revisionHardeningMigration = await readFile(
+  new URL('../database/migrations/0008_creation_revision_hardening.sql', import.meta.url),
+  'utf8',
+);
+const revisionDeleteIntegrityMigration = await readFile(
+  new URL('../database/migrations/0009_creation_revision_delete_integrity.sql', import.meta.url),
+  'utf8',
+);
 const vitePlugin = await readFile(new URL('../mcp/vite-plugin.mjs', import.meta.url), 'utf8');
 const workspaceModule = await readFile(new URL('../mcp/workspace.mjs', import.meta.url), 'utf8');
 const mcpServer = await readFile(new URL('../mcp/server.mjs', import.meta.url), 'utf8');
@@ -53,7 +65,24 @@ assert.match(tagMigration, /creations_tags.*using gin \(tags\)/);
 assert.match(tagNormalizationMigration, /toonlab_normalize_creation_tags/);
 assert.match(tagNormalizationMigration, /update creations/);
 assert.match(tagNormalizationMigration, /limit 10/);
-assert.match(repository, /tags = excluded\.tags/);
+assert.match(revisionMigration, /create table if not exists creation_revisions/);
+assert.match(revisionMigration, /unique \(creation_id, revision_number\)/);
+assert.match(revisionMigration, /creation_revisions_unique_name/);
+assert.match(revisionMigration, /restored_from_revision_id/);
+assert.match(revisionMigration, /dependency_snapshot/);
+assert.match(revisionHardeningMigration, /creation_revisions_immutable_snapshot/);
+assert.match(revisionHardeningMigration, /creation_revisions_same_creation_restore/);
+assert.match(revisionHardeningMigration, /creations_same_current_revision/);
+assert.match(revisionDeleteIntegrityMigration, /on delete no action/);
+assert.match(repository, /locked\.rows\[0\]\.content_hash === contentHash/);
+assert.match(repository, /force: true/);
+assert.match(repository, /saveSource: 'restore'/);
+assert.match(repository, /styleBundleDependencySnapshot/);
+assert.match(repository, /resolveStyleBundleEntry/);
+assert.match(repository, /saveSource: 'legacy-import'/);
+assert.match(repository, /select count\(\*\)::int as total from creation_revisions/);
+assert.match(repository, /The doc key is the stable identity/);
+assert.match(repository, /tags = \$4/);
 assert.match(repository, /from '\.\/creation-tags\.mjs'/);
 assert.match(workspaceModule, /normalizeCreationTags/);
 assert.doesNotMatch(workspaceModule, /replace\(\/\\s\+\/g, '-'/);
@@ -73,6 +102,13 @@ assert.match(libraryPage, /\/library\/\?id=/);
 assert.match(libraryHtml, /Nothing saved yet/);
 assert.match(libraryHtml, /Comma-separated, up to 10/);
 assert.match(libraryPage, /detailForm\.elements\.tags/);
+assert.match(libraryHtml, /Name current version/);
+assert.match(libraryPage, /restoreRevision/);
+assert.match(libraryHtml, /id="revisionList"/);
+assert.match(vitePlugin, /annotateCreationRevision/);
+assert.match(vitePlugin, /restoreCreationRevision/);
+assert.match(vitePlugin, /getCreationRevision/);
+assert.match(vitePlugin, /resolveStyleBundleEntry/);
 assert.match(libraryHtml, /id="libraryType"/);
 assert.match(libraryHtml, /id="libraryTag"/);
 assert.match(libraryHtml, /id="libraryPager"/);
@@ -84,6 +120,7 @@ assert.match(libraryPage, /const \{ _local, \.\.\.document \}/);
 assert.match(stylesPage, /STYLE_BUNDLE_SLOTS/);
 assert.match(stylesPage, /The Styles editor metadata is out of sync/);
 assert.match(stylesPage, /Your saved documents/);
+assert.match(readme, /\/api\/toonlab\/library\/<bundle-id>\/resolved/);
 assert.match(gallery, /offset: String\(\(state\.page - 1\) \* PAGE_SIZE\)/);
 assert.equal(packageJson.scripts.update, 'node scripts/setup-local.mjs --update');
 assert.match(setup, /applyMigrations\(\)/);

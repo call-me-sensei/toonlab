@@ -428,6 +428,87 @@ body.lib-modal-open {
   border-color: var(--tl-ink-1);
 }
 
+.lib-history {
+  margin-top: 22px;
+  padding: 26px;
+  border: 1px solid var(--tl-line);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--tl-panel) 88%, transparent);
+}
+
+.lib-history-heading,
+.lib-revision,
+.lib-revision-title,
+.lib-revision-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.lib-history-heading,
+.lib-revision {
+  justify-content: space-between;
+}
+
+.lib-history-heading h2 {
+  margin: 5px 0;
+}
+
+.lib-history-heading p,
+.lib-revision-copy p {
+  margin: 4px 0 0;
+  color: var(--tl-ink-3);
+}
+
+.lib-revision-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+.lib-revision {
+  padding: 16px;
+  border: 1px solid var(--tl-line);
+  border-radius: 12px;
+  background: var(--tl-panel);
+}
+
+.lib-revision--current {
+  border-color: var(--tl-accent);
+}
+
+.lib-revision-copy {
+  min-width: 0;
+}
+
+.lib-revision-title {
+  flex-wrap: wrap;
+}
+
+.lib-revision-badges {
+  color: var(--tl-accent);
+  font-family: var(--tl-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.lib-revision-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.lib-revision-note {
+  max-width: 70ch;
+}
+
+.lib-revision-pin {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
 @media (max-width: 980px) {
   .lib-hero {
     grid-template-columns: 1fr;
@@ -502,5 +583,14 @@ body.lib-modal-open {
 
   .lib-pager .tl-btn {
     padding-inline: 14px;
+  }
+  .lib-history-heading,
+  .lib-revision {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lib-revision-actions {
+    flex-wrap: wrap;
   }
 }

@@ -359,6 +359,7 @@
     "verify:assetlib": "node scripts/verify-assetlib.mjs",
     "verify:mcp": "node scripts/verify-mcp.mjs",
     "verify:local-database": "node scripts/verify-local-database.mjs",
+    "verify:creation-revisions": "node scripts/verify-creation-revisions.mjs",
     "verify:gallery-database": "node scripts/verify-official-gallery-database.mjs",
     "verify:local-generation": "node scripts/verify-local-generation.mjs",
     "thumbs:prop": "node scripts/generate-prop-thumbs.mjs",

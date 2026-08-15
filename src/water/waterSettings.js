@@ -597,6 +597,14 @@ export function createWaterSettings(options = {}) {
   const colorTone = resolveWaterColorToneName(source.colorTone ?? base.colorTone);
   // A chosen tone forces its palette (see WATER_COLOR_TONES).
   const tone = WATER_COLOR_TONES[colorTone];
+  // ...but only the *palette*. The tone's non-colour scalars (clarity
+  // distances, caustic/reflection/detail gains) are its recommended defaults,
+  // not a lock: an explicit caller value wins over them. Before this, passing
+  // `detailNormalStrength` or `reflectionStrength` alongside `colorTone:
+  // 'anime'` was silently inert, which is exactly what §6.4 of the launch spec
+  // asks for and could not get (D19-005). Callers that pass nothing are
+  // unaffected — they still resolve to the tone value, byte for byte.
+  const toneScalar = (key) => (source[key] === undefined ? tone[key] : source[key]);
 
   const quality = WATER_QUALITY_LEVELS.includes(String(source.quality).toLowerCase())
     ? String(source.quality).toLowerCase()
@@ -633,7 +641,7 @@ export function createWaterSettings(options = {}) {
     waveSetPeriod: clampedNumber(source.waveSetPeriod, base.waveSetPeriod, 8, 600),
     waveSetStrength: clampedNumber(source.waveSetStrength, base.waveSetStrength, 0, 1),
 
-    detailNormalStrength: clampedNumber(tone.detailNormalStrength ?? source.detailNormalStrength, base.detailNormalStrength, 0, 2),
+    detailNormalStrength: clampedNumber(toneScalar('detailNormalStrength'), base.detailNormalStrength, 0, 2),
     detailScale: clampedNumber(source.detailScale, base.detailScale, 0.05, 12),
     flowDirection: vector2Array(source.flowDirection, base.flowDirection),
     flowSpeed: clampedNumber(source.flowSpeed, base.flowSpeed, 0, 8),
@@ -641,8 +649,8 @@ export function createWaterSettings(options = {}) {
     shallowColor: colorArray(tone.shallowColor ?? source.shallowColor, base.shallowColor),
     midColor: colorArray(tone.midColor ?? source.midColor, base.midColor),
     deepColor: colorArray(tone.deepColor ?? source.deepColor, base.deepColor),
-    depthFadeDistance: clampedNumber(tone.depthFadeDistance ?? source.depthFadeDistance, base.depthFadeDistance, 0.01, 60),
-    deepFadeDistance: clampedNumber(tone.deepFadeDistance ?? source.deepFadeDistance, base.deepFadeDistance, 0.01, 120),
+    depthFadeDistance: clampedNumber(toneScalar('depthFadeDistance'), base.depthFadeDistance, 0.01, 60),
+    deepFadeDistance: clampedNumber(toneScalar('deepFadeDistance'), base.deepFadeDistance, 0.01, 120),
     opacity: clampedNumber(source.opacity, base.opacity, 0, 1),
     refractionStrength: clampedNumber(source.refractionStrength, base.refractionStrength, 0, 3),
     indexOfRefraction: clampedNumber(
@@ -654,7 +662,7 @@ export function createWaterSettings(options = {}) {
     underwaterTintStrength: clampedNumber(
       source.underwaterTintStrength, base.underwaterTintStrength, 0, 1,
     ),
-    causticsStrength: clampedNumber(tone.causticsStrength ?? source.causticsStrength, base.causticsStrength, 0, 4),
+    causticsStrength: clampedNumber(toneScalar('causticsStrength'), base.causticsStrength, 0, 4),
     causticsScale: clampedNumber(source.causticsScale, base.causticsScale, 0.02, 12),
     causticsSpeed: clampedNumber(source.causticsSpeed, base.causticsSpeed, 0, 8),
 
@@ -690,13 +698,13 @@ export function createWaterSettings(options = {}) {
     sceneShadowStrength: clampedNumber(source.sceneShadowStrength, base.sceneShadowStrength, 0, 1),
     fresnelStrength: clampedNumber(source.fresnelStrength, base.fresnelStrength, 0, 2),
     fresnelPower: clampedNumber(source.fresnelPower, base.fresnelPower, 0.5, 16),
-    fresnelBias: clampedNumber(tone.fresnelBias ?? source.fresnelBias, base.fresnelBias, 0, 0.6),
+    fresnelBias: clampedNumber(toneScalar('fresnelBias'), base.fresnelBias, 0, 0.6),
     fresnelColor: colorArray(tone.fresnelColor ?? source.fresnelColor, base.fresnelColor),
     skyZenithColor: colorArray(source.skyZenithColor, base.skyZenithColor),
     skyHorizonColor: colorArray(source.skyHorizonColor, base.skyHorizonColor),
-    reflectionStrength: clampedNumber(tone.reflectionStrength ?? source.reflectionStrength, base.reflectionStrength, 0, 1.5),
+    reflectionStrength: clampedNumber(toneScalar('reflectionStrength'), base.reflectionStrength, 0, 1.5),
     reflectionDistortion: clampedNumber(source.reflectionDistortion, base.reflectionDistortion, 0, 0.5),
-    reflectionSoftness: clampedNumber(tone.reflectionSoftness ?? source.reflectionSoftness, base.reflectionSoftness, 0, 1),
+    reflectionSoftness: clampedNumber(toneScalar('reflectionSoftness'), base.reflectionSoftness, 0, 1),
 
     rippleStrength: clampedNumber(source.rippleStrength, base.rippleStrength, 0, 8),
     rippleDamping: clampedNumber(source.rippleDamping, base.rippleDamping, 0.8, 0.9995),

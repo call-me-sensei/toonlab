@@ -35,13 +35,27 @@ const revisionDeleteIntegrityMigration = await readFile(
   new URL('../database/migrations/0009_creation_revision_delete_integrity.sql', import.meta.url),
   'utf8',
 );
+const externalCatalogMigration = await readFile(
+  new URL('../database/migrations/0010_external_catalog_assets.sql', import.meta.url),
+  'utf8',
+);
 const vitePlugin = await readFile(new URL('../mcp/vite-plugin.mjs', import.meta.url), 'utf8');
 const workspaceModule = await readFile(new URL('../mcp/workspace.mjs', import.meta.url), 'utf8');
 const mcpServer = await readFile(new URL('../mcp/server.mjs', import.meta.url), 'utf8');
 const bootstrap = await readFile(new URL('../labs/shared/workspace-bootstrap.js', import.meta.url), 'utf8');
 const gallery = await readFile(new URL('../labs/gallery/main.js', import.meta.url), 'utf8');
+const galleryHtml = await readFile(new URL('../gallery/index.html', import.meta.url), 'utf8');
+const assetPage = await readFile(new URL('../labs/asset-page/main.js', import.meta.url), 'utf8');
+const assetLabMain = await readFile(new URL('../labs/asset-lab/ui/main.jsx', import.meta.url), 'utf8');
+const assetLabEngine = await readFile(new URL('../labs/asset-lab/engine/assetEngine.js', import.meta.url), 'utf8');
+const assetHtml = await readFile(new URL('../asset/index.html', import.meta.url), 'utf8');
 const libraryPage = await readFile(new URL('../labs/library/main.js', import.meta.url), 'utf8');
 const libraryHtml = await readFile(new URL('../library/index.html', import.meta.url), 'utf8');
+const libraryAssetExtension = await readFile(new URL('../labs/library/assetExtension.js', import.meta.url), 'utf8');
+const libraryEntry = await readFile(new URL('../labs/library/libraryEntry.js', import.meta.url), 'utf8');
+const libraryCss = await readFile(new URL('../labs/library/library.css', import.meta.url), 'utf8');
+const textureLabMain = await readFile(new URL('../labs/texture-lab/ui/main.jsx', import.meta.url), 'utf8');
+const textureEngine = await readFile(new URL('../labs/texture-lab/engine/textureEngine.js', import.meta.url), 'utf8');
 const stylesPage = await readFile(new URL('../labs/styles/main.js', import.meta.url), 'utf8');
 const setup = await readFile(new URL('./setup-local.mjs', import.meta.url), 'utf8');
 const sqlApplication = await readFile(new URL('../database/apply-sql.mjs', import.meta.url), 'utf8');
@@ -74,6 +88,11 @@ assert.match(revisionHardeningMigration, /creation_revisions_immutable_snapshot/
 assert.match(revisionHardeningMigration, /creation_revisions_same_creation_restore/);
 assert.match(revisionHardeningMigration, /creations_same_current_revision/);
 assert.match(revisionDeleteIntegrityMigration, /on delete no action/);
+assert.match(externalCatalogMigration, /alter column sha256 drop not null/);
+assert.match(externalCatalogMigration, /alter column byte_size drop not null/);
+assert.match(externalCatalogMigration, /alter column content_type drop not null/);
+assert.match(externalCatalogMigration, /catalog_assets_integrity_matches_scope/);
+assert.match(externalCatalogMigration, /redistribution_scope = 'external-only'/);
 assert.match(repository, /locked\.rows\[0\]\.content_hash === contentHash/);
 assert.match(repository, /force: true/);
 assert.match(repository, /saveSource: 'restore'/);
@@ -98,13 +117,13 @@ assert.match(repository, /setLabStateWithClient\(client, key, value\)/);
 assert.doesNotMatch(repository, /for \(const \[key, value\].*await setLabState\(key, value\)/s);
 assert.match(repository, /filter\(\(\[storeKey\]\) => !storeKey\.startsWith\('__'\)\)/);
 assert.match(cleanupMigration, /\? '__current__'/);
-assert.match(libraryPage, /\/library\/\?id=/);
+assert.match(libraryPage, /\/asset\/\?src=library&id=/);
 assert.match(libraryHtml, /Nothing saved yet/);
-assert.match(libraryHtml, /Comma-separated, up to 10/);
-assert.match(libraryPage, /detailForm\.elements\.tags/);
-assert.match(libraryHtml, /Name current version/);
-assert.match(libraryPage, /restoreRevision/);
-assert.match(libraryHtml, /id="revisionList"/);
+assert.match(libraryAssetExtension, /Comma-separated, up to 10/);
+assert.match(libraryAssetExtension, /normalizeCreationTags/);
+assert.match(libraryAssetExtension, /Name current version/);
+assert.match(libraryAssetExtension, /\/restore/);
+assert.match(libraryAssetExtension, /lib-revision-list/);
 assert.match(vitePlugin, /annotateCreationRevision/);
 assert.match(vitePlugin, /restoreCreationRevision/);
 assert.match(vitePlugin, /getCreationRevision/);
@@ -113,15 +132,50 @@ assert.match(libraryHtml, /id="libraryType"/);
 assert.match(libraryHtml, /id="libraryTag"/);
 assert.match(libraryHtml, /id="libraryPager"/);
 assert.match(libraryPage, /const PAGE_SIZE = 36/);
-assert.match(libraryPage, /manufactured-surface-profile/);
-assert.match(libraryPage, /\/asset-lab\/\?url=/);
-assert.match(libraryPage, /className = 'lib-preview-frame'/);
-assert.match(libraryPage, /const \{ _local, \.\.\.document \}/);
+assert.match(libraryEntry, /manufactured-surface-profile/);
+assert.match(libraryAssetExtension, /\/texture-lab\/\?textureRecipe=/);
+assert.doesNotMatch(libraryPage, /setupStage|detailPreview|livePreviewHref/);
+assert.doesNotMatch(libraryHtml, /asset-screen|asset-stage|asset-panel|libraryDetail/);
+assert.match(assetPage, /assetSource === 'library'/);
+assert.match(assetPage, /bootLibraryAsset/);
+assert.match(assetPage, /function setupEmbeddedStage/);
+assert.match(libraryAssetExtension, /setupStage\('model'/);
+assert.match(libraryAssetExtension, /setupEmbeddedStage\(\{/);
+assert.match(libraryCss, /\.asset-library \.asset-panel[^}]*scrollbar-width:\s*thin/s);
+assert.match(textureLabMain, /window\.__assetLabEngine = engine/);
+assert.match(textureEngine, /setCompare\(enabled\)/);
+assert.match(textureEngine, /setSplit\(fraction\)/);
+for (const shellClass of ['asset-screen', 'asset-stage', 'asset-scrim', 'asset-crumb', 'asset-panel']) {
+  const shellPattern = new RegExp(`class="[^"]*\\b${shellClass}\\b`);
+  assert.match(assetHtml, shellPattern, `Gallery detail is missing ${shellClass}.`);
+}
+assert.match(libraryEntry, /const \{ _local, \.\.\.document \}/);
 assert.match(stylesPage, /STYLE_BUNDLE_SLOTS/);
 assert.match(stylesPage, /The Styles editor metadata is out of sync/);
 assert.match(stylesPage, /Your saved documents/);
 assert.match(readme, /\/api\/toonlab\/library\/<bundle-id>\/resolved/);
 assert.match(gallery, /offset: String\(\(state\.page - 1\) \* PAGE_SIZE\)/);
+assert.match(gallery, /\/api\/toonlab\/catalog-facets/);
+assert.match(gallery, /params\.set\('source'/);
+assert.match(gallery, /params\.set\('license'/);
+assert.match(gallery, /params\.set\('kind'/);
+assert.match(gallery, /params\.set\('size'/);
+assert.doesNotMatch(gallery, /api\/polyhaven|fetchSmithsonianIndex|fetchPlateauBuildingIndex/);
+assert.match(galleryHtml, /id="galSource"/);
+assert.match(galleryHtml, /id="galLicense"/);
+assert.match(galleryHtml, /id="galType"/);
+assert.match(galleryHtml, /id="galSize"/);
+assert.match(gallery, /externalDelivery: asset\.redistribution_scope === 'external-only'/);
+assert.match(assetPage, /function externalMetadataFiles\(asset\)/);
+assert.match(assetPage, /Open original download ↗/);
+assert.match(assetPage, /relative_path === 'material-config\.json'/);
+assert.match(assetPage, /rockMaterialConfigUrl=/);
+assert.match(assetLabMain, /rockMaterialConfig = await response\.json\(\)/);
+assert.match(assetLabEngine, /applyRockShader\(object, settings/);
+assert.match(assetLabEngine, /toonLabRockMaterialConfig/);
+assert.match(repository, /group by source, license/);
+assert.match(repository, /metadata->>'catalog' = 'rocks'/);
+assert.match(vitePlugin, /url\.pathname === '\/api\/toonlab\/catalog-facets'/);
 assert.equal(packageJson.scripts.update, 'node scripts/setup-local.mjs --update');
 assert.match(setup, /applyMigrations\(\)/);
 assert.match(setup, /applyCatalogSeeds\(\)/);
@@ -218,6 +272,7 @@ try {
       name: 'Example',
       sha256: 'a'.repeat(64),
       source: 'test',
+      sourceUrl: 'https://example.com/assets/example',
       tags: ['test'],
     }],
     publicBaseUrl: 'https://assets.toonlab.io',
@@ -238,6 +293,55 @@ try {
   assert.match(seed, /download_url = excluded\.download_url/);
   assert.match(seed, /delete from catalog_asset_files where asset_id in/);
   assert.doesNotMatch(seed, /on conflict \(id\) do nothing/);
+
+  const externalManifestPath = join(directory, 'external-release.json');
+  const externalSeedPath = join(directory, 'external-seed.sql');
+  const externalManifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+  externalManifest.assets[0] = {
+    ...externalManifest.assets[0],
+    attribution: 'Example Author — CC BY 4.0',
+    attributionRequired: true,
+    byteSize: null,
+    contentType: null,
+    downloadUrl: 'https://downloads.example.com/example.glb?variant=original',
+    license: 'CC-BY-4.0',
+    licenseUrl: 'https://creativecommons.org/licenses/by/4.0/',
+    metadata: { releaseDelivery: 'external-only' },
+    redistributionScope: 'external-only',
+    sha256: null,
+    thumbnailUrl: 'https://images.example.com/example.webp',
+    licenseReview: {
+      ...externalManifest.assets[0].licenseReview,
+      allowedScope: 'external-only',
+      requiredCredit: 'Example Author — CC BY 4.0',
+    },
+  };
+  await writeFile(externalManifestPath, JSON.stringify(externalManifest));
+  await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [
+      new URL('./generate-catalog-seed.mjs', import.meta.url).pathname,
+      '--manifest', externalManifestPath,
+      '--out', externalSeedPath,
+    ], { stdio: 'ignore' });
+    child.once('error', reject);
+    child.once('exit', (code) => code === 0 ? resolve() : reject(new Error(`external seed generator exited ${code}`)));
+  });
+  const externalSeed = await readFile(externalSeedPath, 'utf8');
+  assert.match(externalSeed, /'external-only'/);
+  assert.match(externalSeed, /null, null, null/);
+
+  const signedExternalPath = join(directory, 'signed-external-release.json');
+  externalManifest.assets[0].thumbnailUrl += '?token=private';
+  await writeFile(signedExternalPath, JSON.stringify(externalManifest));
+  await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [
+      new URL('./generate-catalog-seed.mjs', import.meta.url).pathname,
+      '--manifest', signedExternalPath,
+      '--out', join(directory, 'signed-external.sql'),
+    ], { stdio: 'ignore' });
+    child.once('error', reject);
+    child.once('exit', (code) => code !== 0 ? resolve() : reject(new Error('signed external thumbnail URL was accepted')));
+  });
 
   const missingRockDimensionsPath = join(directory, 'missing-rock-dimensions.json');
   const missingRockDimensions = JSON.parse(await readFile(manifestPath, 'utf8'));
@@ -293,6 +397,7 @@ try {
       name: 'Example',
       sha256: 'a'.repeat(64),
       source: 'test',
+      sourceUrl: 'https://example.com/assets/example',
     }],
     publicBaseUrl: 'https://assets.toonlab.io',
     release: '2026-08',

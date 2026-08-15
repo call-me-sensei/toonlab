@@ -98,6 +98,75 @@ function seededRandom(seed) {
   };
 }
 
+/**
+ * Pad pruning — keep `padCount` well-separated foliage attachments and bare
+ * every other branch tip.
+ *
+ * A recursive skeleton puts a tuft on every terminal twig, and terminal twigs
+ * fill the crown volume evenly. The result is always a dome, however the
+ * individual tufts are shaped: a hundred small masses packed shoulder to
+ * shoulder is a dome, and forty larger ones is a bigger dome. That is correct
+ * for a broadleaf and it is wrong for anything whose identity is DISCRETE
+ * foliage masses with sky and bare limb between them — a cloud-pruned garden
+ * pine above all, but equally a windswept krummholz or an old cedar.
+ *
+ * Selection is farthest-point sampling over the attachment positions, seeded
+ * from the topmost tip, so the kept pads spread over the whole crown instead
+ * of clumping, and the choice is a pure function of the skeleton: same tree,
+ * same pads, every build. Bared attachments use the existing
+ * `densityScale: 0` override, which is already the documented way to strip a
+ * branch, so nothing new is needed downstream.
+ *
+ * `padCount` null (the default) prunes nothing and every existing tree is
+ * untouched.
+ */
+export function resolvePadPruning(attachments, padCount, existingOverrides = null) {
+  const total = Array.isArray(attachments) ? attachments.length : 0;
+  const wanted = Number.isFinite(padCount) ? Math.round(padCount) : 0;
+  if (!total || wanted <= 0 || wanted >= total) return existingOverrides;
+
+  // Seed from the highest tip: a garden pine's uppermost pad is the one a
+  // viewer registers first, so it is never the one that gets pruned.
+  let firstIndex = 0;
+  for (let i = 1; i < total; i += 1) {
+    if (attachments[i].position.y > attachments[firstIndex].position.y) firstIndex = i;
+  }
+
+  const chosen = [firstIndex];
+  const nearest = new Float64Array(total);
+  for (let i = 0; i < total; i += 1) {
+    nearest[i] = attachments[i].position.distanceToSquared(attachments[firstIndex].position);
+  }
+  nearest[firstIndex] = -1;
+
+  while (chosen.length < wanted) {
+    let best = -1;
+    let bestDistance = -1;
+    for (let i = 0; i < total; i += 1) {
+      if (nearest[i] > bestDistance) { bestDistance = nearest[i]; best = i; }
+    }
+    if (best < 0 || bestDistance <= 0) break;
+    chosen.push(best);
+    nearest[best] = -1;
+    for (let i = 0; i < total; i += 1) {
+      if (nearest[i] < 0) continue;
+      const distance = attachments[i].position.distanceToSquared(attachments[best].position);
+      if (distance < nearest[i]) nearest[i] = distance;
+    }
+  }
+
+  const keep = new Set(chosen);
+  const overrides = { ...(existingOverrides ?? {}) };
+  for (let i = 0; i < total; i += 1) {
+    if (keep.has(i)) continue;
+    // A caller's own override for this attachment still wins: pad pruning is
+    // a layout policy, not an authority over explicit per-branch authoring.
+    if (overrides[i]) continue;
+    overrides[i] = { densityScale: 0, cardsPerCluster: 0 };
+  }
+  return overrides;
+}
+
 // Curved trunk along a seeded 3D spine. Returns { geometry, canopyAnchor }:
 // the anchor is the spine's top, so the crown follows the trunk's lean.
 //
@@ -758,6 +827,12 @@ export function createBranchingTreeSkeleton({
     twist = 0,
     gnarl = 0,
     lean = 0,
+    // World heading of the bow, and the lean heading relative to it — the same
+    // meaning they carry on the space-colonization generator. Without them a
+    // stand of wind-shaped trees leans a different way per seed, which reads
+    // as damage rather than as wind. null keeps the historical seeded pick.
+    bendDirection = null,
+    leanOffset = null,
   } = trunk;
   const rand = seededRandom(seed * 4.87 + 2.3);
   let randKey = 0;
@@ -807,11 +882,19 @@ export function createBranchingTreeSkeleton({
   const workVector = new THREE.Vector3();
   const workAxis = new THREE.Vector3();
   const workQuaternion = new THREE.Quaternion();
-  const trunkBendHeading = seededRandom(seed * 9.17 + 4.3)(17) * Math.PI * 2;
+  // The bow's world heading. Tilting about a horizontal axis displaces the
+  // trunk 90° away from that axis, so an authored heading is stored rotated
+  // back by a quarter turn — that way `bendDirection` means "the direction the
+  // trunk bows toward", identical to the space-colonization generator.
+  const seededBendHeading = seededRandom(seed * 9.17 + 4.3)(17) * Math.PI * 2;
+  const trunkBowHeading = bendDirection == null
+    ? seededBendHeading + Math.PI / 2
+    : bendDirection;
+  const trunkBendAxisHeading = trunkBowHeading - Math.PI / 2;
   const trunkBendAxis = new THREE.Vector3(
-    Math.cos(trunkBendHeading),
+    Math.cos(trunkBendAxisHeading),
     0,
-    Math.sin(trunkBendHeading),
+    Math.sin(trunkBendAxisHeading),
   );
 
   // { origin, quaternion, length, radius, level, segments } — BFS like EZ.
@@ -1069,9 +1152,18 @@ export function createBranchingTreeSkeleton({
   // Trunk: optional initial lean carries the classic trunk styles over.
   const rootQuaternion = new THREE.Quaternion();
   if (!spinePoints && lean) {
-    const heading = next() * Math.PI * 2;
+    // The seeded draw is consumed either way, so pinning the lean direction
+    // never shifts the rest of this tree's random stream and every existing
+    // seed keeps its exact geometry.
+    const seededLeanHeading = next() * Math.PI * 2;
+    const leanHeading = leanOffset == null
+      ? seededLeanHeading + Math.PI / 2
+      : trunkBowHeading + leanOffset;
+    const leanAxisHeading = leanHeading - Math.PI / 2;
     rootQuaternion.setFromAxisAngle(
-      new THREE.Vector3(Math.cos(heading), 0, Math.sin(heading)), lean * 0.45);
+      new THREE.Vector3(Math.cos(leanAxisHeading), 0, Math.sin(leanAxisHeading)),
+      lean * 0.45,
+    );
   }
   queue.push({
     origin: new THREE.Vector3(0, 0, 0),
@@ -1398,6 +1490,10 @@ export const DEFAULT_STYLIZED_TREE_SETTINGS = Object.freeze({
     clusterRadius: 0.48,
     frondCount: 7,
     frondLength: 1.25,
+    // Keep only this many well-separated foliage attachments and bare the
+    // rest, so the crown reads as discrete pads with visible limb between
+    // them. null = no pruning, which is every historical tree.
+    padCount: null,
     shellFill: true,
     sprayLayers: 3,
     spraySpread: 0.8,
@@ -1592,6 +1688,7 @@ export function createStylizedTreeSettings(options = {}) {
       clusterRadius: finiteNumber(canopySource.clusterRadius, base.canopy.clusterRadius, { min: 0.01 }),
       frondCount: integerNumber(canopySource.frondCount, base.canopy.frondCount, { min: 3, max: 24 }),
       frondLength: finiteNumber(canopySource.frondLength, base.canopy.frondLength, { min: 0.1, max: 4 }),
+      padCount: nullableNumber(canopySource.padCount, base.canopy.padCount, { min: 1, max: 2000 }),
       shellFill: booleanOption(canopySource.shellFill, base.canopy.shellFill),
       sprayLayers: integerNumber(canopySource.sprayLayers, base.canopy.sprayLayers, { min: 1, max: 12 }),
       spraySpread: finiteNumber(canopySource.spraySpread, base.canopy.spraySpread, { min: 0.05, max: 4 }),
@@ -2469,16 +2566,25 @@ export class StylizedTree extends THREE.Group {
             baseZ + Math.sin(bend) * (baseRadius * 0.2 + length * t),
           ];
         };
+        // The tip has to end UNDER the surface. The historical profile dived
+        // to a fixed -0.18 however far the root ran, so every preset beyond a
+        // stub laid a long tapered spike flat on the ground in full view —
+        // this is why `medium` and `large` read as black spider legs around
+        // the collar in any frame low enough to see the base, and it lands
+        // squarely on the Gate 1 ground-contact shot. Diving in proportion to
+        // the root's own reach keeps the collar flare on show and puts the
+        // rest of the root where a root belongs.
+        const dive = Math.max(0.18, length * 0.44);
         const tube = createBranchTubeGeometry({
           flareBase: false,
           irregularity: 0.2,
           points: [
             pointAt(0, collarY),
             pointAt(0.2, collarY * 0.45),
-            pointAt(0.4, 0.0),
-            pointAt(0.6, -0.03),
-            pointAt(0.8, -0.07),
-            pointAt(1, -0.18),
+            pointAt(0.4, -dive * 0.1),
+            pointAt(0.6, -dive * 0.3),
+            pointAt(0.8, -dive * 0.6),
+            pointAt(1, -dive),
           ],
           radialSegments: 7,
           radiusEnd: baseRadius * rootSpec.radius * 0.4,
@@ -2550,9 +2656,22 @@ export class StylizedTree extends THREE.Group {
     // Only forward canopy values that differ from the defaults, so the
     // tips-placement geometry presets below keep winning unless the caller
     // explicitly overrides them (exactly the legacy sparse-options behavior).
+    //
+    // That difference test cannot distinguish "not supplied" from "supplied,
+    // and equal to the module default", so a caller that authors the
+    // documented default gets the preset instead — cardsPerCluster: 5 lands
+    // as the branching preset's 2, silently halving the canopy. Callers that
+    // do know which fields they were handed may declare them in
+    // `canopy.explicit`, and those are forwarded whatever their value.
+    // Nothing that omits `explicit` changes behaviour.
+    const explicitCanopyKeys = new Set(
+      Array.isArray(settings.canopy.explicit) ? settings.canopy.explicit : [],
+    );
     const canopyOverrides = {};
     for (const [key, value] of Object.entries(settings.canopy)) {
-      if (!(key in DEFAULT_STYLIZED_TREE_SETTINGS.canopy) ||
+      if (key === 'explicit') continue;
+      if (explicitCanopyKeys.has(key) ||
+          !(key in DEFAULT_STYLIZED_TREE_SETTINGS.canopy) ||
           !sameSettingValue(value, DEFAULT_STYLIZED_TREE_SETTINGS.canopy[key])) {
         canopyOverrides[key] = value;
       }
@@ -2589,7 +2708,11 @@ export class StylizedTree extends THREE.Group {
           ? { shellFill: true, shellBudget: extraBlobs.length * 8 }
           : { shellFill: false, ...(attachments.length ? {} : { cardCount: 0 }) })
         : {}),
-      attachmentOverrides: branchOverrides,
+      attachmentOverrides: resolvePadPruning(
+        attachments,
+        settings.canopy.padCount,
+        branchOverrides,
+      ),
       blobs: (generator === 'drawn' || generator === 'branching') && extraBlobs.length
         ? extraBlobs : blobs,
     });
@@ -2604,6 +2727,19 @@ export class StylizedTree extends THREE.Group {
       vegetationShader,
     });
 
+    // A caller can select the style either as `preset` or by handing over the
+    // vegetation shader profile itself (a string, or { style } / { preset } —
+    // the same shape setVegetationShader accepts). Testing only `options.preset`
+    // meant every generator that forwards `vegetationShader` but not `preset` —
+    // BranchTree among them — silently built a bare, untextured trunk.
+    const requestedStyleId = String(
+      options.preset
+      ?? (typeof vegetationShader === 'string'
+        ? vegetationShader
+        : vegetationShader?.style ?? vegetationShader?.preset ?? ''),
+    ).trim();
+    const styleDefaultSurfaceProfile = TREE_SURFACE_PROFILE_DEFAULTS[requestedStyleId] ?? null;
+
     this.trunkMesh = new THREE.Mesh(
       trunkGeometry,
       trunkMaterial ?? createWoodySurfaceNodeMaterial({
@@ -2612,11 +2748,8 @@ export class StylizedTree extends THREE.Group {
         map: trunkMap ?? (
           trunkSurfaceProfile && trunkSurfaceProfile !== 'none'
             ? createTreeSurfaceTexture({ profileId: trunkSurfaceProfile, seed })
-            : options.preset === 'call_me_sensei'
-              ? createTreeSurfaceTexture({
-                profileId: TREE_SURFACE_PROFILE_DEFAULTS.call_me_sensei,
-                seed,
-              })
+            : styleDefaultSurfaceProfile
+              ? createTreeSurfaceTexture({ profileId: styleDefaultSurfaceProfile, seed })
               : null
         ),
         sceneShadowStrength: trunkReceiveShadow ? 1 : 0,
@@ -2630,9 +2763,7 @@ export class StylizedTree extends THREE.Group {
       ? null
       : trunkSurfaceProfile && trunkSurfaceProfile !== 'none'
         ? trunkSurfaceProfile
-        : options.preset === 'call_me_sensei'
-          ? TREE_SURFACE_PROFILE_DEFAULTS.call_me_sensei
-          : null;
+        : styleDefaultSurfaceProfile;
     this.trunkMesh.material.userData.toonlabBarkSurface = {
       profileId: selectedTrunkSurfaceProfile,
       source: authoredTrunkMap

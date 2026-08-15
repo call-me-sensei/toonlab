@@ -17,7 +17,6 @@ import * as THREE from 'three';
 import { validateCatalogEntry } from './manifest.js';
 import { builtinCatalogEntries } from './builtinEntries.js';
 import { createPropAssetFromRecipe, propAssetFromObject } from '../propgen/index.js';
-import { buildingAsset } from '../buildinggen/buildingAsset.js';
 import { createPlantFromRecipe } from '../vegetation/treeRecipe.js';
 import { loadCompiledTreeAsset } from '../vegetation/compiledTree.js';
 import { createRockDocument } from '../rockgen/rockDocument.js';
@@ -30,12 +29,6 @@ import { createStylizedPathsFromRecipe } from '../pathgen/stylizedPaths.js';
 // post, toon) intentionally have no spawner — spawn() explains instead of
 // guessing.
 const SPAWNERS = {
-  buildinggen(entry, { seed }) {
-    const recipe = entry.recipe;
-    return buildingAsset(seed === undefined
-      ? recipe
-      : { ...recipe, options: { ...recipe.options, seed } });
-  },
   debrisgen(entry, { seed }) {
     const settings = entry.recipe.settings;
     const spawnSettings = seed === undefined

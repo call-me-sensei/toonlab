@@ -137,6 +137,116 @@ function prepareNeutralCharacterSource(root, renderer) {
   return replacements.size;
 }
 
+export const CHARACTER_MATERIAL_MODES = Object.freeze({
+  neutral: 'neutral',
+  toon: 'toon',
+});
+
+function normalizeCharacterMaterialMode(mode) {
+  return mode === CHARACTER_MATERIAL_MODES.neutral
+    ? CHARACTER_MATERIAL_MODES.neutral
+    : CHARACTER_MATERIAL_MODES.toon;
+}
+
+function isToonHelperMesh(object) {
+  return object?.userData?.isToonOutline === true || object?.userData?.isToonFurShell === true;
+}
+
+function collectCharacterBodyMeshes(root) {
+  const meshes = [];
+  root.traverse((object) => {
+    if (!object?.isMesh || !object.material || isToonHelperMesh(object)) return;
+    meshes.push(object);
+  });
+  return meshes;
+}
+
+/**
+ * Builds a second, neutral material set over an already-converted character so
+ * a single load can present both looks.
+ *
+ * `prepareNeutralCharacterSource` mounts its neutral materials destructively and
+ * disposes the imported ones, which is right for a one-look runtime and wrong for
+ * a comparison: §11-style shader wipes must share one skeleton, one mixer and one
+ * set of geometry buffers, so the two looks can only differ by which `mesh.material`
+ * reference is bound at draw time. This builds the neutral set from the retained
+ * imported materials without mounting or disposing anything, so both sets stay live
+ * and swapping is a reference assignment rather than a rebuild.
+ */
+function createCharacterMaterialModeState({
+  integration,
+  originalsByMesh,
+  renderer,
+  root,
+}) {
+  const usesNodeMaterials = renderer?.isWebGPURenderer === true;
+  const neutralReplacements = new Map();
+  const neutralByMesh = new Map();
+  const toonByMesh = new Map();
+  const neutralBeforeRender = new Map();
+  const toonBeforeRender = new Map();
+  const helpers = [];
+
+  root.traverse((object) => {
+    if (isToonHelperMesh(object)) helpers.push(object);
+  });
+
+  for (const [mesh, originalMaterial] of originalsByMesh) {
+    const replace = (source) => {
+      if (!source) return source;
+      if (!usesNodeMaterials) return source;
+      if (!neutralReplacements.has(source)) {
+        neutralReplacements.set(source, createNeutralCharacterMaterial(source));
+      }
+      return neutralReplacements.get(source);
+    };
+    neutralByMesh.set(mesh, Array.isArray(originalMaterial)
+      ? originalMaterial.map(replace)
+      : replace(originalMaterial));
+    toonByMesh.set(mesh, mesh.material);
+    toonBeforeRender.set(mesh, mesh.onBeforeRender);
+    neutralBeforeRender.set(
+      mesh,
+      usesNodeMaterials && mesh.isSkinnedMesh
+        ? () => updateToonStorageSkinning(mesh)
+        : THREE.Object3D.prototype.onBeforeRender,
+    );
+  }
+
+  let mode = CHARACTER_MATERIAL_MODES.toon;
+
+  return {
+    disposeNeutral() {
+      for (const material of neutralReplacements.values()) material.dispose?.();
+      neutralReplacements.clear();
+    },
+    get mode() {
+      return mode;
+    },
+    neutralMaterialCount: usesNodeMaterials ? neutralReplacements.size : originalsByMesh.size,
+    set(nextMode) {
+      const resolved = normalizeCharacterMaterialMode(nextMode);
+      if (resolved === mode) return mode;
+      const neutral = resolved === CHARACTER_MATERIAL_MODES.neutral;
+      const source = neutral ? neutralByMesh : toonByMesh;
+      const beforeRender = neutral ? neutralBeforeRender : toonBeforeRender;
+      for (const [mesh, material] of source) {
+        mesh.material = material;
+        mesh.onBeforeRender = beforeRender.get(mesh);
+      }
+      // Outline and fur shells are separate child meshes, never removed — the
+      // toon look owns them and the neutral look must not draw them.
+      for (const helper of helpers) helper.visible = !neutral;
+      mode = resolved;
+      // The depth prepass and self-shadow target bind concrete materials; they
+      // must follow the swap or the neutral half shades against toon buffers.
+      integration?.refresh?.();
+      return mode;
+    },
+    usesNodeMaterials,
+  };
+}
+
 function attachCharacterStyleMetadata(carrier, {
   managed,
   styleTarget,
@@ -181,6 +291,7 @@ function attachCharacterStyleMetadata(carrier, {
 export async function createCharacterRuntime({
   animation = true,
   carrier = null,
+  materialModes = false,
   materialUrl = null,
   name = 'ToonLab Character',
   onStage = null,
@@ -219,6 +330,13 @@ export async function createCharacterRuntime({
     bakeSolidBaseColorTextures(asset.root);
 
     stage(onStage, CHARACTER_RUNTIME_STAGE.STYLE, { asset, bounds, url });
+    // A dual-mode runtime keeps the imported materials alive so the neutral set
+    // can be rebuilt from them after conversion; the single-mode path stays
+    // exactly as before, including the destructive neutral swap.
+    const wantsMaterialModes = materialModes === true && toon !== false;
+    const originalsByMesh = wantsMaterialModes
+      ? new Map(collectCharacterBodyMeshes(asset.root).map((mesh) => [mesh, mesh.material]))
+      : null;
     const neutralSourceMaterialCount = toon === false
       ? prepareNeutralCharacterSource(asset.root, renderer)
       : 0;
@@ -300,6 +418,15 @@ export async function createCharacterRuntime({
     };
     characterCarrier.userData.toonlabCharacterStyleIntegration = characterStyleIntegration;
 
+    const materialModeState = originalsByMesh
+      ? createCharacterMaterialModeState({
+        integration: characterStyleIntegration,
+        originalsByMesh,
+        renderer,
+        root: asset.root,
+      })
+      : null;
+
     const mixer = Object.keys(clipRoles).length
       ? new THREE.AnimationMixer(asset.root)
       : null;
@@ -322,8 +449,31 @@ export async function createCharacterRuntime({
       rig,
       targetMesh,
       toonState,
-      neutralSourceMaterialCount,
+      neutralSourceMaterialCount: materialModeState
+        ? materialModeState.neutralMaterialCount
+        : neutralSourceMaterialCount,
       url,
+
+      /**
+       * `'neutral' | 'toon'` when the runtime was created with
+       * `materialModes: true`, otherwise `null`. Reading it is cheap; it is the
+       * authoritative record of which material set is currently bound.
+       */
+      get materialMode() {
+        return materialModeState?.mode ?? null;
+      },
+
+      /**
+       * Binds one of the two material sets over the same meshes, skeleton and
+       * mixer. Returns the resolved mode, or `null` on a single-mode runtime.
+       *
+       * Cheap enough to call between two `renderer.render` calls in one frame,
+       * which is what a §11-style scissor wipe needs.
+       */
+      setMaterialMode(mode) {
+        if (disposed || !materialModeState) return null;
+        return materialModeState.set(mode);
+      },
 
       applyToonSettings(settings) {
         if (disposed || !toonState) return null;
@@ -332,6 +482,19 @@ export async function createCharacterRuntime({
 
       dispose({ disposeResources = true } = {}) {
         if (disposed) return;
+        // Rebind the toon set so the unmounted half is the one this method
+        // disposes explicitly and `disposeLoadedRoot` still sees a complete
+        // mounted material set.
+        materialModeState?.set(CHARACTER_MATERIAL_MODES.toon);
+        if (disposeResources && materialModeState) {
+          // The neutral bridge materials, then the imported ones they were built
+          // from. When the renderer needs no bridge the two are the same objects
+          // and the second pass is a no-op re-dispose.
+          materialModeState.disposeNeutral();
+          for (const material of originalsByMesh.values()) {
+            for (const entry of Array.isArray(material) ? material : [material]) entry?.dispose?.();
+          }
+        }
         disposed = true;
         mixer?.stopAllAction();
         mixer?.uncacheRoot(asset.root);

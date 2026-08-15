@@ -1,6 +1,7 @@
 // Source inference fallback: public names retained with permissive signatures.
 export function combineMasks(...args: any[]): any;
 export function createCapEdgeWeight(...args: any[]): any;
+export function createCurveFrame(...args: any[]): any;
 export function createDensityWeightMask(...args: any[]): any;
 export function createNoisePatchMask(...args: any[]): any;
 export function createSlopeMask(...args: any[]): any;

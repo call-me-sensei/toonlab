@@ -7,6 +7,7 @@
 import * as THREE from 'three';
 import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
 
 import { readZipEntries } from './zip.js';
 
@@ -17,7 +18,13 @@ import { readZipEntries } from './zip.js';
  * LoadingManager URL modifier rewrites each request by suffix match, which
  * also covers URL-encoded variants.
  */
-export async function loadImportedModel({ url, resources = {}, dracoDecoderPath = '/draco/gltf/' }) {
+export async function loadImportedModel({
+  url,
+  resources = {},
+  dracoDecoderPath = '/draco/gltf/',
+  ktx2TranscoderPath = '/basis/',
+  renderer = null,
+}) {
   const manager = new THREE.LoadingManager();
   const byPath = Object.entries(resources);
   manager.setURLModifier((requested) => {
@@ -32,11 +39,18 @@ export async function loadImportedModel({ url, resources = {}, dracoDecoderPath 
   const dracoLoader = new DRACOLoader(manager);
   dracoLoader.setDecoderPath(dracoDecoderPath);
   loader.setDRACOLoader(dracoLoader);
+  const ktx2Loader = renderer
+    ? new KTX2Loader(manager)
+      .setTranscoderPath(ktx2TranscoderPath)
+      .detectSupport(renderer)
+    : null;
+  if (ktx2Loader) loader.setKTX2Loader(ktx2Loader);
   let gltf;
   try {
     gltf = await loader.loadAsync(url);
   } finally {
     dracoLoader.dispose();
+    ktx2Loader?.dispose();
   }
   const object = gltf.scene ?? gltf.scenes?.[0];
   if (!object) throw new Error('loadImportedModel: glTF contained no scene.');

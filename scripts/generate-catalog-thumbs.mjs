@@ -20,7 +20,7 @@ const OUT_DIR = path.join(ROOT, 'labs', 'catalog', 'thumbs');
 const BASE = process.env.BASE_URL ?? 'http://localhost:5175';
 const ONLY = process.env.ONLY ?? null;
 
-const SPAWNABLE = new Set(['propgen', 'buildinggen', 'vegetation', 'rockgen', 'debrisgen']);
+const SPAWNABLE = new Set(['propgen', 'vegetation', 'rockgen', 'debrisgen']);
 
 async function main() {
   mkdirSync(OUT_DIR, { recursive: true });

@@ -33,8 +33,10 @@
             autocomplete="off"
           />
           <select id="galSource" class="tl-input" name="src" title="Source">
-            <option value="">All official releases</option>
-            <option value="official">Official R2 catalog</option>
+            <option value="">All sources</option>
+          </select>
+          <select id="galLicense" class="tl-input" name="license" title="License">
+            <option value="">All open licenses</option>
           </select>
           <select id="galType" class="tl-input" name="type" title="Type">
             <option value="">All types</option>
@@ -42,8 +44,14 @@
               <option value="texture">Texture</option>
               <option value="model">3D model</option>
               <option value="hdri">HDRI</option>
-              <option value="skybox">Skybox pack</option>
+              <option value="vfx">VFX</option>
             </optgroup>
+          </select>
+          <select id="galSize" class="tl-input" name="size" title="Rock size" hidden>
+            <option value="">All rock sizes</option>
+            <option value="small">Small rocks</option>
+            <option value="medium">Medium rocks</option>
+            <option value="large">Large rocks</option>
           </select>
         </form>
       </div>

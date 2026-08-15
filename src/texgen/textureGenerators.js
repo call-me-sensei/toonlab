@@ -123,19 +123,49 @@ function makeCellular(project) {
 // Grid patterns (bricks, tiles, checker, weave, ...)
 // ---------------------------------------------------------------------------
 
-/** Distance-to-edge bevel profile for rectangular cells. */
-function faceProfile(lu, lv, gap, bevel) {
-  const d = Math.min(lu, 1 - lu, lv, 1 - lv);
-  const g = gap * 0.5;
-  return smoothstep(g, g + Math.max(0.004, bevel), d);
+/**
+ * Distance-to-edge bevel profile for rectangular cells.
+ *
+ * `gap` and `bevel` are cell-local fractions, so a non-square cell (a plank,
+ * a 200x100 subway tile, a clapboard) would otherwise get a joint whose world
+ * width differs per axis by the cell aspect ratio. `sx`/`sy` scale the joint
+ * per axis so an elongated module can carry an even mortar/groove line;
+ * authors drive them from the layer's existing `stretchX`/`stretchY` fields.
+ *
+ * At sx = sy = 1 this is exactly the original single-axis form: smoothstep is
+ * monotonic, so min(smoothstep(du), smoothstep(dv)) === smoothstep(min(du, dv)).
+ */
+function faceProfile(lu, lv, gap, bevel, sx = 1, sy = 1) {
+  const du = Math.min(lu, 1 - lu);
+  const dv = Math.min(lv, 1 - lv);
+  const gu = gap * 0.5 * sx;
+  const gv = gap * 0.5 * sy;
+  const bu = Math.max(0.004, bevel * sx);
+  const bv = Math.max(0.004, bevel * sy);
+  return Math.min(
+    smoothstep(gu, gu + bu, du),
+    smoothstep(gv, gv + bv, dv),
+  );
+}
+
+/**
+ * Joint anisotropy from a layer's stretch fields (1 = isotropic). The clamp
+ * mirrors the schema range for `stretchX`/`stretchY`; at 0.125 a module may run
+ * 8:1 (a 1.6 m deck board in a 200 mm run) and still carry an even joint.
+ */
+function jointAspect(params) {
+  const sx = Number.isFinite(params.stretchX) ? Math.min(16, Math.max(0.125, params.stretchX)) : 1;
+  const sy = Number.isFinite(params.stretchY) ? Math.min(16, Math.max(0.125, params.stretchY)) : 1;
+  return { sx, sy };
 }
 
 function compileBricks(params, seed, offsetMode) {
-  const cols = intIn(params.columns ?? 4, 1, 64, 4);
-  const rows = intIn(params.rows ?? 8, 1, 64, 8);
+  const cols = intIn(params.columns ?? 4, 1, 256, 4);
+  const rows = intIn(params.rows ?? 8, 1, 256, 8);
   const gap = Math.min(0.4, Math.max(0, params.gap ?? 0.06));
   const bevel = Math.min(0.5, Math.max(0, params.bevel ?? 0.12));
   const variation = clamp01(params.cellVariation ?? 0.35);
+  const { sx, sy } = jointAspect(params);
   return (u, v) => {
     const y = v * rows;
     const row = Math.floor(y);
@@ -143,14 +173,14 @@ function compileBricks(params, seed, offsetMode) {
     const x = u * cols + shift;
     const col = Math.floor(x);
     const id = hash3u(seed, ((col % cols) + cols) % cols, ((row % rows) + rows) % rows, 0);
-    const value = faceProfile(fract(x), fract(y), gap, bevel);
+    const value = faceProfile(fract(x), fract(y), gap, bevel, sx, sy);
     return { v: withCellVariation(value, id, variation, seed), cell: id };
   };
 }
 
 function compileChecker(params, seed) {
-  const cols = intIn(params.columns ?? 4, 1, 64, 4);
-  const rows = intIn(params.rows ?? 4, 1, 64, 4);
+  const cols = intIn(params.columns ?? 4, 1, 256, 4);
+  const rows = intIn(params.rows ?? 4, 1, 256, 4);
   return (u, v) => {
     const x = Math.floor(u * cols);
     const y = Math.floor(v * rows);
@@ -160,21 +190,21 @@ function compileChecker(params, seed) {
 }
 
 function compileGrid(params) {
-  const cols = intIn(params.columns ?? 8, 1, 64, 8);
-  const rows = intIn(params.rows ?? 8, 1, 64, 8);
+  const cols = intIn(params.columns ?? 8, 1, 256, 8);
+  const rows = intIn(params.rows ?? 8, 1, 256, 8);
   const gap = Math.min(0.4, Math.max(0.005, params.gap ?? 0.06));
   const bevel = Math.min(0.5, Math.max(0.004, params.bevel ?? 0.06));
+  const { sx, sy } = jointAspect(params);
   return (u, v) => {
     const lu = fract(u * cols);
     const lv = fract(v * rows);
-    const d = Math.min(lu, 1 - lu, lv, 1 - lv);
-    return { v: smoothstep(gap * 0.5, gap * 0.5 + bevel, d), cell: null };
+    return { v: faceProfile(lu, lv, gap, bevel, sx, sy), cell: null };
   };
 }
 
 function compileStripes(params, seed) {
-  const cols = intIn(params.columns ?? 8, 1, 64, 8);
-  const rows = intIn(params.rows ?? 8, 1, 64, 8);
+  const cols = intIn(params.columns ?? 8, 1, 256, 8);
+  const rows = intIn(params.rows ?? 8, 1, 256, 8);
   const variation = clamp01(params.cellVariation ?? 0);
   return (u, v) => {
     const y = v * rows;
@@ -197,8 +227,8 @@ function compileStripes(params, seed) {
 }
 
 function compileChevron(params) {
-  const cols = intIn(params.columns ?? 8, 1, 64, 8);
-  const rows = intIn(params.rows ?? 8, 1, 64, 8);
+  const cols = intIn(params.columns ?? 8, 1, 256, 8);
+  const rows = intIn(params.rows ?? 8, 1, 256, 8);
   return (u, v) => {
     const zig = Math.abs(fract(v * rows) * 2 - 1);
     const t = fract(u * cols + zig);
@@ -207,8 +237,8 @@ function compileChevron(params) {
 }
 
 function compileWeave(params, seed) {
-  const cols = intIn(params.columns ?? 10, 1, 64, 10);
-  const rows = intIn(params.rows ?? 10, 1, 64, 10);
+  const cols = intIn(params.columns ?? 10, 1, 256, 10);
+  const rows = intIn(params.rows ?? 10, 1, 256, 10);
   const gap = Math.min(0.45, Math.max(0.02, params.gap ?? 0.16));
   return (u, v) => {
     const x = u * cols;
@@ -231,8 +261,8 @@ function compileWeave(params, seed) {
 }
 
 function compileBasketWeave(params, seed) {
-  const cols = intIn(params.columns ?? 6, 1, 48, 6);
-  const rows = intIn(params.rows ?? 6, 1, 48, 6);
+  const cols = intIn(params.columns ?? 6, 1, 256, 6);
+  const rows = intIn(params.rows ?? 6, 1, 256, 6);
   const gap = Math.min(0.4, Math.max(0, params.gap ?? 0.08));
   const bevel = Math.min(0.5, Math.max(0.01, params.bevel ?? 0.1));
   const slats = 3;
@@ -257,7 +287,7 @@ function compileBasketWeave(params, seed) {
 }
 
 function compileHex(params, seed) {
-  const cols = intIn(params.columns ?? 6, 1, 48, 6);
+  const cols = intIn(params.columns ?? 6, 1, 256, 6);
   // A staggered lattice with 2:sqrt(3) aspect produces regular hexagons
   // out of plain nearest-center Voronoi. Rows derive from columns so the
   // lattice stays periodic in the unit tile.
@@ -299,8 +329,8 @@ function compileHex(params, seed) {
 }
 
 function compileScales(params, seed) {
-  const cols = intIn(params.columns ?? 8, 1, 48, 8);
-  const rows = intIn(params.rows ?? 12, 1, 64, 12);
+  const cols = intIn(params.columns ?? 8, 1, 256, 8);
+  const rows = intIn(params.rows ?? 12, 1, 256, 12);
   const variation = clamp01(params.cellVariation ?? 0.25);
   return (u, v) => {
     // Staggered rows of overlapping shingles: the row above clips the one
@@ -328,8 +358,8 @@ function compileScales(params, seed) {
 }
 
 function compileDots(params, seed) {
-  const cols = intIn(params.columns ?? 8, 1, 64, 8);
-  const rows = intIn(params.rows ?? 8, 1, 64, 8);
+  const cols = intIn(params.columns ?? 8, 1, 256, 8);
+  const rows = intIn(params.rows ?? 8, 1, 256, 8);
   const radius = Math.min(0.48, Math.max(0.02, 0.5 - (params.gap ?? 0.18)));
   const soft = Math.min(0.5, Math.max(0.01, params.bevel ?? 0.08));
   const jitter = clamp01(params.cellJitter ?? 0);
@@ -383,7 +413,7 @@ function compileMarble(params, seed) {
   const { px, py } = periods(params);
   const octaves = intIn(params.detail ?? 4, 1, 8, 4);
   const sharp = 0.5 + (params.grain ?? 0.5) * 6;
-  const veins = intIn(params.rings ?? 3, 1, 24, 3);
+  const veins = intIn(params.rings ?? 3, 1, 128, 3);
   return (u, v) => {
     const turb = periodicTurbulence2(seed, u * px, v * py, px, py, octaves, 0.55);
     const phase = fract(u * veins + turb * 1.35);
@@ -394,7 +424,7 @@ function compileMarble(params, seed) {
 
 function compileWoodGrain(params, seed) {
   const { px, py } = periods(params);
-  const rings = intIn(params.rings ?? 6, 1, 32, 6);
+  const rings = intIn(params.rings ?? 6, 1, 128, 6);
   const grain = clamp01(params.grain ?? 0.5);
   const octaves = intIn(params.detail ?? 3, 1, 8, 3);
   const streakSeed = hashCombine(seed, 0xbeef);
@@ -441,7 +471,9 @@ function compileFlat() {
 
 const NOISE_USES = ['scale', 'detail', 'detailGain', 'stretchX', 'stretchY', 'warp', 'warpScale'];
 const CELL_USES = ['scale', 'stretchX', 'stretchY', 'cellJitter', 'cellVariation', 'edgeWidth', 'warp', 'warpScale'];
-const GRID_USES = ['columns', 'rows', 'gap', 'bevel', 'cellVariation', 'warp', 'warpScale'];
+// stretchX/stretchY scale the joint width per axis so non-square modules
+// (planks, 200x100 subway tile) can carry an even mortar line.
+const GRID_USES = ['columns', 'rows', 'gap', 'bevel', 'cellVariation', 'stretchX', 'stretchY', 'warp', 'warpScale'];
 
 export const TEXTURE_GENERATORS = Object.freeze({
   fbm: { label: 'Soft noise (fbm)', category: 'noise', uses: NOISE_USES, compile: makeNoise(periodicFbm2, true) },
@@ -484,7 +516,7 @@ export const TEXTURE_GENERATORS = Object.freeze({
   tiles: { label: 'Tiles (stacked)', category: 'pattern', uses: GRID_USES, compile: (p, s) => compileBricks(p, s, 'stacked') },
   hex: { label: 'Hex tiles', category: 'pattern', uses: ['columns', 'gap', 'bevel', 'cellVariation', 'warp', 'warpScale'], compile: compileHex },
   checker: { label: 'Checker', category: 'pattern', uses: ['columns', 'rows', 'warp', 'warpScale'], compile: compileChecker },
-  grid: { label: 'Grid lines', category: 'pattern', uses: ['columns', 'rows', 'gap', 'bevel', 'warp', 'warpScale'], compile: compileGrid },
+  grid: { label: 'Grid lines', category: 'pattern', uses: ['columns', 'rows', 'gap', 'bevel', 'stretchX', 'stretchY', 'warp', 'warpScale'], compile: compileGrid },
   stripes: { label: 'Stripes', category: 'pattern', uses: ['columns', 'rows', 'cellVariation', 'warp', 'warpScale'], compile: compileStripes },
   chevron: { label: 'Chevron zigzag', category: 'pattern', uses: ['columns', 'rows', 'warp', 'warpScale'], compile: compileChevron },
   weave: { label: 'Cloth weave', category: 'pattern', uses: ['columns', 'rows', 'gap', 'warp', 'warpScale'], compile: compileWeave },

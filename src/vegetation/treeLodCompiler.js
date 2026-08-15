@@ -30,6 +30,22 @@ export const TREE_LOD_ENGINE_TRIANGLE_CAPS = Object.freeze({
   // preserving the 140-triangle ultra-far ceiling.
   'woody-axis': Object.freeze([40000, 21000, 11000, 140]),
   'culm-colony': Object.freeze([110000, 35000, 14000, 140]),
+  // BranchTree is not a legacy aggregate-card tree: it hard-sets the recursive
+  // `branching` generator, so a four-level scaffold at 12+ radial segments
+  // spends 14.7k-15.6k triangles on wood alone, before a single leaf. Its LOD0
+  // is also exported with crossed leaf cards (4 triangles each), so the close
+  // source lands well above the legacy default of 12000 by construction, not
+  // by over-authoring.
+  //
+  // Reviewed benchmark: the nine launch-world BranchTree families
+  // (TREE-CITY-HQ-A/B, TREE-COAST-HQ-A, three seed variants each), measured at
+  // four levels / 12 radial segments / 6 children / leaf density 1.1-1.25:
+  // wood 14,740-15,622, leaf cards 5,274-6,683, LOD0 35,962-41,598 triangles.
+  // See launch-plan/review/tree-replacement-authoring.md for the full table.
+  // LOD0 takes an 11% margin over the measured maximum; LOD1 and LOD2 sit at
+  // 59% and 28% of it, inside the 55-78% / 24-42% family ratios the woody-axis
+  // envelope established.
+  'branch-tree': Object.freeze([46000, 27000, 13000, 140]),
   // Native conifers keep explicit annual whorls, curved boughs, and three
   // semantic needle-spray axes per bough. The reviewed Norway-spruce source
   // stays below 40k triangles; LOD1 is targeted to 68% of the actual source
@@ -54,6 +70,16 @@ const LOD_ENGINE_MESHING = Object.freeze({
   // caused mature decurrent crowns to fall to 40% at LOD1 even before their
   // individually oriented foliage was simplified.
   'woody-axis': Object.freeze({
+    radialFactors: Object.freeze([1, 0.75, 0.4]),
+    sectionStrides: Object.freeze([1, 1, 1]),
+  }),
+  // BranchTree grows the same kind of four-level decurrent broadleaf scaffold,
+  // and its silhouette lives in the complete curved centerlines for the same
+  // reason. It also already tapers its own branch cross-sections per level
+  // (radialSegments, then -2, then -4, then 3), so longitudinal decimation on
+  // top of that reaches the three-side floor and squares off the twigs.
+  // Reduce tube sides only.
+  'branch-tree': Object.freeze({
     radialFactors: Object.freeze([1, 0.75, 0.4]),
     sectionStrides: Object.freeze([1, 1, 1]),
   }),

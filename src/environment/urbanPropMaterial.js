@@ -203,6 +203,27 @@ function surfaceProfile(base, overrides) {
 
 const SURFACE_PROFILES = Object.freeze({
   ...LEGACY_SURFACE_PROFILES,
+  // `bareMetal` is the weathered-scrap look: it discards the source albedo's
+  // hue AND value (both authority scales 0) and paints the surface from
+  // `bareMetalColor`, then piles on rust. That is right for an untextured or
+  // scanned prop, and wrong for an authored brushed-stainless map — the
+  // anisotropy an artist baked into the albedo simply never reached the frame,
+  // so `metal`/`brushed` rendered as one flat panel. `brushed` is its own
+  // finish in the contract and now gets its own profile: the metal response
+  // (role hue, fresnel, planar sheen, low light cap) is kept, the authored
+  // VALUE structure is honoured, and the scrapyard wear is dialled out.
+  // `raw`/`polished`/`anodized`/`mirror` still resolve to `bareMetal`.
+  brushedMetal: surfaceProfile(LEGACY_SURFACE_PROFILES.bareMetal, {
+    highlightScale: 0.16,
+    lightValueCap: 0.46,
+    normalScale: 0.9,
+    planarSheenScale: 0.5,
+    responseValueCap: 0.78,
+    sharpRustBoost: 0.5,
+    sourceHueAuthorityScale: 0,
+    sourceValueAuthorityScale: 1,
+    wearScale: 0.45,
+  }),
   coatedPanel: LEGACY_SURFACE_PROFILES.lid,
   genericDielectric: surfaceProfile(LEGACY_SURFACE_PROFILES.paintedMetal, {
     colorLiftScale: 0.42,
@@ -344,6 +365,33 @@ const SURFACE_PROFILES = Object.freeze({
     normalScale: 0.3,
     planarSheenScale: 0,
     viewReflectionScale: 0.01,
+  }),
+  // A diffusing sheet — shoji paper, a paper lantern, a fabric shade — lit
+  // from the far side. `MANUFACTURED_RENDER_MODES` has carried `translucent`
+  // and `transmissive` since v1 and the manifest validates them, but nothing
+  // downstream did anything with them: a paper screen converted to the same
+  // opaque toon surface as a poster, and the single read that makes a teahouse
+  // look like a teahouse — warm interior light through paper, with the lattice
+  // dark against it — was not expressible. See D19-079.
+  //
+  // The response is deliberately NOT physical transmission. A diffuser is not
+  // a window: you do not see through it, you see it lit. So the term is a
+  // view-independent glow, tinted by `translucencyColor`, modulated by the
+  // paper's own albedo (a stain or a fibre inclusion must read darker when
+  // backlit, which is exactly what makes washi look like washi), softened
+  // toward grazing angles, and NOT gated by the sun shadow, because the light
+  // behind the screen is not the sun.
+  paperTranslucent: surfaceProfile(LEGACY_SURFACE_PROFILES.graphicPanel, {
+    fallbackMetalness: 0,
+    fresnelScale: 0.04,
+    highlightScale: 0.02,
+    lightValueCap: 1.16,
+    materialResponseScale: 0.08,
+    normalScale: 0.3,
+    planarSheenScale: 0,
+    translucencyScale: 1,
+    viewReflectionScale: 0.01,
+    wearScale: 0.04,
   }),
   composite: surfaceProfile(LEGACY_SURFACE_PROFILES.technicalSurface, {
     fallbackMetalness: 0.08,
@@ -737,6 +785,11 @@ export function createUrbanPropShaderControls(palette = 'source') {
     sourceAuthorityEnabled: numberControl(1),
     sourceAuthorityStrength: numberControl(1),
     trimColor: colorControl(selected.trimColor),
+    // Diffusing-sheet response (shoji, paper lantern, fabric shade). Only
+    // profiles that declare `translucencyScale` read these.
+    translucencyColor: colorControl(0xffd7a0),
+    translucencyEnabled: numberControl(1),
+    translucencyStrength: numberControl(0.85),
     viewReflectionEnabled: numberControl(1),
     viewReflectionStrength: numberControl(0.62),
     wearEnabled: numberControl(1),
@@ -1042,7 +1095,10 @@ export function resolveUrbanMaterialProfile(classification) {
   }
   switch (classification?.baseMaterial) {
     case 'metal':
-      if (['raw', 'polished', 'brushed', 'anodized', 'mirror'].includes(
+      // Brushed is the one bare-metal finish that normally arrives with an
+      // authored anisotropic map; it keeps that map's value structure.
+      if (classification.finish === 'brushed') return 'brushedMetal';
+      if (['raw', 'polished', 'anodized', 'mirror'].includes(
         classification.finish,
       )) {
         return 'bareMetal';
@@ -1069,7 +1125,12 @@ export function resolveUrbanMaterialProfile(classification) {
     case 'leather':
       return 'leather';
     case 'paper':
-      return 'paper';
+      // A backlit diffusing sheet is a different surface from a poster, and
+      // renderMode is where the contract already says so.
+      return classification.renderMode === 'translucent'
+        || classification.renderMode === 'transmissive'
+        ? 'paperTranslucent'
+        : 'paper';
     case 'composite':
       return 'composite';
     case 'fluid':
@@ -2602,6 +2663,24 @@ export function createUrbanAnimePropMaterial(sourceMaterial, {
     emissive: 0x020508,
     gradientMap: createLockedGradientMap(),
   });
+  // WebGL counterpart of the WebGPU diffusing-sheet term. Without a node graph
+  // the view easing is not available, so this is the flat form: the sheet's own
+  // colour tinted by translucencyColor, added as emission.
+  const translucencyScale = Number(profile.translucencyScale ?? 0);
+  const applyTranslucency = () => {
+    if (!(translucencyScale > 0)) return;
+    const amount = THREE.MathUtils.clamp(
+      Number(shared.translucencyEnabled?.value ?? 0)
+        * Number(shared.translucencyStrength?.value ?? 0)
+        * translucencyScale,
+      0,
+      2,
+    );
+    material.emissive
+      .copy(shared.translucencyColor?.value ?? new THREE.Color(0xffd7a0))
+      .multiply(material.color)
+      .multiplyScalar(amount);
+  };
   material.name = `Locked urban · ${profileId} · ${source?.name ?? 'material'}`;
   material.map = source?.map ?? null;
   material.normalMap = source?.normalMap ?? null;
@@ -2637,6 +2716,7 @@ export function createUrbanAnimePropMaterial(sourceMaterial, {
     material.gradientMap = shared.celLightingEnabled.value > 0.5
       ? createLockedGradientMap()
       : createSmoothGradientMap();
+    applyTranslucency();
   };
   syncLookControls();
   material.onBeforeRender = syncLookControls;
@@ -2810,6 +2890,27 @@ export function createUrbanAnimePropNodeMaterial(sourceMaterial, {
     castShadowAmount.mul(0.72),
   );
 
+  // Diffusing-sheet response. A backlit paper screen is not a window: the read
+  // is the sheet GLOWING, not the room behind it, so this is a view-independent
+  // lift rather than a transmission sample. It is modulated by the sheet's own
+  // albedo so a fibre inclusion or a stain darkens when backlit — the thing
+  // that makes washi read as washi — and eased off toward grazing angles,
+  // where a real sheet presents more thickness and goes opaque. It is NOT
+  // multiplied by `sceneShadow`, because the light behind a shoji is the
+  // interior, not the sun, and a screen that stopped glowing when a cloud
+  // crossed would be exactly wrong.
+  const translucencyScale = Number(profile.translucencyScale ?? 0);
+  const translucency = translucencyScale > 0
+    ? colorControlNode(shared.translucencyColor, 0xffd7a0)
+      .mul(urbanColor)
+      .mul(
+        scalarControl(shared.translucencyEnabled)
+          .mul(scalarControl(shared.translucencyStrength))
+          .mul(translucencyScale)
+          .mul(mix(0.35, 1, facing)),
+      )
+    : null;
+
   const material = new MeshToonNodeMaterial();
   material.name = `Locked urban WebGPU · ${profileId} · ${
     source?.name ?? 'material'
@@ -2819,6 +2920,7 @@ export function createUrbanAnimePropNodeMaterial(sourceMaterial, {
   // Authored emission remains visible in shade; view-dependent manufactured
   // highlights are direct-light cues and must disappear with the sun.
   material.emissiveNode = sourceEmissionNode.add(stylizedResponse.mul(sceneShadow));
+  if (translucency) material.emissiveNode = material.emissiveNode.add(translucency);
   material.normalNode = sourceNormalNode;
   material.gradientMap = createLockedGradientMap();
   material.side = source?.side ?? THREE.FrontSide;

@@ -5,10 +5,12 @@
  * LoadingManager URL modifier rewrites each request by suffix match, which
  * also covers URL-encoded variants.
  */
-export function loadImportedModel({ url, resources, dracoDecoderPath }: {
+export function loadImportedModel({ url, resources, dracoDecoderPath, ktx2TranscoderPath, renderer, }: {
     url: any;
     resources?: {};
     dracoDecoderPath?: string;
+    ktx2TranscoderPath?: string;
+    renderer?: any;
 }): Promise<THREE.Group<THREE.Object3DEventMap>>;
 /**
  * PBR texture-set maps → a tiling MeshStandardMaterial. Prefers the packed

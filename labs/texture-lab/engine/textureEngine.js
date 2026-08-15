@@ -152,6 +152,9 @@ export function createTextureEngine({ mount, store }) {
     metalness: 1,
     roughness: 1,
   });
+  let activePreviewMaterial = neutralMaterial;
+  let compare = false;
+  let split = 0.2;
 
   const geometries = buildPreviewGeometries();
   const meshes = {};
@@ -186,6 +189,7 @@ export function createTextureEngine({ mount, store }) {
   const rebuiltListeners = new Set();
 
   function setPreviewMaterial(material) {
+    activePreviewMaterial = material;
     for (const mesh of Object.values(meshes)) mesh.material = material;
   }
 
@@ -408,6 +412,21 @@ export function createTextureEngine({ mount, store }) {
       const state = store.getState();
       if (state.view.mode === '2d') {
         renderer.render(scene2d, camera2d);
+      } else if (compare && activePreviewMaterial !== neutralMaterial) {
+        controls.update();
+        if (state.view.spin) meshGroup.rotation.y += delta * 0.22;
+        const width = mount.clientWidth || window.innerWidth;
+        const height = mount.clientHeight || window.innerHeight;
+        const splitX = Math.round(width * split);
+        const styledMaterial = activePreviewMaterial;
+        renderer.setScissorTest(true);
+        setPreviewMaterial(neutralMaterial);
+        renderer.setScissor(0, 0, splitX, height);
+        renderer.render(scene, camera);
+        setPreviewMaterial(styledMaterial);
+        renderer.setScissor(splitX, 0, width - splitX, height);
+        renderer.render(scene, camera);
+        renderer.setScissorTest(false);
       } else {
         controls.update();
         if (state.view.spin) meshGroup.rotation.y += delta * 0.22;
@@ -437,7 +456,13 @@ export function createTextureEngine({ mount, store }) {
     resetCamera,
     renderer,
     scene,
+    setCompare(enabled) {
+      compare = Boolean(enabled);
+    },
     setNavigationMode,
+    setSplit(fraction) {
+      split = Math.min(0.98, Math.max(0.02, Number(fraction) || 0.2));
+    },
     start,
   };
 }

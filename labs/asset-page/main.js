@@ -1,8 +1,7 @@
-// /asset/?id=…&kind=… — mirror of toonlab.io/asset/:id (game character-screen
-// showcase: full-bleed live stage, wipe, floating stats panel), with the OSS
-// twist: every fact and file comes live from the source's public API (Poly
-// Haven or Smithsonian 3D), never from a ToonLab backend, and downloads need
-// no account.
+// /asset/?id=…&kind=… — the one asset-detail surface for Gallery and Library:
+// full-bleed live stage, comparison wipe, floating stats panel. Public Gallery
+// sources resolve from their catalog/API; src=library resolves the local entry
+// and mounts editing/version controls into this same page.
 //
 // Textures/models render live through the same unlisted /asset-lab/ embed the
 // Pro page iframes (engine contract: __assetLabEngine, body.dataset.modelReady,
@@ -23,19 +22,26 @@ import {
 } from '../../src/assetlib/galleryMaterialFamily.js';
 
 const params = new URLSearchParams(window.location.search);
-const assetId = (params.get('id') ?? '').replace(/[^a-z0-9_-]/gi, '');
 const requestedSource = params.get('src');
-const assetSource = ['official', 'plateau', 'smithsonian'].includes(requestedSource)
+const assetSource = ['library', 'official', 'plateau', 'smithsonian'].includes(requestedSource)
   ? requestedSource
   : 'polyhaven';
-let sourceLabel = assetSource === 'official'
+const requestedId = params.get('id') ?? '';
+const assetId = assetSource === 'library'
+  ? requestedId.trim().slice(0, 512)
+  : requestedId.replace(/[^a-z0-9_-]/gi, '');
+let sourceLabel = assetSource === 'library'
+  ? 'Your Library'
+  : assetSource === 'official'
   ? 'ToonLab Official Catalog'
   : assetSource === 'smithsonian'
   ? 'Smithsonian 3D Open Access'
   : assetSource === 'plateau'
     ? 'Project PLATEAU'
     : 'Poly Haven';
-let sourcePage = assetSource === 'official'
+let sourcePage = assetSource === 'library'
+  ? '/library/'
+  : assetSource === 'official'
   ? '/gallery/?src=official'
   : assetSource === 'smithsonian'
   ? 'https://3d.si.edu'
@@ -85,15 +91,25 @@ function fail(title, hint) {
 }
 
 if (!assetId) {
-  fail('Asset not found', 'This page needs an ?id= from the gallery.');
+  fail('Asset not found', 'This page needs an ?id= from the Gallery or Library.');
 } else {
   boot().catch((error) => {
     console.error('Asset page failed:', error);
-    fail('Asset source unreachable', `Could not reach the ${sourceLabel} API — check your connection and reload.`);
+    fail(
+      assetSource === 'library' ? 'Library asset unavailable' : 'Asset source unreachable',
+      assetSource === 'library'
+        ? error.message
+        : `Could not reach the ${sourceLabel} API — check your connection and reload.`,
+    );
   });
 }
 
 async function boot() {
+  if (assetSource === 'library') {
+    const { bootLibraryAsset } = await import('../library/assetExtension.js');
+    await bootLibraryAsset({ assetId, el, els, setupEmbeddedStage, setupStage, stat });
+    return;
+  }
   if (assetSource === 'official') {
     await bootOfficial();
     return;
@@ -162,6 +178,7 @@ async function boot() {
 }
 
 function humanBytes(value) {
+  if (value == null) return 'External delivery';
   const bytes = Number(value) || 0;
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -175,6 +192,78 @@ function browserCompatibleSkyFile(file) {
     || /\.(png|jpe?g|webp|hdr|exr)$/i.test(path);
 }
 
+function browserCompatibleModelFile(file) {
+  const path = String(file?.relative_path ?? '').toLowerCase();
+  const contentType = String(file?.content_type ?? '').toLowerCase();
+  return /\.(glb|gltf)$/i.test(path)
+    || contentType === 'model/gltf-binary'
+    || contentType === 'model/gltf+json';
+}
+
+function contentTypeForUrl(url) {
+  let path = '';
+  try {
+    path = new URL(url).pathname.toLowerCase();
+  } catch {
+    path = String(url ?? '').toLowerCase();
+  }
+  if (path.endsWith('.glb')) return 'model/gltf-binary';
+  if (path.endsWith('.gltf')) return 'model/gltf+json';
+  if (path.endsWith('.png')) return 'image/png';
+  if (/\.jpe?g$/.test(path)) return 'image/jpeg';
+  if (path.endsWith('.webp')) return 'image/webp';
+  if (path.endsWith('.hdr')) return 'image/vnd.radiance';
+  if (path.endsWith('.exr')) return 'image/x-exr';
+  if (path.endsWith('.zip')) return 'application/zip';
+  return 'application/octet-stream';
+}
+
+function externalMetadataFiles(asset) {
+  if (asset.redistribution_scope !== 'external-only') return [];
+  const output = [];
+  const add = (relativePath, value, kind) => {
+    const url = typeof value === 'string' ? value : value?.url;
+    if (typeof url !== 'string' || !url.startsWith('https://')) return;
+    output.push({
+      asset_id: asset.id,
+      byte_size: Number(value?.sizeBytes ?? 0) || null,
+      compatibility: {},
+      content_type: contentTypeForUrl(url),
+      download_url: url,
+      kind,
+      relative_path: relativePath,
+    });
+  };
+  if (asset.download_url) {
+    let fileName = 'original-download';
+    try {
+      fileName = decodeURIComponent(new URL(asset.download_url).pathname.split('/').filter(Boolean).pop()) || fileName;
+    } catch { /* The seed verifier already rejects invalid public URLs. */ }
+    add(fileName, asset.download_url, 'primary');
+  }
+  for (const [slot, file] of Object.entries(asset.metadata?.textureFiles ?? {})) {
+    let extension = '';
+    try { extension = new URL(file?.url).pathname.match(/\.[a-z0-9]+$/i)?.[0] ?? ''; } catch { /* no file */ }
+    add(`${slot}${extension}`, file, 'texture');
+  }
+  for (const [relativePath, file] of Object.entries(asset.metadata?.modelResources ?? {})) {
+    add(relativePath, file, 'dependency');
+  }
+  return [...new Map(output.map((file) => [file.download_url, file])).values()];
+}
+
+function officialModelUrl(asset) {
+  if (asset.kind !== 'model' || asset.availability_status !== 'active') return null;
+  if (asset.download_url && browserCompatibleModelFile({
+    content_type: asset.content_type,
+    relative_path: asset.download_url,
+  })) {
+    return asset.download_url;
+  }
+  return (asset.files ?? []).find((file) =>
+    file.download_url && browserCompatibleModelFile(file))?.download_url ?? null;
+}
+
 async function bootOfficial() {
   const response = await fetch(`/api/toonlab/catalog/${encodeURIComponent(assetId)}`);
   if (!response.ok) {
@@ -182,14 +271,33 @@ async function bootOfficial() {
     return;
   }
   const { asset } = await response.json();
+  const packFiles = [...(asset.files ?? []), ...externalMetadataFiles(asset)];
   sourcePage = asset.source_url || '/gallery/?src=official';
   document.title = `${asset.name} — ToonLab`;
-  els.crumbSource.textContent = sourceLabel;
+  els.crumbSource.textContent = asset.source || sourceLabel;
   els.name.textContent = asset.name;
-  if (asset.thumbnail_url) {
-    els.stage.style.backgroundImage = `url("${asset.thumbnail_url.replace(/"/g, '%22')}")`;
+  const modelUrl = officialModelUrl(asset);
+  if (modelUrl) {
+    const rockMaterialConfigUrl = asset.source === 'toonlab-rock'
+      ? packFiles.find((file) => file.relative_path === 'material-config.json')?.download_url ?? null
+      : null;
+    setupStage('model', {
+      download: { url: modelUrl },
+      thumbnailUrl: asset.thumbnail_url,
+    }, {
+      materialFamily: resolveGalleryMaterialFamily({
+        ...asset,
+        materialFamily: asset.source === 'toonlab-rock' ? 'environment' : undefined,
+      }),
+      rockMaterialConfigUrl,
+      scanStylize: false,
+    });
+  } else {
+    if (asset.thumbnail_url) {
+      els.stage.style.backgroundImage = `url("${asset.thumbnail_url.replace(/"/g, '%22')}")`;
+    }
+    els.stage.classList.add('asset-stage--pack');
   }
-  els.stage.classList.add('asset-stage--pack');
   const sourceLink = el('a', null, `${asset.source || 'Upstream source'} ↗`);
   sourceLink.href = sourcePage;
   sourceLink.target = '_blank';
@@ -204,7 +312,7 @@ async function bootOfficial() {
     stat('Type', asset.kind),
     stat('Release', asset.release),
     stat('Original archive', humanBytes(asset.byte_size)),
-    stat('Formats', [...new Set((asset.files ?? []).map((file) => file.relative_path.split('.').pop()?.toUpperCase()).filter(Boolean))].join(' · ') || asset.content_type),
+    stat('Formats', [...new Set(packFiles.map((file) => file.relative_path.split('.').pop()?.toUpperCase()).filter(Boolean))].join(' · ') || asset.content_type || 'External'),
     stat('Availability', asset.availability_status),
   );
   if (asset.attribution_required) {
@@ -218,9 +326,16 @@ async function bootOfficial() {
   }
 
   if (asset.availability_status === 'active' && asset.download_url) {
-    els.download.textContent = 'Download original ZIP ↓';
+    els.download.textContent = asset.redistribution_scope === 'external-only'
+      ? 'Open original download ↗'
+      : 'Download original ↓';
     els.download.href = asset.download_url;
-    els.download.download = '';
+    if (asset.redistribution_scope === 'external-only') {
+      els.download.target = '_blank';
+      els.download.rel = 'noreferrer';
+    } else {
+      els.download.download = '';
+    }
     els.download.hidden = false;
   } else {
     const warning = el('p', 'asset-pack-warning',
@@ -228,7 +343,7 @@ async function bootOfficial() {
     els.actions.appendChild(warning);
   }
 
-  const compatibleFiles = (asset.files ?? []).filter(browserCompatibleSkyFile);
+  const compatibleFiles = packFiles.filter(browserCompatibleSkyFile);
   if (asset.kind === 'skybox' && compatibleFiles.length > 0 && asset.availability_status === 'active') {
     const openLab = el('a', 'pill', 'Open Sky Shader Lab');
     openLab.href = '/sky-lab/?tab=preview';
@@ -237,14 +352,14 @@ async function bootOfficial() {
 
   const pack = el('section', 'asset-pack-files');
   const heading = el('div', 'asset-pack-files__heading');
-  heading.append(el('strong', null, 'Files in this pack'), el('span', null, `${asset.files?.length ?? 0} files`));
+  heading.append(el('strong', null, 'Files in this pack'), el('span', null, `${packFiles.length} files`));
   const search = el('input', 'asset-pack-files__search');
   search.type = 'search';
   search.placeholder = 'Search paths and formats…';
   const list = el('div', 'asset-pack-files__list');
   const renderFiles = () => {
     const query = search.value.trim().toLowerCase();
-    const files = (asset.files ?? []).filter((file) =>
+    const files = packFiles.filter((file) =>
       `${file.relative_path} ${file.content_type}`.toLowerCase().includes(query));
     list.replaceChildren(...files.map((file) => {
       const row = el('div', 'asset-pack-file');
@@ -473,17 +588,42 @@ function setupStage(kind, directRef = null, {
     kind,
     source: assetSource,
   }),
+  rockMaterialConfigUrl = null,
+  scanStylize = true,
 } = {}) {
   const labUrl = directRef
-    ? `/asset-lab/?url=${encodeURIComponent(directRef.download.url)}&asset=${encodeURIComponent(assetId)}&kind=model&style=call_me_sensei`
+    ? `/asset-lab/?url=${encodeURIComponent(directRef.download.url)}&asset=${encodeURIComponent(assetId)}&kind=${encodeURIComponent(kind)}&style=call_me_sensei`
     : `/asset-lab/?source=polyhaven&asset=${encodeURIComponent(assetId)}&kind=${kind}&style=call_me_sensei`;
   const stageThumb = directRef?.thumbnailUrl
     ?? `https://cdn.polyhaven.com/asset_img/thumbs/${assetId}.png?width=1280&height=960`;
-  els.stage.style.backgroundImage = `url("${stageThumb.replace(/"/g, '%22')}")`;
+  const rockMaterialParam = rockMaterialConfigUrl
+    ? `&rockMaterialConfigUrl=${encodeURIComponent(rockMaterialConfigUrl)}`
+    : '';
+  setupEmbeddedStage({
+    assetLabControls: true,
+    kind,
+    labUrl: `${labUrl}&materialFamily=${encodeURIComponent(materialFamily)}&scanStylize=${scanStylize ? '1' : '0'}${rockMaterialParam}`,
+    supportsCompare: true,
+    thumbnailUrl: stageThumb,
+  });
+}
+
+// The single Gallery/Library preview mount. Sources only provide the embed
+// URL and metadata; loading, retry, comparison wipe and stage chrome stay here.
+function setupEmbeddedStage({
+  assetLabControls = false,
+  kind,
+  labUrl,
+  supportsCompare = false,
+  thumbnailUrl = null,
+}) {
+  if (thumbnailUrl) {
+    els.stage.style.backgroundImage = `url("${String(thumbnailUrl).replace(/"/g, '%22')}")`;
+  }
 
   const frame = document.createElement('iframe');
-  frame.src = `${labUrl}&hud=0&embed=1&compare=1&split=0.2`
-    + `&materialFamily=${encodeURIComponent(materialFamily)}`;
+  const separator = labUrl.includes('?') ? '&' : '?';
+  frame.src = `${labUrl}${separator}hud=0&embed=1&compare=${supportsCompare ? '1' : '0'}&split=0.2`;
   frame.title = `${assetId} — source vs Call Me Sensei style, live`;
   frame.allow = 'fullscreen';
   els.stage.appendChild(frame);
@@ -535,37 +675,42 @@ function setupStage(kind, directRef = null, {
     }
   }, 300);
 
-  // Wipe: styled view dominates; the handle drives the engine live.
-  let split = 0.2;
-  els.wipe.hidden = false;
-  els.wipe.style.left = `${split * 100}%`;
-  const dragSplit = (clientX) => {
-    const rect = els.stage.getBoundingClientRect();
-    if (rect.width === 0) return;
-    split = Math.min(0.95, Math.max(0.02, (clientX - rect.left) / rect.width));
+  if (supportsCompare) {
+    // Wipe: styled view dominates; the handle drives the embedded engine live.
+    let split = 0.2;
+    els.wipe.hidden = false;
     els.wipe.style.left = `${split * 100}%`;
-    els.wipe.setAttribute('aria-valuenow', String(Math.round(split * 100)));
-    engine()?.setSplit(split);
-  };
-  els.wipe.addEventListener('pointerdown', (e) => {
-    els.wipe.setPointerCapture(e.pointerId);
-    dragSplit(e.clientX);
-  });
-  els.wipe.addEventListener('pointermove', (e) => {
-    if (e.buttons > 0) dragSplit(e.clientX);
-  });
-  els.wipe.addEventListener('keydown', (e) => {
-    const rect = els.stage.getBoundingClientRect();
-    if (e.key === 'ArrowLeft') dragSplit(rect.left + (split - 0.05) * rect.width);
-    if (e.key === 'ArrowRight') dragSplit(rect.left + (split + 0.05) * rect.width);
-  });
+    const dragSplit = (clientX) => {
+      const rect = els.stage.getBoundingClientRect();
+      if (rect.width === 0) return;
+      split = Math.min(0.95, Math.max(0.02, (clientX - rect.left) / rect.width));
+      els.wipe.style.left = `${split * 100}%`;
+      els.wipe.setAttribute('aria-valuenow', String(Math.round(split * 100)));
+      engine()?.setSplit(split);
+    };
+    els.wipe.addEventListener('pointerdown', (e) => {
+      els.wipe.setPointerCapture(e.pointerId);
+      dragSplit(e.clientX);
+    });
+    els.wipe.addEventListener('pointermove', (e) => {
+      if (e.buttons > 0) dragSplit(e.clientX);
+    });
+    els.wipe.addEventListener('keydown', (e) => {
+      const rect = els.stage.getBoundingClientRect();
+      if (e.key === 'ArrowLeft') dragSplit(rect.left + (split - 0.05) * rect.width);
+      if (e.key === 'ArrowRight') dragSplit(rect.left + (split + 0.05) * rect.width);
+    });
+  }
 
   els.stageLabel.hidden = false;
+  els.stageLabel.innerHTML = supportsCompare
+    ? 'Live on your GPU — left <b>source</b> · right <b>Call Me Sensei</b> · drag to orbit'
+    : 'Live on your GPU · drag to orbit';
 
-  if (kind === 'texture') {
+  if (assetLabControls && kind === 'texture') {
     setupTextureControls(engine);
     setupTextureLabHandoff(frameWin, labUrl);
-  } else {
+  } else if (assetLabControls && kind === 'model') {
     setupRetexture(frameWin);
   }
 }

@@ -66,6 +66,7 @@ import {
   normalizeToonLabRockMaterialLibrarySchema,
 } from '../environment/toonLabRockMaterialResolver.js';
 import { installToonLabSurfaceLighting } from '../environment/toonLabSurfaceLighting.js';
+import { ROCK_CAVITY_ATTRIBUTE } from './rockGeometryDetail.js';
 
 export const TOONLAB_ROCK_MANIFEST_SCHEMA = 'toonlab.rock-material-library';
 export const TOONLAB_ROCK_MANIFEST_VERSION = 1;
@@ -1031,6 +1032,14 @@ export function createToonRockMaterial({
       2,
     ),
     vertexAoStrength: Math.max(0, finite(assetIntegration?.vertexAoStrength, 0)),
+    // Reads the `rockCavity` channel written by rockGeometryDetail. Gated the
+    // same way as the other optional vertex channels: 0 means the attribute is
+    // not required to exist, so meshes without geometry detail are unaffected.
+    vertexCavityStrength: clamp(
+      finite(assetIntegration?.vertexCavityStrength, 0),
+      0,
+      4,
+    ),
     vertexColorStrength: clamp(
       finite(assetIntegration?.vertexColorStrength, 0),
       0,
@@ -1153,8 +1162,26 @@ export function createToonRockMaterial({
     // Coverage is scalar. Using RGB moss texels as the interpolation mask
     // cross-mixed color channels and could turn green source moss magenta.
     const mossCoverage = dot(mossSample, vec3(0.2126, 0.7152, 0.0722));
+    // Moisture, not slope. Slope alone puts moss on upward faces and nowhere
+    // else, which is why a slope-only mask reads as a flat tint painted onto
+    // ledges. Real moss follows where water lingers and light is indirect:
+    // crevices, hollows, and the shaded junctions between slabs. `rockCavity`
+    // carries that concavity per vertex, so it adds moisture on vertical and
+    // shaded surfaces that the slope term scores at zero — and because it is an
+    // interpolated geometric field rather than a threshold on a constant, the
+    // resulting boundary is irregular and follows the form.
+    const moisture = resolvedAssetIntegration.vertexCavityStrength > 0
+      ? clamp(
+        slope.add(
+          attribute(ROCK_CAVITY_ATTRIBUTE, 'float')
+            .mul(resolvedAssetIntegration.vertexCavityStrength),
+        ),
+        0,
+        1,
+      )
+      : slope;
     const mossMask = clamp(
-      pow(mossCoverage.mul(resolvedProfile.moss.multiply).mul(slope), 2),
+      pow(mossCoverage.mul(resolvedProfile.moss.multiply).mul(moisture), 2),
       0,
       1,
     );

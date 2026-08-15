@@ -34,9 +34,6 @@ import {
 import { resolveWorldPreset } from './worldPresets.js';
 import { createWorldCollision } from './worldCollision.js';
 import { createStylizedPaths } from './pathgen/stylizedPaths.js';
-import { connectPointsOfInterest } from './pathgen/pathRouter.js';
-import { createStylizedVillage } from './villagegen/stylizedVillage.js';
-import { pickPoiSites } from './villagegen/villageSites.js';
 import { createFauna } from './fauna/index.js';
 import { createAmbientFx } from './ambientfx/index.js';
 import { createWeatherSystem } from './weather/index.js';
@@ -182,7 +179,6 @@ export async function createStylizedWorld({
   preset = 'outdoorGameplay',
   water = {},
   paths = false,
-  pois = false,
   fauna = false,
   ambientfx = false,
   weather = {},
@@ -258,94 +254,27 @@ export async function createStylizedWorld({
     camera.updateProjectionMatrix();
   }
 
-  // POIs before paths, paths before the environment conversion. Villages
-  // contribute their street centerlines as explicit routes, and their
-  // entries become router nodes — roads between settlements come free.
+  // Paths are built before the environment conversion so they receive the
+  // same environment treatment as the terrain.
   const earlyWaterLevel = water !== false ? Number(cleanObject(water).level) || 0 : 0;
-  let poiList = [];
-  const poiRoutes = [];
-  if (pois && heightAt) {
-    const poiOptions = cleanObject(pois);
-    const poiSeed = Math.round(Number(poiOptions.seed) || 1);
-    const requests = [];
-    for (const [key, archetype] of [
-      ['villages', 'village'],
-      ['shrines', 'shrine'],
-      ['ruins', 'ruin'],
-      ['campsites', 'campsite'],
-      ['pierHamlets', 'pierHamlet'],
-    ]) {
-      const count = Math.max(Math.round(Number(poiOptions[key]) || 0), 0);
-      if (count > 0) requests.push({ archetype, count });
-    }
-    // Hosts with decorative rims beyond the playable area pass pois.size to
-    // keep settlements reachable.
-    const poiSize = poiOptions.size ?? { x: width, z: depth };
-    const sites = pickPoiSites({
-      heightAt,
-      requests,
-      seed: poiSeed,
-      size: poiSize,
-      waterLevel: earlyWaterLevel,
-    });
-    poiList = sites.map((site) => {
-      const village = createStylizedVillage({
-        archetype: site.archetype,
-        center: { x: site.x, z: site.z },
-        heightAt,
-        parent: terrainRoot,
-        radius: site.radius,
-        seed: site.seed,
-        waterLevel: earlyWaterLevel,
-      });
-      poiRoutes.push(...village.streetRoutes);
-      return village;
-    });
-    // Connect POI entries into a road network (MST + occasional loop).
-    const entryNodes = poiList.map((poi) => ({
-      x: (poi.entries[0].x + poi.entries[1].x) / 2,
-      z: (poi.entries[0].z + poi.entries[1].z) / 2,
-    }));
-    if (entryNodes.length >= 2) {
-      const edges = connectPointsOfInterest(entryNodes, { loopChance: 0.3, seed: poiSeed });
-      for (const [fromIndex, toIndex] of edges) {
-        const fromPoi = poiList[fromIndex];
-        const toPoi = poiList[toIndex];
-        // route from the nearest entry of one place to the nearest of the other
-        let bestPair = null;
-        for (const from of fromPoi.entries) {
-          for (const to of toPoi.entries) {
-            const distance = (from.x - to.x) ** 2 + (from.z - to.z) ** 2;
-            if (!bestPair || distance < bestPair.distance) bestPair = { distance, from, to };
-          }
-        }
-        poiRoutes.push({
-          from: [bestPair.from.x, bestPair.from.z],
-          style: 'dirt',
-          to: [bestPair.to.x, bestPair.to.z],
-        });
-      }
-    }
-  }
-
   // Path network before the environment conversion, so ribbons and bridges
   // parented under the terrain root get shaded (and join the height fog)
   // exactly like the terrain itself. Accepts a prebuilt network or builds
   // one here from the terrain contract.
   let pathsSystem = null;
   let ownsPaths = false;
-  if (paths || poiRoutes.length > 0) {
+  if (paths) {
     if (paths && typeof paths.maskAt === 'function' && paths.root) {
       pathsSystem = paths;
     } else if (heightAt) {
       const pathOptions = cleanObject(paths);
       const userRoutes = Array.isArray(pathOptions.routes) ? pathOptions.routes : [];
-      const hasExplicit = userRoutes.length > 0 || poiRoutes.length > 0;
+      const hasExplicit = userRoutes.length > 0;
       pathsSystem = createStylizedPaths({
         auto: pathOptions.auto
-          ?? (hasExplicit || !paths ? null : { count: pathOptions.count ?? 4, styles: pathOptions.styles ?? ['dirt'] }),
+          ?? (hasExplicit ? null : { count: pathOptions.count ?? 4, styles: pathOptions.styles ?? ['dirt'] }),
         heightAt,
-        routes: [...poiRoutes, ...userRoutes],
+        routes: userRoutes,
         seed: pathOptions.seed ?? 1,
         settings: pathOptions.settings ?? {},
         size: { x: width, z: depth },
@@ -694,36 +623,8 @@ export async function createStylizedWorld({
     // enough that meter-tall blades can't lean over the ribbon.
     masks.paths = (x, z) => pathsSystem.maskAt(x, z) <= 0.12;
   }
-  if (masks && poiList.length > 0) {
-    // No trees through roofs: a coarse spatial hash over every POI blocker
-    // circle (buildings, wells, fences) keeps scatter out of settlements.
-    const cell = 8;
-    const buckets = new Map();
-    for (const poi of poiList) {
-      for (const circle of poi.blockers) {
-        const pad = circle.radius + 1.2;
-        for (let ix = Math.floor((circle.x - pad) / cell); ix <= Math.floor((circle.x + pad) / cell); ix += 1) {
-          for (let iz = Math.floor((circle.z - pad) / cell); iz <= Math.floor((circle.z + pad) / cell); iz += 1) {
-            const key = `${ix},${iz}`;
-            const bucket = buckets.get(key);
-            if (bucket) bucket.push(circle);
-            else buckets.set(key, [circle]);
-          }
-        }
-      }
-    }
-    masks.pois = (x, z) => {
-      const bucket = buckets.get(`${Math.floor(x / cell)},${Math.floor(z / cell)}`);
-      if (!bucket) return true;
-      for (const circle of bucket) {
-        const pad = circle.radius + 1.2;
-        if ((circle.x - x) ** 2 + (circle.z - z) ** 2 < pad * pad) return false;
-      }
-      return true;
-    };
-  }
   const vegetationMask = masks
-    ? combineMasks(masks.slope, masks.water, masks.paths, masks.pois)
+    ? combineMasks(masks.slope, masks.water, masks.paths)
     : (pathsSystem ? (x, z) => pathsSystem.maskAt(x, z) <= 0.12 : null);
   const defaultCenter = followTarget?.position ?? { x: 0, z: 0 };
   // Per-system custom masks (e.g. a createNoisePatchMask forest-cluster
@@ -1013,7 +914,6 @@ export async function createStylizedWorld({
   // terrain underneath.
   const collision = createWorldCollision({ heightAt: pathsSystem?.heightAt ?? heightAt });
   if (pathsSystem?.blockers?.length) collision.addCircles(pathsSystem.blockers);
-  for (const poi of poiList) collision.addCircles(poi.blockers);
   if (forest) {
     const trunkScale = [
       cleanObject(cleanObject(trees).settings).size,
@@ -1120,7 +1020,6 @@ export async function createStylizedWorld({
       understoryLayer?.dispose();
       contactShadowField?.dispose();
       if (ownsPaths) pathsSystem?.dispose();
-      for (const poi of poiList) poi.dispose();
       faunaSystem?.dispose();
       ambientFx?.dispose();
       weatherSystem?.dispose();
@@ -1148,7 +1047,6 @@ export async function createStylizedWorld({
     fauna: faunaSystem,
     masks,
     paths: pathsSystem,
-    pois: poiList,
     setCloudShadow: applyCloudShadow,
     setSun,
     setSunDirection,
@@ -1248,7 +1146,6 @@ export async function createStylizedWorld({
       groundFieldPass?.update();
       refreshGrassWindow();
       weatherSystem?.update(delta);
-      for (const poi of poiList) poi.update(delta, camera);
       faunaSystem?.update(delta);
       ambientFx?.update(delta, camera);
       waterSurface?.update(renderer, scene, camera, delta);

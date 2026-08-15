@@ -13,10 +13,12 @@ import {
 import { initializeHudTabs } from './hudTabs.js';
 import { resolveRendererKind } from './rendererKind.js';
 import { installRendererSwitcher } from './rendererSwitcher.js';
+import { primeActiveStyleBundle } from './stylePreference.js';
 
 // Merge persisted lab state into the URL (explicit params win) BEFORE any lab
 // module reads location.search.
 restorePersistedParams();
+primeActiveStyleBundle();
 
 const params = new URLSearchParams(window.location.search);
 const controllerMode = (params.get('controller') || '').toLowerCase();

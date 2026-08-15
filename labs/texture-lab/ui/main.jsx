@@ -25,6 +25,14 @@ if (!window.__textureLabBooted) {
     ? createTextureEngine({ mount: document.getElementById('stage'), store })
     : null;
   window.__textureLab = { engine, store };
+  if (engine) {
+    // Shared Gallery/Library asset-page contract. The outer page owns the
+    // wipe handle; Texture Lab renders neutral maps on the left and the
+    // selected environment style on the right.
+    window.__assetLabEngine = engine;
+    engine.setCompare(urlParams.get('compare') === '1');
+    engine.setSplit(Number.parseFloat(urlParams.get('split')) || 0.2);
+  }
 
   // Cross-lab import (e.g. Asset Browser → "Toonify in Texture Lab"): the
   // handoff carries the same {dataUrl, name} shape as a manual upload and

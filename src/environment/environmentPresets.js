@@ -660,6 +660,96 @@ registerEnvironmentPreset('call_me_sensei', {
         },
       },
     },
+    // The finish axis is the one an audience actually reads at a glance:
+    // brushed stainless next to charcoal powder coat is the same base material
+    // and must not look like the same surface. Without these profiles the
+    // finish was validated by the contract, stored on the material, and then
+    // had no effect on the frame, so `metal`/`brushed` converted to the same
+    // response as `mineral`/`raw`. Resolution order puts finishes AFTER
+    // baseMaterials, so a finish refines its base rather than fighting it.
+    finishes: {
+      anodized: {
+        parameters: {
+          specularShininess: 70,
+          specularSoftness: 0.3,
+          specularStrength: 0.34,
+        },
+      },
+      brushed: {
+        // Anisotropic metal: a broad, smeared highlight (low shininess, wide
+        // softness) rather than a point hit, plus a real sky pickup — that
+        // cool skylight in the mid-tones is what says "metal" in an anime
+        // frame, not the metalness channel the toon shader does not have.
+        parameters: {
+          skyTintStrength: 0.34,
+          specularColor: [0.86, 0.9, 1],
+          specularShininess: 26,
+          specularSoftness: 0.42,
+          specularStrength: 0.55,
+        },
+      },
+      clearCoated: {
+        parameters: {
+          specularShininess: 140,
+          specularSoftness: 0.14,
+          specularStrength: 0.42,
+        },
+      },
+      glazed: {
+        parameters: {
+          specularShininess: 120,
+          specularSoftness: 0.16,
+          specularStrength: 0.46,
+        },
+      },
+      matte: {
+        parameters: {
+          specularShininess: 10,
+          specularSoftness: 0.55,
+          specularStrength: 0.03,
+        },
+      },
+      mirror: {
+        parameters: {
+          skyTintStrength: 0.6,
+          specularShininess: 240,
+          specularSoftness: 0.08,
+          specularStrength: 0.9,
+        },
+      },
+      // Powder coat and enamel are dielectric films: a soft, broad sheen that
+      // must stay clearly below `brushed` so painted metal and bare metal
+      // separate at a glance.
+      painted: {
+        parameters: {
+          specularShininess: 34,
+          specularSoftness: 0.34,
+          specularStrength: 0.14,
+        },
+      },
+      polished: {
+        parameters: {
+          skyTintStrength: 0.45,
+          specularShininess: 180,
+          specularSoftness: 0.1,
+          specularStrength: 0.7,
+        },
+      },
+      raw: {
+        parameters: {
+          specularShininess: 12,
+          specularSoftness: 0.5,
+          specularStrength: 0.04,
+        },
+      },
+      varnished: {
+        parameters: {
+          specularShininess: 90,
+          specularSoftness: 0.2,
+          specularStrength: 0.3,
+        },
+      },
+    },
     objectClasses: {
       buildingExterior: {
         parameters: { normalMapStrength: 0.66 },

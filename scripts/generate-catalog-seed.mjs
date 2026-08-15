@@ -73,6 +73,22 @@ function assertContentType(value, label) {
   }
 }
 
+function assertPublicHttpsUrl(value, label, { optional = false } = {}) {
+  if (optional && !value) return;
+  let url;
+  try {
+    url = new URL(String(value ?? ''));
+  } catch {
+    throw new Error(`${label}: must be public HTTPS`);
+  }
+  if (
+    url.protocol !== 'https:'
+    || url.username
+    || url.password
+    || /[?&](?:sign|signature|token|X-Amz-Credential|X-Amz-Signature)=/i.test(url.search)
+  ) throw new Error(`${label}: must be public HTTPS`);
+}
+
 function assertReview(asset, policy) {
   const review = asset.licenseReview;
   if (!review || typeof review !== 'object') throw new Error(`${asset.id}: licenseReview is required`);
@@ -110,7 +126,7 @@ function assertRockDimensions(asset) {
 function assertAsset(asset, release, baseUrl) {
   const required = [
     'id', 'source', 'kind', 'name', 'license', 'licenseUrl', 'downloadUrl',
-    'sha256', 'byteSize', 'contentType', 'redistributionScope', 'reviewedAt',
+    'redistributionScope', 'reviewedAt',
   ];
   for (const field of required) {
     if (asset[field] == null || asset[field] === '') throw new Error(`${asset.id ?? 'asset'}: ${field} is required`);
@@ -130,13 +146,24 @@ function assertAsset(asset, release, baseUrl) {
   if (asset.attributionRequired && !String(asset.attribution ?? '').trim()) {
     throw new Error(`${asset.id}: attribution text is required`);
   }
-  assertSha(asset.sha256, asset.id);
-  assertBytes(asset.byteSize, asset.id);
-  assertContentType(asset.contentType, asset.id);
+  const externalOnly = asset.redistributionScope === 'external-only';
+  if (!externalOnly) {
+    assertSha(asset.sha256, asset.id);
+    assertBytes(asset.byteSize, asset.id);
+    assertContentType(asset.contentType, asset.id);
+  } else if (asset.sha256 != null || asset.byteSize != null || asset.contentType != null) {
+    throw new Error(`${asset.id}: external-only assets must not claim release-owned integrity metadata`);
+  }
   assertRockDimensions(asset);
+  assertPublicHttpsUrl(asset.sourceUrl, `${asset.id}: sourceUrl`);
   const prefix = immutablePrefix(baseUrl, release, asset.id);
-  assertUrl(asset.downloadUrl, prefix, `${asset.id}: downloadUrl`);
-  assertUrl(asset.thumbnailUrl, prefix, `${asset.id}: thumbnailUrl`, { optional: true });
+  if (externalOnly) {
+    assertPublicHttpsUrl(asset.downloadUrl, `${asset.id}: external-only downloadUrl`);
+    assertPublicHttpsUrl(asset.thumbnailUrl, `${asset.id}: external-only thumbnailUrl`, { optional: true });
+  } else {
+    assertUrl(asset.downloadUrl, prefix, `${asset.id}: downloadUrl`);
+    assertUrl(asset.thumbnailUrl, prefix, `${asset.id}: thumbnailUrl`, { optional: true });
+  }
   const paths = new Set();
   const files = asset.files ?? [];
   if (!Array.isArray(files)) throw new Error(`${asset.id}: files must be an array`);
@@ -209,7 +236,7 @@ const rows = manifest.assets.map((asset) => `(
   ${sqlString(asset.sourceId)}, ${sqlString(asset.kind)}, ${sqlString(asset.name)},
   ${sqlString(asset.description)}, ${sqlString(asset.license)}, ${sqlString(asset.attribution)},
   ${sqlString(asset.sourceUrl)}, ${sqlString(asset.downloadUrl)}, ${sqlString(asset.thumbnailUrl)},
-  ${sqlString(asset.sha256.toLowerCase())}, ${Number(asset.byteSize)}, ${sqlString(asset.contentType)},
+  ${sqlString(asset.sha256?.toLowerCase())}, ${asset.byteSize == null ? 'null' : Number(asset.byteSize)}, ${sqlString(asset.contentType)},
   ${sqlArray(asset.tags)}, ${sqlString(JSON.stringify(asset.metadata ?? {}))}::jsonb,
   ${sqlString(asset.licenseUrl)}, ${asset.attributionRequired === true},
   ${sqlString(asset.redistributionScope)}, ${sqlString(asset.reviewedAt)}, 'active'

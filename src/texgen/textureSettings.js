@@ -34,22 +34,31 @@ const generatorField = (defaultValue, description) => sel(
 // generator reads is declared in TEXTURE_GENERATORS[id].uses — UIs filter
 // on that so only meaningful sliders show.
 const layerParamFields = ({ advancedShape = false } = {}) => [
-  num('scale', 'Scale', 1, 64, 1, 6, 'Feature cells across the tile. Higher = finer features.'),
+  // Feature size is a property of the (scale, world tile) pairing, not of the
+  // map: a tile bound at T metres resolves features of T / scale. At the old
+  // cap of 64 a 2.4 m deck tile could not describe anything finer than 3.8 cm,
+  // which is coarser than plank grain, asphalt aggregate or paver texture — the
+  // cap, not the resolution, was setting the floor on feature size.
+  num('scale', 'Scale', 1, 256, 1, 6, 'Feature cells across the tile. Higher = finer features. At a 2 m world tile, 200 resolves 1 cm detail.'),
   bool('rotate90', 'Rotate 90°', false, 'Turns the pattern a quarter turn (planks run vertical, strata run horizontal). Tiling stays exact.', { advanced: true }),
   num('detail', 'Detail octaves', 1, 8, 1, 4, 'Fractal octaves layered into the noise.'),
   num('detailGain', 'Detail strength', 0.15, 0.85, 0.01, 0.5, 'How much each finer octave contributes.', { advanced: true }),
-  num('stretchX', 'Stretch X', 0.25, 8, 0.05, 1, 'Horizontal anisotropy (brushed metal, wood planks).', { advanced: true }),
-  num('stretchY', 'Stretch Y', 0.25, 8, 0.05, 1, 'Vertical anisotropy (drips, strata, fibers).', { advanced: true }),
+  // Naming note: these multiply the FEATURE PERIOD COUNT on each axis, so
+  // raising one makes features finer on that axis and therefore elongated
+  // along the other. stretchX > 1 reads as vertical streaks, not horizontal
+  // ones. The old labels claimed the opposite.
+  num('stretchX', 'X frequency', 0.125, 16, 0.05, 1, 'Multiplies feature periods across U. Higher = finer in U, so features elongate along V and read as VERTICAL streaks (drips, fibers, strata). On grid patterns it instead widens the joint on the U axis.', { advanced: true }),
+  num('stretchY', 'Y frequency', 0.125, 16, 0.05, 1, 'Multiplies feature periods down V. Higher = finer in V, so features elongate along U and read as HORIZONTAL streaks (brushed metal, boards lying across the frame). On grid patterns it instead widens the joint on the V axis.', { advanced: true }),
   num('warp', 'Warp', 0, 1, 0.01, 0, 'Domain warp: melts straight features into organic meanders.'),
   num('warpScale', 'Warp scale', 1, 32, 1, 3, 'Frequency of the warp field.', { advanced: true }),
-  num('columns', 'Columns', 1, 64, 1, 4, 'Pattern cells across the tile.', { advanced: advancedShape }),
-  num('rows', 'Rows', 1, 64, 1, 8, 'Pattern cells down the tile.', { advanced: advancedShape }),
+  num('columns', 'Columns', 1, 256, 1, 4, 'Pattern cells across the tile.', { advanced: advancedShape }),
+  num('rows', 'Rows', 1, 256, 1, 8, 'Pattern cells down the tile.', { advanced: advancedShape }),
   num('gap', 'Gap width', 0, 0.4, 0.005, 0.06, 'Mortar/groove width between pattern cells.', { advanced: advancedShape }),
   num('bevel', 'Bevel', 0, 0.5, 0.005, 0.12, 'Edge ramp from groove up to the cell face.', { advanced: advancedShape }),
   num('cellJitter', 'Cell jitter', 0, 1, 0.01, 1, 'Randomizes cell centers: 0 = perfect grid, 1 = organic.', { advanced: true }),
   num('cellVariation', 'Cell variation', 0, 1, 0.01, 0.35, 'Per-cell brightness variance (brick tint shifts).'),
   num('edgeWidth', 'Edge width', 0.01, 0.6, 0.005, 0.12, 'Width of cracks / caustic filaments / speckle chips.', { advanced: advancedShape }),
-  num('rings', 'Rings / veins', 1, 32, 1, 6, 'Ring or vein count across the tile (wood, marble).', { advanced: advancedShape }),
+  num('rings', 'Rings / veins', 1, 128, 1, 6, 'Ring or vein count across the tile (wood, marble).', { advanced: advancedShape }),
   num('grain', 'Grain', 0, 1, 0.01, 0.5, 'Streak amount (wood) or vein sharpness (marble).', { advanced: advancedShape }),
 ];
 
@@ -115,8 +124,16 @@ const RAW_FIELD_SCHEMA = {
     num('rampSmooth', 'Band smoothness', 0, 1, 0.01, 1, '1 = smooth gradient, 0 = hard cel bands between the five stops.'),
     num('jitterHue', 'Hue jitter', 0, 0.5, 0.005, 0.04, 'Painterly hue drift across the surface.'),
     num('jitterValue', 'Value jitter', 0, 0.5, 0.005, 0.08, 'Painterly brightness drift across the surface.'),
-    num('jitterScale', 'Jitter scale', 2, 64, 1, 24, 'Frequency of the painterly drift.', { advanced: true }),
-    bool('jitterCells', 'Jitter per cell', false, 'Applies drift per pattern cell (per brick / plank / scale) instead of smoothly.'),
+    num('jitterScale', 'Jitter scale', 2, 256, 1, 24, 'Frequency of the painterly drift.', { advanced: true }),
+    bool('jitterCells', 'Jitter per cell', false, 'Applies drift per pattern cell (per brick / plank / scale) instead of smoothly. Reads the BASE layer\'s cell id, so it is a no-op when the base pattern has no cells.'),
+    // A periodic tile can only ever hold `columns * rows` cell ids, and the
+    // legacy path derived hue and value from two overlapping 16-bit slices of
+    // the same hash — so a 4x4 paver tile showed 16 flat tints whose hue and
+    // value moved together. Raising this decorrelates hue from value with
+    // independent hashes and keeps the painterly drift alive inside each cell,
+    // so modules stop reading as N flat swatches. 0 keeps the legacy result
+    // byte-for-byte.
+    num('jitterCellVariety', 'Per-cell variety', 0, 1, 0.01, 0, 'Enriches per-cell drift: decorrelates each cell\'s hue from its value and keeps painterly drift running inside the cell, so a tile with N modules stops reading as N flat tints. 0 = legacy flat per-cell tint.'),
     num('cavity', 'Cavity shading', 0, 1, 0.01, 0.35, 'Darkens crevices toward the cavity tint — the hand-painted occlusion read.'),
     col('cavityTint', 'Cavity tint', [0.13, 0.09, 0.08], 'Color the crevices sink toward.', { advanced: true }),
     num('sheen', 'Ridge sheen', 0, 1, 0.01, 0.18, 'Screens the sheen tint over ridges and edges — worn highlight.'),

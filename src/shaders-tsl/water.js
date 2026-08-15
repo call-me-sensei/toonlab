@@ -560,12 +560,20 @@ export function createWaterNodeMaterial({
     const gerstnerNormalY = gerstnerNormal.y.toVar();
 
     const detailFade = smoothstep(16.0, 60.0, viewDistance).oneMinus();
+    // Beyond ~100 m the ripple field is far below one texel per period, so the
+    // 20% residual left by `detailFade` stopped reading as water and started
+    // reading as a fixed screen-space weave that crawls with the camera — the
+    // "uniformly tiled ripple pattern" §13 rejects outright. Fading it to a
+    // 10% floor across 100-360 m removes the aliasing without flattening any
+    // distance a hero shot can actually resolve (D19-061).
+    const horizonFade = smoothstep(100.0, 360.0, viewDistance).oneMinus();
     const swashOptics = clamp(vSwashZone, 0.0, 1.0).toVar();
     // A centimetres-thin film is optically smooth at this camera scale. Full
     // open-water normal detail turned every texel into a bright grazing-angle
     // mirror and made the swash look like an opaque sheet of snow.
     const detailStrength = u.uDetailNormalStrength
       .mul(mix(0.2, 1.0, detailFade))
+      .mul(mix(0.1, 1.0, horizonFade))
       .mul(mix(1.0, 0.18, swashOptics)).toVar();
     const flowOffset = u.uFlowDirection.mul(u.uTime).mul(u.uFlowSpeed).toVar();
     const detailUv1 = vRestWorldXZ.mul(u.uDetailScale).add(flowOffset.mul(0.55));

@@ -724,7 +724,15 @@ export async function migrateLegacy({
   return report;
 }
 
-export async function listCatalogAssets({ q = '', kind = '', source = '', limit = 60, offset = 0 } = {}) {
+export async function listCatalogAssets({
+  q = '',
+  kind = '',
+  source = '',
+  license = '',
+  size = '',
+  limit = 60,
+  offset = 0,
+} = {}) {
   const pool = await getPool();
   const values = [];
   const where = [`availability_status = 'active'`];
@@ -744,6 +752,14 @@ export async function listCatalogAssets({ q = '', kind = '', source = '', limit 
     values.push(source);
     where.push(`source = $${values.length}`);
   }
+  if (license) {
+    values.push(license);
+    where.push(`license = $${values.length}`);
+  }
+  if (size) {
+    values.push(size);
+    where.push(`metadata->>'catalog' = 'rocks' and $${values.length} = any(tags)`);
+  }
   values.push(Math.min(Math.max(Number(limit) || 60, 1), 500));
   const limitIndex = values.length;
   values.push(Math.max(Number(offset) || 0, 0));
@@ -759,6 +775,38 @@ export async function listCatalogAssets({ q = '', kind = '', source = '', limit 
   return {
     items: result.rows.map(({ total: _total, ...row }) => row),
     total: result.rows[0]?.total ?? 0,
+  };
+}
+
+export async function listCatalogFacets() {
+  const pool = await getPool();
+  const [sources, licenses, kinds] = await Promise.all([
+    pool.query(
+      `select source, license, count(*)::int as count
+       from catalog_assets
+       where availability_status = 'active'
+       group by source, license
+       order by source, license`,
+    ),
+    pool.query(
+      `select license, count(*)::int as count
+       from catalog_assets
+       where availability_status = 'active'
+       group by license
+       order by license`,
+    ),
+    pool.query(
+      `select kind, count(*)::int as count
+       from catalog_assets
+       where availability_status = 'active'
+       group by kind
+       order by kind`,
+    ),
+  ]);
+  return {
+    sources: sources.rows,
+    licenses: licenses.rows,
+    kinds: kinds.rows,
   };
 }
 

@@ -61,6 +61,13 @@ export function createEnvironmentSunShadowPass({ renderer, scene } = {}) {
   const warmedCasterSources = new WeakMap();
   let cachedSunLight = null;
   let renderCount = 0;
+  // Real health, not "the object exists". D19-041 shipped a Gate 3 check
+  // written as `Boolean(runtime.shadowPass)`, which is true from construction
+  // and therefore cannot fail. These are the three things that actually have
+  // to be true for a receiver to see a cast shadow.
+  let lastCasterCount = 0;
+  let lastSkippedNonCasterCount = 0;
+  let lastFailure = 'pass has not run';
   let casterDepthSamplePoints = Object.freeze([]);
   let casterCoverage = Object.freeze({
     byDomain: Object.freeze({}),
@@ -345,6 +352,8 @@ export function createEnvironmentSunShadowPass({ renderer, scene } = {}) {
     if (!sun) {
       environmentSunShadow.ready.value = false;
       environmentSunShadow.farReady.value = false;
+      lastCasterCount = 0;
+      lastFailure = 'no visible DirectionalLight with castShadow in the scene';
       return;
     }
 
@@ -359,6 +368,7 @@ export function createEnvironmentSunShadowPass({ renderer, scene } = {}) {
     if (needsPrimaryRenderWarmup) {
       // The host's normal scene render follows this scheduled pass. Retain any
       // existing map for one frame and include the new caster on the next one.
+      lastFailure = 'warming up a newly added caster';
       return;
     }
 
@@ -557,6 +567,9 @@ export function createEnvironmentSunShadowPass({ renderer, scene } = {}) {
     renderer.shadowMap.enabled = previousShadowAutoUpdate;
     scene.background = previousBackground;
 
+    lastCasterCount = materialRestores.length;
+    lastSkippedNonCasterCount = visibilityRestores.length;
+    lastFailure = lastCasterCount > 0 ? null : 'no visible castShadow mesh was drawn into the map';
     for (const { material, mesh } of materialRestores) mesh.material = material;
     for (const obj of visibilityRestores) obj.visible = true;
     materialRestores.length = 0;
@@ -607,11 +620,40 @@ export function createEnvironmentSunShadowPass({ renderer, scene } = {}) {
     get ready() {
       return environmentSunShadow.ready.value === true;
     },
+    /**
+     * Whether the pass is actually producing a usable shadow map, and why not
+     * when it is not. Hosts gating a review on shadows must read `ok` here
+     * rather than testing that the pass object exists (D19-041).
+     */
+    get health() {
+      const ready = environmentSunShadow.ready.value === true;
+      const ok = ready && renderCount > 0 && lastCasterCount > 0;
+      return Object.freeze({
+        backend: isNodeBackend ? 'node' : 'classic-webgl-unused',
+        casterCount: lastCasterCount,
+        farReady: environmentSunShadow.farReady.value === true,
+        hiddenNonCasterCount: lastSkippedNonCasterCount,
+        ok,
+        ready,
+        reason: ok ? null : (lastFailure ?? (ready ? null : 'pass has not published a map')),
+        renderCount,
+        sunName: cachedSunLight?.name ?? null,
+      });
+    },
     get renderCount() {
       return renderCount;
     },
     get shadowTexture() {
       return shadowTarget?.texture ?? null;
+    },
+    // Render targets, for diagnostics that need to read the depth the pass
+    // actually wrote (D19-041/D19-062). `inspectDepthContent` only samples
+    // labelled style targets; these let a caller probe any world point.
+    get nearShadowTarget() {
+      return shadowTarget;
+    },
+    get farShadowTarget() {
+      return farShadowTarget;
     },
     get shadowMatrix() {
       return shadowMatrix;

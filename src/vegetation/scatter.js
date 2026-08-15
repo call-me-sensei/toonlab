@@ -614,3 +614,369 @@ export function scatterOnSurface({
 
   return placements;
 }
+
+// ---------------------------------------------------------------------------
+// Curve-relative placement
+// ---------------------------------------------------------------------------
+
+function curvePoint(spine, t) {
+  const point = spine(t);
+  if (Array.isArray(point)) return { x: Number(point[0]), z: Number(point[1]) };
+  return { x: Number(point?.x), z: Number(point?.z) };
+}
+
+/**
+ * A placement frame defined by an authored curve instead of by world axes.
+ *
+ * Every boundary a natural scene actually has — a shoreline, a garden path, a
+ * pond margin, a wall, a hedge line, a tree line — is a curve. `scatterInRect`
+ * can only *reject* candidates against such a boundary through its boolean
+ * mask; it can never *distribute along* one, so a host either accepts a
+ * rectangular distribution with a curved hole punched in it, or hand-authors
+ * world coordinates that silently drift away from the curve they were meant to
+ * follow.
+ *
+ * A curve frame closes that gap. Positions are authored as `(along, offset)`:
+ * `along` is the spine's own parameter and `offset` is signed distance across
+ * it, positive toward the spine's left normal (the tangent rotated +90° about
+ * +Y). Both hand-placed tables and seeded scatter resolve through the same
+ * frame, so a scene authors its spine once and everything that references it
+ * stays parallel to it for the curve's whole length.
+ *
+ * ```js
+ * const margin = createCurveFrame({
+ *   spine: (theta) => pondMarginPoint(theta),
+ *   domain: [0, Math.PI * 2],
+ * });
+ * // hand placement: eight set stones just outside the water's edge
+ * const stones = SET_STONES.map(([along, offset]) => margin.toWorld({ along, offset }));
+ * // seeded scatter: pond-edge planting in a 0.4–1.8 m band behind them
+ * const reeds = margin.scatterAlong({ count: 140, offsetRange: [0.4, 1.8], seed: 91 });
+ * ```
+ *
+ * @param {Object} options
+ * @param {(t: number) => ({x: number, z: number}|[number, number])} options.spine
+ *   The curve, sampled in its own parameter.
+ * @param {[number, number]} [options.domain] Parameter range, `[min, max]`.
+ * @param {number} [options.samples] Arc-length table resolution.
+ * @param {null|'x'|'z'} [options.offsetAxis] `null` (default) offsets along the
+ *   curve normal, which is what keeps a band a constant width. Set `'z'` (or
+ *   `'x'`) for a graph-style spine authored as `z = f(x)`, where the intent is
+ *   a plain axis offset — the frame then reproduces `f(along) + offset`
+ *   exactly rather than approximately.
+ * @param {boolean} [options.closed] Wrap the parameter instead of clamping.
+ * @returns {Object} frozen frame API
+ */
+export function createCurveFrame({
+  spine,
+  domain = [0, 1],
+  samples = 256,
+  offsetAxis = null,
+  closed = false,
+} = {}) {
+  if (typeof spine !== 'function') {
+    throw new TypeError('createCurveFrame requires spine(t) => { x, z }.');
+  }
+  const start = Number(domain?.[0] ?? 0);
+  const end = Number(domain?.[1] ?? 1);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end === start) {
+    throw new RangeError('createCurveFrame requires a finite, non-empty domain.');
+  }
+  const span = end - start;
+  const steps = Math.max(Math.trunc(samples) || 0, 8);
+  const epsilon = Math.abs(span) / steps * 0.5;
+
+  const wrap = (t) => {
+    if (!closed) return Math.min(Math.max(t, Math.min(start, end)), Math.max(start, end));
+    const shifted = (t - start) % span;
+    return start + (shifted < 0 ? shifted + span : shifted);
+  };
+
+  // Arc-length table. Sampled once at construction so both `atArcLength` and
+  // arc-uniform scatter are O(log n) afterwards.
+  const table = new Array(steps + 1);
+  let total = 0;
+  let previous = curvePoint(spine, start);
+  table[0] = { s: 0, t: start, x: previous.x, z: previous.z };
+  for (let index = 1; index <= steps; index += 1) {
+    const t = start + span * (index / steps);
+    const point = curvePoint(spine, t);
+    total += Math.hypot(point.x - previous.x, point.z - previous.z);
+    table[index] = { s: total, t, x: point.x, z: point.z };
+    previous = point;
+  }
+
+  function pointAt(t) {
+    return curvePoint(spine, wrap(t));
+  }
+
+  function tangentAt(t) {
+    const at = wrap(t);
+    const back = curvePoint(spine, closed ? at - epsilon : Math.max(at - epsilon, Math.min(start, end)));
+    const forward = curvePoint(spine, closed ? at + epsilon : Math.min(at + epsilon, Math.max(start, end)));
+    const dx = forward.x - back.x;
+    const dz = forward.z - back.z;
+    const length = Math.hypot(dx, dz);
+    if (length === 0) return { x: 1, z: 0 };
+    return { x: dx / length, z: dz / length };
+  }
+
+  // Left normal: the tangent rotated +90° about +Y, i.e. (x, z) -> (-z, x).
+  // For a spine authored as z = f(x) with x increasing, this points toward +Z,
+  // which is what makes `offset` read the same way as a hand-authored
+  // "distance inland" column.
+  function normalAt(t) {
+    const tangent = tangentAt(t);
+    return { x: -tangent.z, z: tangent.x };
+  }
+
+  /** Yaw in radians that turns an object's +Z along the curve tangent. */
+  function headingAt(t) {
+    const tangent = tangentAt(t);
+    return Math.atan2(tangent.x, tangent.z);
+  }
+
+  function toWorld({ along = start, offset = 0 } = {}) {
+    const t = wrap(Number(along) || 0);
+    const point = curvePoint(spine, t);
+    const distance = Number(offset) || 0;
+    if (offsetAxis === 'z') return { x: point.x, z: point.z + distance };
+    if (offsetAxis === 'x') return { x: point.x + distance, z: point.z };
+    const normal = normalAt(t);
+    return { x: point.x + normal.x * distance, z: point.z + normal.z * distance };
+  }
+
+  function arcLengthAt(t) {
+    // Clamped, never wrapped: on a closed curve `wrap(end)` folds back to the
+    // domain start, which would collapse a full-loop range to zero length.
+    const target = Math.min(Math.max(Number(t) || 0, Math.min(start, end)), Math.max(start, end));
+    const fraction = (target - start) / span;
+    const position = Math.min(Math.max(fraction, 0), 1) * steps;
+    const low = Math.min(Math.floor(position), steps - 1);
+    const blend = position - low;
+    return table[low].s + (table[low + 1].s - table[low].s) * blend;
+  }
+
+  /** Parameter value at arc length `s` metres from the domain start. */
+  function atArcLength(s) {
+    const target = Math.min(Math.max(Number(s) || 0, 0), total);
+    let low = 0;
+    let high = steps;
+    while (high - low > 1) {
+      const mid = (low + high) >> 1;
+      if (table[mid].s <= target) low = mid;
+      else high = mid;
+    }
+    const segment = table[low + 1].s - table[low].s;
+    const blend = segment > 0 ? (target - table[low].s) / segment : 0;
+    return table[low].t + (table[low + 1].t - table[low].t) * blend;
+  }
+
+  /**
+   * Nearest point on the spine. Coarse table search, then a bounded ternary
+   * refinement on squared distance, so the result is stable and allocation-free
+   * for the callers that use it as a mask.
+   */
+  function fromWorld(x, z) {
+    const px = Number(x);
+    const pz = Number(z);
+    let bestIndex = 0;
+    let best = Infinity;
+    for (let index = 0; index <= steps; index += 1) {
+      const dx = table[index].x - px;
+      const dz = table[index].z - pz;
+      const squared = dx * dx + dz * dz;
+      if (squared < best) {
+        best = squared;
+        bestIndex = index;
+      }
+    }
+    let low = table[Math.max(bestIndex - 1, 0)].t;
+    let high = table[Math.min(bestIndex + 1, steps)].t;
+    const distanceSquared = (t) => {
+      const point = curvePoint(spine, t);
+      const dx = point.x - px;
+      const dz = point.z - pz;
+      return dx * dx + dz * dz;
+    };
+    for (let iteration = 0; iteration < 24; iteration += 1) {
+      const a = low + (high - low) / 3;
+      const b = high - (high - low) / 3;
+      if (distanceSquared(a) < distanceSquared(b)) high = b;
+      else low = a;
+    }
+    const along = (low + high) * 0.5;
+    const point = curvePoint(spine, along);
+    const normal = normalAt(along);
+    const offset = (px - point.x) * normal.x + (pz - point.z) * normal.z;
+    return { along, distance: Math.hypot(px - point.x, pz - point.z), offset };
+  }
+
+  /**
+   * `(x, z) => boolean` keep filter for a band of signed offsets. Pass it to
+   * `scatterInRect`, `surface.createGrassField`, or `combineMasks` so a
+   * rectangular scatter respects a curved boundary without the host
+   * re-deriving the distance by hand.
+   */
+  function bandMask({ min = -Infinity, max = Infinity, alongRange = null } = {}) {
+    return (x, z) => {
+      const { along, offset } = fromWorld(x, z);
+      if (offset < min || offset > max) return false;
+      if (!alongRange) return true;
+      return along >= Math.min(alongRange[0], alongRange[1])
+        && along <= Math.max(alongRange[0], alongRange[1]);
+    };
+  }
+
+  function resolveAlongRange(alongRange) {
+    if (!alongRange) return [Math.min(start, end), Math.max(start, end)];
+    return [Math.min(alongRange[0], alongRange[1]), Math.max(alongRange[0], alongRange[1])];
+  }
+
+  function makeSpacingFilter(minSpacing) {
+    const spacing = Math.max(Number(minSpacing) || 0, 0);
+    if (spacing <= 0) return { accept: () => true, commit: () => {} };
+    const cell = spacing;
+    const spacingSq = spacing * spacing;
+    const occupied = new Map();
+    return {
+      accept(x, z) {
+        const cx = Math.floor(x / cell);
+        const cz = Math.floor(z / cell);
+        for (let ix = cx - 1; ix <= cx + 1; ix += 1) {
+          for (let iz = cz - 1; iz <= cz + 1; iz += 1) {
+            const bucket = occupied.get(`${ix},${iz}`);
+            if (!bucket) continue;
+            for (const p of bucket) {
+              const dx = p.x - x;
+              const dz = p.z - z;
+              if (dx * dx + dz * dz < spacingSq) return false;
+            }
+          }
+        }
+        return true;
+      },
+      commit(placement) {
+        const key = `${Math.floor(placement.x / cell)},${Math.floor(placement.z / cell)}`;
+        const bucket = occupied.get(key);
+        if (bucket) bucket.push(placement);
+        else occupied.set(key, [placement]);
+      },
+    };
+  }
+
+  /**
+   * Seeded scatter distributed along the curve and across an offset band.
+   * `along` is uniform in **arc length**, not in the spine's parameter, so a
+   * curve whose parameter bunches (a radial pond margin, a heavily curved
+   * path) still receives even spacing on the ground.
+   *
+   * @returns {Array<{x, y, z, along, offset, heading}>}
+   */
+  function scatterAlong({
+    count = 100,
+    offsetRange = [0, 1],
+    alongRange = null,
+    minSpacing = 0,
+    seed = 1,
+    mask = null,
+    heightAt = null,
+  } = {}) {
+    const random = mulberry32(seed);
+    const [alongMin, alongMax] = resolveAlongRange(alongRange);
+    const arcMin = arcLengthAt(alongMin);
+    const arcMax = arcLengthAt(alongMax);
+    const offsetMin = Number(offsetRange?.[0] ?? 0);
+    const offsetMax = Number(offsetRange?.[1] ?? 0);
+    const spacing = makeSpacingFilter(minSpacing);
+    const target = Math.max(Math.trunc(count) || 0, 0);
+    const attempts = target * (mask ? 16 : minSpacing > 0 ? 8 : 1);
+    const placements = [];
+
+    for (let index = 0; index < attempts && placements.length < target; index += 1) {
+      const along = atArcLength(arcMin + (arcMax - arcMin) * random());
+      const offset = offsetMin + (offsetMax - offsetMin) * random();
+      const { x, z } = toWorld({ along, offset });
+      if (!passesMask(mask, x, z) || !spacing.accept(x, z)) continue;
+      const placement = {
+        along,
+        heading: headingAt(along),
+        offset,
+        x,
+        y: placementY(heightAt, x, z),
+        z,
+      };
+      placements.push(placement);
+      spacing.commit(placement);
+    }
+    return placements;
+  }
+
+  /**
+   * Evenly spaced placements measured in arc length — stepping stones, path
+   * edging, fence posts, wall bays, a bamboo screen. Deterministic and
+   * gap-free where `scatterAlong` would clump.
+   *
+   * @returns {Array<{x, y, z, along, offset, heading}>}
+   */
+  function stepAlong({
+    spacing = 1,
+    count = null,
+    offset = 0,
+    alongRange = null,
+    phase = 0,
+    jitterAlong = 0,
+    jitterOffset = 0,
+    seed = 1,
+    mask = null,
+    heightAt = null,
+  } = {}) {
+    const step = Math.max(Number(spacing) || 0, 1e-4);
+    const random = mulberry32(seed);
+    const [alongMin, alongMax] = resolveAlongRange(alongRange);
+    const arcMin = arcLengthAt(alongMin);
+    const arcMax = arcLengthAt(alongMax);
+    const available = Math.max(arcMax - arcMin, 0);
+    const limit = Number.isFinite(Number(count)) && Number(count) > 0
+      ? Math.trunc(Number(count))
+      : Math.floor(available / step) + 1;
+    const placements = [];
+
+    for (let index = 0; index < limit; index += 1) {
+      const jitteredAlongMetres = arcMin + Number(phase) * step + index * step
+        + (random() - 0.5) * 2 * Number(jitterAlong || 0);
+      if (jitteredAlongMetres > arcMax + 1e-6 || jitteredAlongMetres < arcMin - 1e-6) continue;
+      const along = atArcLength(jitteredAlongMetres);
+      const across = Number(offset) + (random() - 0.5) * 2 * Number(jitterOffset || 0);
+      const { x, z } = toWorld({ along, offset: across });
+      if (!passesMask(mask, x, z)) continue;
+      placements.push({
+        along,
+        heading: headingAt(along),
+        offset: across,
+        x,
+        y: placementY(heightAt, x, z),
+        z,
+      });
+    }
+    return placements;
+  }
+
+  return Object.freeze({
+    arcLengthAt,
+    atArcLength,
+    bandMask,
+    closed,
+    domain: Object.freeze([start, end]),
+    fromWorld,
+    headingAt,
+    length: total,
+    normalAt,
+    offsetAxis,
+    pointAt,
+    scatterAlong,
+    stepAlong,
+    tangentAt,
+    toWorld,
+  });
+}

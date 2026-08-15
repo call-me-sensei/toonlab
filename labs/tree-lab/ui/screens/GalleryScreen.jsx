@@ -7,9 +7,13 @@ import {
   BrandLockup, Button, Icon, Modal, toast,
 } from '../../../shared/ui/index.js';
 import {
-  BUILT_IN_TREE_PRESETS, deleteLocalTreePreset, loadLocalTreePresets,
+  BUILT_IN_TREE_PRESETS,
+  createCuratedTreePresetDocuments,
+  deleteLocalTreePreset,
+  loadLocalTreePresets,
+  upsertLocalTreePresets,
 } from '../../treePresetStore.js';
-import { getPresetThumbnails } from '../thumbnails.js';
+import { capturePresetThumbnails, getPresetThumbnails } from '../thumbnails.js';
 
 function ImportDialog({ actions, labKind, onClose }) {
   const [draft, setDraft] = useState('');
@@ -71,7 +75,16 @@ export function GalleryScreen({ actions, labKind = 'tree', state }) {
   ].some((value) => String(value ?? '').toLowerCase().includes(normalizedQuery));
   const visibleBuiltIns = builtInPresets.filter(matchesQuery);
   const visibleLocal = localPresets.filter(matchesQuery);
+  const allPresets = useMemo(
+    () => [...builtInPresets, ...localPresets],
+    [builtInPresets, localPresets],
+  );
   const [thumbs, setThumbs] = useState({});
+  const [thumbnailCapture, setThumbnailCapture] = useState({
+    busy: false,
+    completed: 0,
+    total: 0,
+  });
 
   useEffect(() => {
     // Thumbnails render synchronously but after first paint, so the gallery
@@ -81,7 +94,7 @@ export function GalleryScreen({ actions, labKind = 'tree', state }) {
     // user opens a preset before rendering finishes) is a no-op.
     let cancelled = false;
     const handle = window.setTimeout(() => {
-      setThumbs(getPresetThumbnails([...builtInPresets, ...localPresets], {
+      setThumbs(getPresetThumbnails(allPresets, {
         onUpdate: (rendered) => {
           if (!cancelled) setThumbs((previous) => ({ ...previous, ...rendered }));
         },
@@ -91,14 +104,43 @@ export function GalleryScreen({ actions, labKind = 'tree', state }) {
       cancelled = true;
       window.clearTimeout(handle);
     };
-  }, [builtInPresets, localPresets]);
+  }, [allPresets]);
 
   const hasWork = state.bootSource === 'persisted'
     || state.sketch.branchSpines.length > 0 || state.presetId;
 
   function openPreset(presetId) {
-    actions.applyPreset(presetId);
-    actions.setView({ gallery: false });
+    // Presets are direct editor documents. Navigate so bootPlantLab creates
+    // the renderer for the new route; applying into the gallery's renderer-
+    // free store would briefly render the editor with a null engine.
+    const url = new URL(window.location.href);
+    url.search = `?${labKind === 'flower' ? 'flowerPreset' : 'treePreset'}=${encodeURIComponent(presetId)}`;
+    window.location.assign(`${url.pathname}${url.search}${url.hash}`);
+  }
+
+  async function captureGalleryThumbnails() {
+    if (thumbnailCapture.busy || !allPresets.length) return;
+    setThumbnailCapture({ busy: true, completed: 0, total: allPresets.length });
+    try {
+      const rendered = await capturePresetThumbnails(allPresets, {
+        onProgress: ({ completed, total }) => {
+          setThumbnailCapture({ busy: true, completed, total });
+        },
+      });
+      // Include cache hits in the immediate update too. This makes the
+      // explicit capture action useful even when the gallery mounted before
+      // its background thumbnail pass completed.
+      setThumbs((previous) => ({
+        ...previous,
+        ...getPresetThumbnails(allPresets),
+        ...rendered,
+      }));
+      setThumbnailCapture({ busy: false, completed: allPresets.length, total: allPresets.length });
+      toast(`Captured ${allPresets.length} gallery thumbnails.`);
+    } catch (error) {
+      setThumbnailCapture({ busy: false, completed: 0, total: allPresets.length });
+      toast(`Could not capture thumbnails: ${error.message}`, { tone: 'danger' });
+    }
   }
 
   return (
@@ -112,6 +154,18 @@ export function GalleryScreen({ actions, labKind = 'tree', state }) {
         </span>
         <Button icon="download" kind="ghost" onClick={() => setImportOpen(true)} testId="gallery-import">
           Import recipe…
+        </Button>
+        <Button
+          disabled={thumbnailCapture.busy}
+          icon="save"
+          kind="ghost"
+          onClick={captureGalleryThumbnails}
+          testId="gallery-capture-thumbnails"
+          title="Render and cache a thumbnail for every gallery asset"
+        >
+          {thumbnailCapture.busy
+            ? `Capturing ${thumbnailCapture.completed}/${thumbnailCapture.total}…`
+            : 'Capture thumbnails'}
         </Button>
       </header>
       <h1 className="td-gallery-title">{isFlowerLab ? 'Grow a flower' : 'Grow a tree'}</h1>
@@ -195,6 +249,26 @@ export function GalleryScreen({ actions, labKind = 'tree', state }) {
           <div>{isFlowerLab ? 'Random Flower' : 'Procedural Seed'}</div>
           <span>Surprise me</span>
         </button>
+        {!isFlowerLab && (
+          <button
+            type="button"
+            className="td-card td-card-special"
+            data-testid="gallery-batch-100"
+            onClick={() => {
+              try {
+                const saved = upsertLocalTreePresets(createCuratedTreePresetDocuments(100));
+                setLocalVersion((version) => version + 1);
+                toast(`Generated ${saved.length} monochrome tree candidates for your library.`);
+              } catch (error) {
+                toast(`Could not generate the tree batch: ${error.message}`, { tone: 'danger' });
+              }
+            }}
+          >
+            <Icon name="dice" />
+            <div>Generate 100 Candidates</div>
+            <span>Monochrome foliage · varied leaves, branches &amp; bark</span>
+          </button>
+        )}
       </div>
 
       <div className="td-gallery-section">Presets ({visibleBuiltIns.length} of {builtInPresets.length})</div>

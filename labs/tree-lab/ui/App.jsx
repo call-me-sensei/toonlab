@@ -27,6 +27,7 @@ import { AnimationPanel } from './panels/AnimationPanel.jsx';
 import { FlowersPanel } from './panels/FlowersPanel.jsx';
 import { CustomShapeDialog, LeafPaletteSection, LeafStyleSection } from './LeafStylePanel.jsx';
 import { GalleryScreen } from './screens/GalleryScreen.jsx';
+import { capturePresetThumbnails } from './thumbnails.js';
 import { OptionsBar, SketchModeBar, ToolStrip } from './ToolStripTree.jsx';
 import { BranchInspectorPopover } from './BranchInspectorPopover.jsx';
 
@@ -135,6 +136,7 @@ function EnvironmentMenu({ actions, anchor, onClose, state }) {
 
 function TopBar({ actions, labKind, state }) {
   const [menuAnchor, setMenuAnchor] = useState(null);
+  const [capturingThumbnail, setCapturingThumbnail] = useState(false);
   const preset = state.presetId ? findTreePreset(state.presetId) : null;
   const isFlowerLab = labKind === 'flower';
   const title = preset?.label ?? (isFlowerLab ? 'Untitled flower' : 'Untitled tree');
@@ -166,6 +168,19 @@ function TopBar({ actions, labKind, state }) {
     }
   }
 
+  async function captureThumbnail() {
+    if (!state.presetId || capturingThumbnail) return;
+    setCapturingThumbnail(true);
+    try {
+      await capturePresetThumbnails([actions.getRecipeDocument()]);
+      toast(`Captured thumbnail for “${title}”.`, { tone: 'success' });
+    } catch (error) {
+      toast(`Thumbnail capture failed: ${error.message}`, { tone: 'danger' });
+    } finally {
+      setCapturingThumbnail(false);
+    }
+  }
+
   return (
     <LabEditorHeader className="td-topbar" menus={menus}>
       <BrandLockup
@@ -185,6 +200,18 @@ function TopBar({ actions, labKind, state }) {
       <span className="td-topbar-spacer" />
       <RendererToggle />
       <Button icon="link" kind="ghost" onClick={share} testId="share">Share</Button>
+      <Button
+        disabled={!state.presetId || capturingThumbnail}
+        icon="save"
+        kind="ghost"
+        onClick={captureThumbnail}
+        testId="capture-thumbnail"
+        title={state.presetId
+          ? 'Render and cache this tree’s gallery thumbnail'
+          : 'Save this tree as a local asset before capturing a gallery thumbnail'}
+      >
+        {capturingThumbnail ? 'Capturing…' : 'Capture thumbnail'}
+      </Button>
       <Button
         icon="stage-export"
         kind="primary"
@@ -601,8 +628,14 @@ function Inspector({ actions, labKind, state }) {
 function StatusBar({ actions, engine, state }) {
   // Re-read the engine's dataset stats after every rebuild.
   const [, setTick] = useState(0);
-  useEffect(() => engine.onRebuilt(() => setTick((tick) => tick + 1)), [engine]);
-  useEffect(() => engine.onPreviewChanged(() => setTick((tick) => tick + 1)), [engine]);
+  useEffect(() => {
+    if (!engine) return undefined;
+    return engine.onRebuilt(() => setTick((tick) => tick + 1));
+  }, [engine]);
+  useEffect(() => {
+    if (!engine) return undefined;
+    return engine.onPreviewChanged(() => setTick((tick) => tick + 1));
+  }, [engine]);
   const cards = document.body.dataset.treeCardCount ?? '0';
   const previewLevel = state.previewLod;
   const previewTriangles = document.body.dataset.treePreviewTriangles;

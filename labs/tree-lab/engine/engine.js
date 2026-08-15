@@ -245,9 +245,23 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
   }
 
   function applyLiveStyle() {
-    const { styleId } = store.getState();
-    plant?.setVegetationShader?.(resolveVegetationShaderPreset(styleId));
-    document.body.dataset.vegetationStyle = styleId;
+    const state = store.getState();
+    const galleryMonochrome = /^local_gallery_tree_\d+$/.test(String(state.presetId ?? ''));
+    const overrides = galleryMonochrome
+      ? {
+        foliage: {
+          // Gallery candidates are authored as one hue family. Keep the
+          // renderer's per-card variation at zero so lighting changes value,
+          // not hue, and never turns green into yellow/orange/red.
+          hueShift: 0,
+          hueVariation: 0,
+          styleColorStrength: 0,
+        },
+      }
+      : {};
+    plant?.setVegetationShader?.(resolveVegetationShaderPreset(state.styleId, overrides));
+    document.body.dataset.vegetationStyle = state.styleId;
+    document.body.dataset.galleryMonochrome = String(galleryMonochrome);
   }
 
   function disposePlantRoot(root) {
@@ -383,9 +397,14 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
   }
 
   // Initial camera framing; user orbiting is preserved across rebuilds.
+  // Legacy recipes can still produce crowns much larger than their nominal
+  // `size`, so fit the actual plant bounds for every generated plant rather
+  // than only for species-profile recipes. This keeps random procedural trees
+  // fully visible and gives the gallery the same honest first frame as the
+  // species catalog.
   function frameCamera() {
     const { settings } = store.getState();
-    if (plant && settings.plant.speciesProfileId) {
+    if (plant) {
       plant.updateWorldMatrix(true, true);
       const bounds = new THREE.Box3().setFromObject(plant);
       const center = bounds.getCenter(new THREE.Vector3());

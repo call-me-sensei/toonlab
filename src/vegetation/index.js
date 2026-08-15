@@ -19,10 +19,12 @@ export * from './contactShadowField.js';
 export * from './vegetationShaders.js';
 export {
   TREE_SURFACE_PROFILES,
+  TREE_SURFACE_PROFILE_ALIASES,
   TREE_SURFACE_PROFILE_DEFAULTS,
   createTreeSurfaceTexture,
   createTreeSurfaceTextureData,
   getTreeSurfaceProfileOptions,
+  resolveTreeSurfaceProfileId,
 } from './treeSurfaceTextures.js';
 export * from './importedVegetationMaterial.js';
 export * from './grassPalettes.js';

@@ -41,9 +41,16 @@ function geometryDigest(tree) {
 
 assert.deepEqual(
   BRANCH_TREE_LEAF_SHAPES,
-  ['teardrop', 'round', 'oak', 'maple', 'gingko'],
-  'the supported leaf selector is a small broadleaf-only set',
+  ['teardrop', 'round', 'oak', 'maple', 'palmate', 'gingko', 'needle', 'needle-fascicle'],
+  'the supported leaf selector stays small and closed, and now spans conifers',
 );
+// 'palmate' is Acer palmatum's dissected seven-lobe leaf, distinct from the
+// blunt five-point sugar-maple star 'maple' draws; 'needle' and
+// 'needle-fascicle' are conifer organs. BranchTree is a recursive woody
+// skeleton with foliage at the branch tips, which is exactly how a
+// cloud-pruned garden pine is built, so restricting the selector to
+// broadleaves was a documentation-level assumption rather than an
+// architectural one.
 
 const normalized = createBranchTreeSettings({
   seed: 41,

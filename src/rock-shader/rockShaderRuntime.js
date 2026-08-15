@@ -3,12 +3,24 @@ import {
   createToonRockMaterial,
   normalizeToonLabRockProfile,
 } from './rockMaterial.js';
+import { applyRockGeometryDetail } from './rockGeometryDetail.js';
+
+/**
+ * Weight of the concavity channel in the moss moisture term.
+ *
+ * `moisture = clamp(slope + cavity * strength)`. At 1.6 a fully concave crevice
+ * reaches saturation on its own, so moss grows in a vertical cleft that the
+ * slope term scores at zero, while an exposed convex face still depends on
+ * slope alone and stays bare.
+ */
+export const ROCK_MOSS_CAVITY_STRENGTH = 1.6;
 import { createRockShaderSettings } from './rockShaderSettings.js';
 import { markFactoryStyleMaterial } from '../styles/styleMetadata.js';
+import { withoutDegenerateDetailMaps } from './rockTextureIntegrity.js';
 
 const ORIGINAL_MATERIALS = new WeakMap();
 const ORIGINAL_SHADOW_FLAGS = new WeakMap();
-let defaultTextureSet = null;
+const textureSetsByVariation = new Map();
 
 function clamp01(value) {
   return Math.min(1, Math.max(0, Number(value) || 0));
@@ -77,16 +89,22 @@ function makeProceduralTexture({
 }
 
 /**
- * Creates the neutral, deterministic fallback texture set used by the
- * Call Me Sensei rock shader. Applications can replace any map with authored
- * or licensed textures without changing the shader preset.
+ * Offsets every fallback map's seed by a variation index.
+ *
+ * Two rocks that resolve to the same fallback maps render with identical
+ * surface breakup. That reads as one rock duplicated — the failure §13 calls a
+ * "repeated prop pattern" — so a scene placing several rocks from one family
+ * needs a way to decorrelate them without authoring bespoke textures for each.
+ * Seed 0 reproduces the reviewed first-party set exactly.
  */
-export function createDefaultRockShaderTextureSet() {
-  if (defaultTextureSet) return defaultTextureSet;
+function variationSeed(base, variation) {
+  return base + (variation * 101);
+}
 
-  defaultTextureSet = Object.freeze({
+function buildRockShaderTextureSet(variation) {
+  return Object.freeze({
     rock: makeProceduralTexture({
-      seed: 3,
+      seed: variationSeed(3, variation),
       // Measured sRGB mean of the captured first-party T_RockClassic_BC input
       // (179.70, 179.92, 178.98). Keeping the deterministic fallback anchored
       // to that source lets the shader produce its reviewed grey sun face and
@@ -97,61 +115,85 @@ export function createDefaultRockShaderTextureSet() {
       variation: 0.18,
     }),
     rockNormal: makeProceduralTexture({
-      seed: 5,
+      seed: variationSeed(5, variation),
       color: [0.5, 0.5, 1],
       variation: 0,
       colorSpace: THREE.NoColorSpace,
       channel: 'normal',
     }),
     smoothness: makeProceduralTexture({
-      seed: 7,
+      seed: variationSeed(7, variation),
       color: [0.33, 0.33, 0.33],
       variation: 0.12,
       colorSpace: THREE.NoColorSpace,
       channel: 'mask',
     }),
     stripe: makeProceduralTexture({
-      seed: 13,
+      seed: variationSeed(13, variation),
       color: [0.58, 0.55, 0.5],
       variation: 0.2,
     }),
     moss: makeProceduralTexture({
-      seed: 17,
+      seed: variationSeed(17, variation),
       color: [0.3, 0.42, 0.2],
       variation: 0.16,
     }),
     grass: makeProceduralTexture({
-      seed: 19,
+      seed: variationSeed(19, variation),
       color: [0.32, 0.48, 0.19],
       variation: 0.14,
     }),
     snow: makeProceduralTexture({
-      seed: 23,
+      seed: variationSeed(23, variation),
       color: [0.88, 0.91, 0.94],
       variation: 0.06,
     }),
     sand: makeProceduralTexture({
-      seed: 29,
+      seed: variationSeed(29, variation),
       color: [0.7, 0.58, 0.39],
       variation: 0.1,
     }),
     sandNormal: makeProceduralTexture({
-      seed: 31,
+      seed: variationSeed(31, variation),
       color: [0.5, 0.5, 1],
       variation: 0,
       colorSpace: THREE.NoColorSpace,
       channel: 'normal',
     }),
     topMask: makeProceduralTexture({
-      seed: 37,
+      seed: variationSeed(37, variation),
       color: [0.56, 0.56, 0.56],
       variation: 0.3,
       colorSpace: THREE.NoColorSpace,
       channel: 'mask',
     }),
   });
+}
 
-  return defaultTextureSet;
+/**
+ * Creates the neutral, deterministic fallback texture set used by the
+ * Call Me Sensei rock shader. Applications can replace any map with authored
+ * or licensed textures without changing the shader preset.
+ *
+ * `variation` decorrelates the generated maps so several rocks sharing one
+ * catalog family do not render with identical surface breakup. Sets are
+ * memoized per variation index and are deterministic: the same index always
+ * yields the same maps. Index 0 is the reviewed first-party set.
+ *
+ * @param {{variation?: number}} [options]
+ */
+export function createRockShaderTextureSet({ variation = 0 } = {}) {
+  const index = Number.isFinite(Number(variation)) ? Math.trunc(Number(variation)) : 0;
+  const existing = textureSetsByVariation.get(index);
+  if (existing) return existing;
+  const set = buildRockShaderTextureSet(index);
+  textureSetsByVariation.set(index, set);
+  return set;
+}
+
+/** The reviewed first-party fallback set (`variation: 0`). */
+export function createDefaultRockShaderTextureSet() {
+  return createRockShaderTextureSet({ variation: 0 });
 }
 
 function tintArray(value, fallback) {
@@ -294,16 +336,27 @@ function disposeOwnedMaterial(material) {
 }
 
 function createMaterialForSource({
+  vertexCavityStrength = 0,
   sourceMaterial,
   settings,
   profile,
   textures,
   name,
+  variation = 0,
+  degenerateMaps = null,
 }) {
-  const fallback = createDefaultRockShaderTextureSet();
+  const fallback = createRockShaderTextureSet({ variation });
+  // A placeholder in a real slot is worse than an empty slot: it silently
+  // displaces the deterministic fallback, which is a usable surface. Drop
+  // degenerate maps here so every consumer of the shader is protected, not
+  // only the ones that remembered to filter before calling.
+  const provided = withoutDegenerateDetailMaps(textures);
+  if (degenerateMaps && provided.rejected.length > 0) {
+    degenerateMaps.push(...provided.rejected);
+  }
   const textureSet = {
     ...fallback,
-    ...textures,
+    ...provided.textures,
   };
 
   const sourceAlbedoMode = settings.assetIntegration.sourceAlbedoMode;
@@ -316,7 +369,14 @@ function createMaterialForSource({
     textureSet.sourceRock = sourceMaterial.map;
   }
   if (settings.assetIntegration.sourceNormalStrength > 0 && sourceMaterial?.normalMap) {
-    textureSet.sourceNormal = sourceMaterial.normalMap;
+    const sourceNormals = withoutDegenerateDetailMaps({
+      sourceNormal: sourceMaterial.normalMap,
+    });
+    if (sourceNormals.textures.sourceNormal) {
+      textureSet.sourceNormal = sourceNormals.textures.sourceNormal;
+    } else if (degenerateMaps) {
+      degenerateMaps.push(...sourceNormals.rejected);
+    }
   }
   if (sourceAlbedoStrength > 0 && sourceMaterial?.roughnessMap) {
     textureSet.sourceRoughness = sourceMaterial.roughnessMap;
@@ -329,6 +389,7 @@ function createMaterialForSource({
     assetIntegration: {
       ...settings.assetIntegration,
       sourceAlbedoStrength,
+      vertexCavityStrength,
     },
     profile,
     textures: textureSet,
@@ -362,6 +423,7 @@ export function createRockShaderMaterial({
   textures = {},
   sourceMaterial = null,
   name = 'Call Me Sensei Rock',
+  variation = 0,
 } = {}) {
   const settings = createRockShaderSettings(input);
   return createMaterialForSource({
@@ -369,6 +431,7 @@ export function createRockShaderMaterial({
     settings,
     profile: rockShaderSettingsToProfile(settings),
     textures,
+    variation,
     name,
   });
 }
@@ -384,10 +447,28 @@ export function applyRockShader(root, input = {}, {
   name = 'Call Me Sensei Rock',
   castShadow = true,
   receiveShadow = true,
+  variation = 0,
+  detail = null,
 } = {}) {
   const settings = createRockShaderSettings(input);
+  // Geometry detail runs before anything reads or writes vertex attributes:
+  // subdivision replaces every buffer, so a color/AO attribute built first
+  // would be sized to the old vertex count. Opt-in — most placements are not
+  // close enough to need it, and it multiplies triangles by 4^subdivisions.
+  const geometryDetail = detail
+    ? applyRockGeometryDetail(root, { variation, ...(detail === true ? {} : detail) })
+    : null;
+  // Only bind the moss cavity channel when EVERY enriched mesh actually carries
+  // the attribute. A material sampling an attribute that some geometry lacks is
+  // a hard shader failure, so this stays off unless the write is complete.
+  const vertexCavityStrength = geometryDetail
+    && geometryDetail.meshes > 0
+    && geometryDetail.cavity === geometryDetail.meshes
+    ? ROCK_MOSS_CAVITY_STRENGTH
+    : 0;
   const profile = rockShaderSettingsToProfile(settings);
   const retainedSourceTextureIds = new Set();
+  const degenerateMaps = [];
   const report = {
     preset: settings.preset,
     matched: 0,
@@ -397,6 +478,13 @@ export function applyRockShader(root, input = {}, {
     usedGeneratedTextures: !textures?.rock,
     shadowDefaultsApplied: 0,
     retainedSourceTextures: 0,
+    variation,
+    // Slots dropped because the supplied map was too small to carry detail.
+    // Surfaced rather than silenced: a dropped map changes the render.
+    rejectedTextures: degenerateMaps,
+    // Tessellation/displacement actually applied, or null when not requested.
+    // Reported because it changes the triangle budget by up to 64x.
+    geometryDetail,
   };
 
   root?.traverse?.((object) => {
@@ -428,10 +516,13 @@ export function applyRockShader(root, input = {}, {
     disposeOwnedMaterial(object.material);
     const sourceMaterials = Array.isArray(originalMaterial) ? originalMaterial : [originalMaterial];
     const nextMaterials = sourceMaterials.map((sourceMaterial, index) => createMaterialForSource({
+      degenerateMaps,
+      vertexCavityStrength,
       sourceMaterial,
       settings,
       profile,
       textures,
+      variation,
       name: sourceMaterials.length > 1 ? `${name} ${index + 1}` : name,
     }));
     for (const material of nextMaterials) {
@@ -488,7 +579,8 @@ export function setRockShaderSceneState(root, { waterLevel } = {}) {
 }
 
 export function disposeDefaultRockShaderTextures() {
-  if (!defaultTextureSet) return;
-  for (const texture of Object.values(defaultTextureSet)) texture.dispose();
-  defaultTextureSet = null;
+  for (const set of textureSetsByVariation.values()) {
+    for (const texture of Object.values(set)) texture.dispose();
+  }
+  textureSetsByVariation.clear();
 }

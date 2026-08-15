@@ -14,7 +14,12 @@
 
 // Mixamo bone per VRM humanoid role. Also the source-side chain map used for
 // rest-pose direction corrections lives on these names (MIXAMO_CHAIN_CHILD).
-const MIXAMO_BONE_BY_ROLE = Object.freeze({
+/**
+ * The humanoid contract itself: role -> canonical Mixamo bone name. Exported so
+ * a host can audit a rig against it (which roles resolved, which are missing)
+ * rather than inferring the answer from a bone count.
+ */
+export const MIXAMO_BONE_BY_ROLE = Object.freeze({
   hips: 'mixamorigHips',
   spine: 'mixamorigSpine',
   chest: 'mixamorigSpine1',

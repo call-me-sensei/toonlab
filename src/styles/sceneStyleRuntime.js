@@ -341,7 +341,14 @@ export function createSceneStyleRuntime({
       shadows: {
         enabled: shadowsEnabled,
         native: renderer?.shadowMap?.enabled === true,
-        sharedPass: Boolean(shadowPass?.shadowTexture),
+        // `sharedPass` used to be `Boolean(shadowPass?.shadowTexture)`, which
+        // is true as soon as the pass allocates a target — so a scene with no
+        // shadow-casting sun, or no caster, reported healthy shadows and
+        // shipped with none (D19-041). It now reflects whether the pass has
+        // actually drawn casters into a published map, and `sharedPassHealth`
+        // says why not.
+        sharedPass: shadowPass?.health?.ok === true,
+        sharedPassHealth: shadowPass?.health ?? null,
         updatesPerSecond: qualityProfile.quality.shadows.maxUpdatesPerSecond,
       },
       sky: activeSky ? {

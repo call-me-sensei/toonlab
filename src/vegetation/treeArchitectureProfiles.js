@@ -1,4 +1,8 @@
 export const TREE_ARCHITECTURE_ENGINE_IDS = Object.freeze([
+  // The stable first-party procedural broadleaf (src/vegetation/branchTree.js).
+  // It carries its own recursive four-level scaffold and its own LOD triangle
+  // envelope, so it is a distinct engine rather than a legacy-woody variant.
+  'branch-tree',
   'woody-axis',
   'whorled-conifer',
   'culm-colony',

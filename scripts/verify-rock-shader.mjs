@@ -169,7 +169,15 @@ check('runtime assignment preserves exact defaults and supports optional asset c
   });
   const geometry = new THREE.IcosahedronGeometry(1, 1);
   const sourceAlbedo = new THREE.DataTexture(new Uint8Array([150, 155, 160, 255]), 1, 1);
-  const sourceNormal = new THREE.DataTexture(new Uint8Array([128, 128, 255, 255]), 1, 1);
+  // 16x16 is the smallest normal the integrity guard accepts as a detail map
+  // (MIN_DETAIL_MAP_EDGE_TEXELS). This fixture stands in for a real imported
+  // normal, so it has to clear that bar; the degenerate case is asserted
+  // separately below.
+  const sourceNormal = new THREE.DataTexture(
+    Uint8Array.from({ length: 16 * 16 * 4 }, (_, i) => [128, 128, 255, 255][i % 4]),
+    16,
+    16,
+  );
   const sourceOrm = new THREE.DataTexture(new Uint8Array([220, 180, 0, 255]), 1, 1);
   for (const texture of [sourceAlbedo, sourceNormal, sourceOrm]) texture.needsUpdate = true;
   const originalMaterial = new THREE.MeshStandardMaterial({
@@ -236,6 +244,40 @@ check('runtime assignment preserves exact defaults and supports optional asset c
   sourceNormal.dispose();
   sourceOrm.dispose();
   rockShader.disposeDefaultRockShaderTextures();
+});
+
+check('a placeholder normal is rejected rather than displacing the generated fallback', () => {
+  // Every published cliff asset ships a 307-byte 4x4 normal in a real texture
+  // slot (D19-010/D19-032). Binding it is worse than binding nothing, because
+  // it silently displaces the shader's own usable fallback. Guard the contract
+  // at the exact placeholder resolution the catalog ships.
+  const placeholder = new THREE.DataTexture(
+    Uint8Array.from({ length: 4 * 4 * 4 }, (_, i) => [128, 128, 255, 255][i % 4]),
+    4,
+    4,
+  );
+  placeholder.needsUpdate = true;
+  const { rejected, textures } = rockShader.withoutDegenerateDetailMaps({
+    sourceNormal: placeholder,
+  });
+  assert.equal(textures.sourceNormal, undefined, 'a 4x4 normal must not reach the material');
+  assert.equal(rejected.length, 1);
+  assert.equal(rejected[0].slot, 'sourceNormal');
+  assert.equal(rejected[0].texture.resolution, '4x4');
+
+  // The guard removes maps only when it can prove they are degenerate.
+  const real = new THREE.DataTexture(
+    Uint8Array.from({ length: 16 * 16 * 4 }, (_, i) => [128, 128, 255, 255][i % 4]),
+    16,
+    16,
+  );
+  real.needsUpdate = true;
+  const kept = rockShader.withoutDegenerateDetailMaps({ sourceNormal: real });
+  assert.equal(kept.rejected.length, 0);
+  assert.equal(kept.textures.sourceNormal, real);
+
+  placeholder.dispose();
+  real.dispose();
 });
 
 check('style bundles resolve a detailed rock shader document, not a geometry style', () => {

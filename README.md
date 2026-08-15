@@ -261,7 +261,9 @@ seed batches in order. Existing installations apply only newer batches.
 Catalog data therefore does **not** use a separate downloadable “current
 seed,” and new datasets are **not** schema migrations. Keeping every released
 batch in the repository gives fresh and upgraded installations the same final
-catalog while preserving a simple, auditable upgrade path.
+catalog while preserving a simple, auditable upgrade path. The checked-in
+catalog currently contains 8,163 official assets: 480 first-party ToonLab
+rocks plus 7,683 verified open assets.
 
 Applied filenames and SHA-256 digests are recorded in `schema_migrations` and
 `catalog_seed_batches`. Never edit, rename, or replace a released migration or

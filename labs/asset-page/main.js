@@ -1,8 +1,7 @@
-// /asset/?id=…&kind=… — mirror of toonlab.io/asset/:id (game character-screen
-// showcase: full-bleed live stage, wipe, floating stats panel), with the OSS
-// twist: every fact and file comes live from the source's public API (Poly
-// Haven or Smithsonian 3D), never from a ToonLab backend, and downloads need
-// no account.
+// /asset/?id=…&kind=… — the one asset-detail surface for Gallery and Library:
+// full-bleed live stage, comparison wipe, floating stats panel. Public Gallery
+// sources resolve from their catalog/API; src=library resolves the local entry
+// and mounts editing/version controls into this same page.
 //
 // Textures/models render live through the same unlisted /asset-lab/ embed the
 // Pro page iframes (engine contract: __assetLabEngine, body.dataset.modelReady,
@@ -23,19 +22,26 @@ import {
 } from '../../src/assetlib/galleryMaterialFamily.js';
 
 const params = new URLSearchParams(window.location.search);
-const assetId = (params.get('id') ?? '').replace(/[^a-z0-9_-]/gi, '');
 const requestedSource = params.get('src');
-const assetSource = ['official', 'plateau', 'smithsonian'].includes(requestedSource)
+const assetSource = ['library', 'official', 'plateau', 'smithsonian'].includes(requestedSource)
   ? requestedSource
   : 'polyhaven';
-let sourceLabel = assetSource === 'official'
+const requestedId = params.get('id') ?? '';
+const assetId = assetSource === 'library'
+  ? requestedId.trim().slice(0, 512)
+  : requestedId.replace(/[^a-z0-9_-]/gi, '');
+let sourceLabel = assetSource === 'library'
+  ? 'Your Library'
+  : assetSource === 'official'
   ? 'ToonLab Official Catalog'
   : assetSource === 'smithsonian'
   ? 'Smithsonian 3D Open Access'
   : assetSource === 'plateau'
     ? 'Project PLATEAU'
     : 'Poly Haven';
-let sourcePage = assetSource === 'official'
+let sourcePage = assetSource === 'library'
+  ? '/library/'
+  : assetSource === 'official'
   ? '/gallery/?src=official'
   : assetSource === 'smithsonian'
   ? 'https://3d.si.edu'
@@ -85,15 +91,25 @@ function fail(title, hint) {
 }
 
 if (!assetId) {
-  fail('Asset not found', 'This page needs an ?id= from the gallery.');
+  fail('Asset not found', 'This page needs an ?id= from the Gallery or Library.');
 } else {
   boot().catch((error) => {
     console.error('Asset page failed:', error);
-    fail('Asset source unreachable', `Could not reach the ${sourceLabel} API — check your connection and reload.`);
+    fail(
+      assetSource === 'library' ? 'Library asset unavailable' : 'Asset source unreachable',
+      assetSource === 'library'
+        ? error.message
+        : `Could not reach the ${sourceLabel} API — check your connection and reload.`,
+    );
   });
 }
 
 async function boot() {
+  if (assetSource === 'library') {
+    const { bootLibraryAsset } = await import('../library/assetExtension.js');
+    await bootLibraryAsset({ assetId, el, els, setupEmbeddedStage, setupStage, stat });
+    return;
+  }
   if (assetSource === 'official') {
     await bootOfficial();
     return;
@@ -262,6 +278,9 @@ async function bootOfficial() {
   els.name.textContent = asset.name;
   const modelUrl = officialModelUrl(asset);
   if (modelUrl) {
+    const rockMaterialConfigUrl = asset.source === 'toonlab-rock'
+      ? packFiles.find((file) => file.relative_path === 'material-config.json')?.download_url ?? null
+      : null;
     setupStage('model', {
       download: { url: modelUrl },
       thumbnailUrl: asset.thumbnail_url,
@@ -270,6 +289,7 @@ async function bootOfficial() {
         ...asset,
         materialFamily: asset.source === 'toonlab-rock' ? 'environment' : undefined,
       }),
+      rockMaterialConfigUrl,
       scanStylize: false,
     });
   } else {
@@ -568,19 +588,42 @@ function setupStage(kind, directRef = null, {
     kind,
     source: assetSource,
   }),
+  rockMaterialConfigUrl = null,
   scanStylize = true,
 } = {}) {
   const labUrl = directRef
-    ? `/asset-lab/?url=${encodeURIComponent(directRef.download.url)}&asset=${encodeURIComponent(assetId)}&kind=model&style=call_me_sensei`
+    ? `/asset-lab/?url=${encodeURIComponent(directRef.download.url)}&asset=${encodeURIComponent(assetId)}&kind=${encodeURIComponent(kind)}&style=call_me_sensei`
     : `/asset-lab/?source=polyhaven&asset=${encodeURIComponent(assetId)}&kind=${kind}&style=call_me_sensei`;
   const stageThumb = directRef?.thumbnailUrl
     ?? `https://cdn.polyhaven.com/asset_img/thumbs/${assetId}.png?width=1280&height=960`;
-  els.stage.style.backgroundImage = `url("${stageThumb.replace(/"/g, '%22')}")`;
+  const rockMaterialParam = rockMaterialConfigUrl
+    ? `&rockMaterialConfigUrl=${encodeURIComponent(rockMaterialConfigUrl)}`
+    : '';
+  setupEmbeddedStage({
+    assetLabControls: true,
+    kind,
+    labUrl: `${labUrl}&materialFamily=${encodeURIComponent(materialFamily)}&scanStylize=${scanStylize ? '1' : '0'}${rockMaterialParam}`,
+    supportsCompare: true,
+    thumbnailUrl: stageThumb,
+  });
+}
+
+// The single Gallery/Library preview mount. Sources only provide the embed
+// URL and metadata; loading, retry, comparison wipe and stage chrome stay here.
+function setupEmbeddedStage({
+  assetLabControls = false,
+  kind,
+  labUrl,
+  supportsCompare = false,
+  thumbnailUrl = null,
+}) {
+  if (thumbnailUrl) {
+    els.stage.style.backgroundImage = `url("${String(thumbnailUrl).replace(/"/g, '%22')}")`;
+  }
 
   const frame = document.createElement('iframe');
-  frame.src = `${labUrl}&hud=0&embed=1&compare=1&split=0.2`
-    + `&materialFamily=${encodeURIComponent(materialFamily)}`
-    + `&scanStylize=${scanStylize ? '1' : '0'}`;
+  const separator = labUrl.includes('?') ? '&' : '?';
+  frame.src = `${labUrl}${separator}hud=0&embed=1&compare=${supportsCompare ? '1' : '0'}&split=0.2`;
   frame.title = `${assetId} — source vs Call Me Sensei style, live`;
   frame.allow = 'fullscreen';
   els.stage.appendChild(frame);
@@ -632,37 +675,42 @@ function setupStage(kind, directRef = null, {
     }
   }, 300);
 
-  // Wipe: styled view dominates; the handle drives the engine live.
-  let split = 0.2;
-  els.wipe.hidden = false;
-  els.wipe.style.left = `${split * 100}%`;
-  const dragSplit = (clientX) => {
-    const rect = els.stage.getBoundingClientRect();
-    if (rect.width === 0) return;
-    split = Math.min(0.95, Math.max(0.02, (clientX - rect.left) / rect.width));
+  if (supportsCompare) {
+    // Wipe: styled view dominates; the handle drives the embedded engine live.
+    let split = 0.2;
+    els.wipe.hidden = false;
     els.wipe.style.left = `${split * 100}%`;
-    els.wipe.setAttribute('aria-valuenow', String(Math.round(split * 100)));
-    engine()?.setSplit(split);
-  };
-  els.wipe.addEventListener('pointerdown', (e) => {
-    els.wipe.setPointerCapture(e.pointerId);
-    dragSplit(e.clientX);
-  });
-  els.wipe.addEventListener('pointermove', (e) => {
-    if (e.buttons > 0) dragSplit(e.clientX);
-  });
-  els.wipe.addEventListener('keydown', (e) => {
-    const rect = els.stage.getBoundingClientRect();
-    if (e.key === 'ArrowLeft') dragSplit(rect.left + (split - 0.05) * rect.width);
-    if (e.key === 'ArrowRight') dragSplit(rect.left + (split + 0.05) * rect.width);
-  });
+    const dragSplit = (clientX) => {
+      const rect = els.stage.getBoundingClientRect();
+      if (rect.width === 0) return;
+      split = Math.min(0.95, Math.max(0.02, (clientX - rect.left) / rect.width));
+      els.wipe.style.left = `${split * 100}%`;
+      els.wipe.setAttribute('aria-valuenow', String(Math.round(split * 100)));
+      engine()?.setSplit(split);
+    };
+    els.wipe.addEventListener('pointerdown', (e) => {
+      els.wipe.setPointerCapture(e.pointerId);
+      dragSplit(e.clientX);
+    });
+    els.wipe.addEventListener('pointermove', (e) => {
+      if (e.buttons > 0) dragSplit(e.clientX);
+    });
+    els.wipe.addEventListener('keydown', (e) => {
+      const rect = els.stage.getBoundingClientRect();
+      if (e.key === 'ArrowLeft') dragSplit(rect.left + (split - 0.05) * rect.width);
+      if (e.key === 'ArrowRight') dragSplit(rect.left + (split + 0.05) * rect.width);
+    });
+  }
 
   els.stageLabel.hidden = false;
+  els.stageLabel.innerHTML = supportsCompare
+    ? 'Live on your GPU — left <b>source</b> · right <b>Call Me Sensei</b> · drag to orbit'
+    : 'Live on your GPU · drag to orbit';
 
-  if (kind === 'texture') {
+  if (assetLabControls && kind === 'texture') {
     setupTextureControls(engine);
     setupTextureLabHandoff(frameWin, labUrl);
-  } else {
+  } else if (assetLabControls && kind === 'model') {
     setupRetexture(frameWin);
   }
 }

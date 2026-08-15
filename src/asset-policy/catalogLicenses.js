@@ -56,7 +56,12 @@ export function resolveCatalogLicense(id) {
  * Classifies a license id without throwing, so callers can branch on the
  * outcome instead of using exceptions for control flow.
  *
- * @returns {{state: 'approved'|'unspecified'|'unrecognized', id: string|null, policy: object|null}}
+ * `not-approved` is a distinct state from `unrecognized`: the registry exists to
+ * hold rejected policies too (see the `!policy.approved` branch below), so
+ * collapsing "reviewed and refused" into "approved" would let a caller that
+ * branches on the state ship an asset the review explicitly rejected.
+ *
+ * @returns {{state: 'approved'|'not-approved'|'unspecified'|'unrecognized', id: string|null, policy: object|null}}
  */
 export function describeCatalogLicense(id) {
   const licenseId = String(id ?? '').trim();
@@ -64,10 +69,11 @@ export function describeCatalogLicense(id) {
     return { id: null, policy: null, state: CATALOG_LICENSE_UNSPECIFIED };
   }
   const policy = resolveCatalogLicense(licenseId);
+  if (!policy) return { id: licenseId, policy: null, state: 'unrecognized' };
   return {
     id: licenseId,
     policy,
-    state: policy ? 'approved' : 'unrecognized',
+    state: policy.approved ? 'approved' : 'not-approved',
   };
 }
 

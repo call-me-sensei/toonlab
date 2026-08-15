@@ -7,6 +7,7 @@
 //   ?style=call_me_sensei      style set applied to the preview
 //   ?res=1k|2k|4k              download resolution (default 1k)
 //   ?compare=1&split=0.5       original-vs-styled wipe at the split fraction
+//   ?rockMaterialConfigUrl=…   apply a released ToonLab rock material sidecar
 //   ?hud=0                     stage only, no React HUD
 
 import React from 'react';
@@ -59,6 +60,7 @@ if (!window.__assetLabBooted) {
       : null,
     query: urlParams.get('q') ?? '',
     res: urlParams.get('res') ?? '1k',
+    rockMaterialConfigUrl: urlParams.get('rockMaterialConfigUrl'),
     scanStylize: urlParams.get('scanStylize') !== '0',
     source: ['ambientcg', 'polypizza', 'kaykit', 'opensource3d'].includes(urlParams.get('source'))
       ? urlParams.get('source')
@@ -89,9 +91,18 @@ if (!window.__assetLabBooted) {
           name: boot.asset ?? 'Generated prop',
           download: { url: boot.url },
         };
+        let rockMaterialConfig = null;
+        if (boot.rockMaterialConfigUrl) {
+          const response = await fetch(boot.rockMaterialConfigUrl);
+          if (!response.ok) {
+            throw new Error(`Rock material config failed: ${response.status}`);
+          }
+          rockMaterialConfig = await response.json();
+        }
         const result = await engine.show(ref, {
           materialFamily: boot.materialFamily,
           resolution: boot.res,
+          rockMaterialConfig,
           scanStylize: boot.scanStylize,
           stylePreset: boot.style,
         });

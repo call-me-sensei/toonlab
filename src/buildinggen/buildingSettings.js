@@ -70,6 +70,10 @@ export const DEFAULT_BUILDING_SETTINGS = Object.freeze({
     roof: Object.freeze([0.42, 0.3, 0.24]),
     trim: Object.freeze([0.45, 0.46, 0.44]),
     door: Object.freeze([0.5, 0.3, 0.16]),
+    // Window glazing. Default is the cool interior shade the grammar has
+    // always drawn; authoring it is what makes warm lit interiors, tinted
+    // curtain wall, and night windows reachable.
+    glass: Object.freeze([0.22, 0.31, 0.38]),
     variation: 0.12,
   }),
 });
@@ -164,6 +168,7 @@ const FIELD_DEFINITIONS = Object.freeze({
     roof: { label: 'Roof', description: 'Roof surface color.', type: 'color' },
     trim: { label: 'Trim', description: 'Stone base, chimney, and sills.', type: 'color' },
     door: { label: 'Door', description: 'Door color.', type: 'color' },
+    glass: { label: 'Glass', description: 'Window glazing color — cool by default; warm it for lit interiors.', type: 'color' },
     variation: { label: 'Variation', description: 'Per-vertex color drift.', range: { max: 0.4, min: 0, step: 0.01 } },
   }),
 });

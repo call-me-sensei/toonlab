@@ -109,7 +109,7 @@ validators.
    ```sh
    npm run catalog:seed:generate -- \
      --manifest release.json \
-     --out database/seeds/catalog/0002_release_name.sql
+     --out database/seeds/catalog/NNNN_release_name.sql
    ```
 
 6. Run `npm run db:seed` against both a clean database and an upgraded
@@ -136,18 +136,22 @@ and not a replacement for one mutable master seed. Keeping all batches in the
 repository ensures a clean installation and a fully upgraded installation
 converge on the same catalog.
 
-The repository includes the verified `2026-08` Pro release as the immutable
-`0002_2026-08.sql` content batch: 480 first-party ToonLab rock records and
-their public GLB, material, recipe, manifest, thumbnail, and optional top-mask
-artifacts. `npm run setup` and `npm run update` apply the same numbered batches,
-so clean and upgraded installations converge on the same Gallery data without
+The repository includes two verified August 2026 Pro releases as immutable
+content batches. `0002_2026-08.sql` contains 480 first-party ToonLab rock
+records and their public GLB, material, recipe, manifest, thumbnail, and
+optional top-mask artifacts. `0003_2026-08-open-assets.sql` adds 7,683 verified
+open assets from the public Gallery. Together they provide 8,163 official
+assets. `npm run setup` and `npm run update` apply both numbered batches, so
+clean and upgraded installations converge on the same Gallery data without
 rewriting personal Library rows.
 
 Community publications are not official releases. Pro first exports an
-explicit allowlist, copies the selected verified bytes into an `official/`
-release prefix, and only then produces an OSS seed. First-party ToonLab rocks
-and trees plus eligible mirrored open assets are official OSS datasets; there
-is currently no premium asset tier. Pro releases them from the
+explicit allowlist. Redistributable files are copied into an immutable
+`official/` release prefix; external-delivery assets retain their original
+public download URL while their verified release metadata and preview
+artifacts use the official CDN. First-party ToonLab rocks and trees plus
+eligible open assets are official OSS datasets; there is currently no premium
+asset tier. Pro releases them from the
 exact-email-controlled OSS release page after their published revisions,
 license scope, and public delivery verify. Character Setup,
 private/team content, retracted/taken-down publications, prompts, reports,

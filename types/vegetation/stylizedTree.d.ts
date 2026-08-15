@@ -16,4 +16,5 @@ export function getStylizedTreePresetOptions(...args: any[]): any;
 export function layoutTreeRow(...args: any[]): any;
 export function polarProfileFromOutline(...args: any[]): any;
 export function registerStylizedTreePreset(...args: any[]): any;
+export function resolvePadPruning(...args: any[]): any;
 export function serializableTreeOptions(...args: any[]): any;

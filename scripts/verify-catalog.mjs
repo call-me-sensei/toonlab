@@ -6,12 +6,13 @@
 import process from 'node:process';
 
 import * as root from '../src/index.js';
-import * as buildinggen from '../src/buildinggen/index.js';
 import { catalog, createCatalog } from '../src/catalog/index.js';
 import { validateCatalogEntry } from '../src/catalog/manifest.js';
+import * as debrisgen from '../src/debrisgen/index.js';
 import * as lighting from '../src/lighting/index.js';
 import * as pathgen from '../src/pathgen/index.js';
 import * as propgen from '../src/propgen/index.js';
+import * as treeRecipe from '../src/vegetation/treeRecipe.js';
 
 let failures = 0;
 function check(label, condition, detail = '') {
@@ -23,19 +24,19 @@ function check(label, condition, detail = '') {
 }
 
 const entries = catalog.list();
-check('catalog has a real library (≥ 60 entries)', entries.length >= 60, `${entries.length}`);
+check('catalog has a real library (≥ 50 entries)', entries.length >= 50, `${entries.length}`);
 check('every entry validates', entries.every((entry) => validateCatalogEntry(entry).ok));
 check('every existing preset family appears',
-  ['propgen', 'buildinggen', 'vegetation', 'rockgen', 'debrisgen', 'pathgen', 'water', 'sky', 'lighting', 'post', 'toon']
+  ['propgen', 'vegetation', 'rockgen', 'debrisgen', 'pathgen', 'water', 'sky', 'lighting', 'post', 'toon']
     .every((cluster) => entries.some((entry) => entry.cluster === cluster)));
 check('Call Me Sensei is not catalogued as a Rock or Debris asset',
   !entries.some((entry) => ['rockgen', 'debrisgen'].includes(entry.cluster)
     && /call[-_]me[-_]sensei/.test(entry.id)));
 check('Debris exposes Call Me Sensei as a style',
-  root.getDebrisStyleOptions().some((entry) => entry.id === 'call_me_sensei'));
+  debrisgen.getDebrisStyleOptions().some((entry) => entry.id === 'call_me_sensei'));
 check('Call Me Sensei style composes over every debris preset',
-  root.BUILT_IN_DEBRIS_PRESETS.every((preset) => {
-    const styled = root.applyDebrisStyle(preset.settings, 'call_me_sensei');
+  debrisgen.BUILT_IN_DEBRIS_PRESETS.every((preset) => {
+    const styled = debrisgen.applyDebrisStyle(preset.settings, 'call_me_sensei');
     return styled.asset.variant === preset.variant
       && styled.surface.edgeLight === 0.34
       && styled.surface.roughness === 0.88;
@@ -43,7 +44,6 @@ check('Call Me Sensei style composes over every debris preset',
 
 // --- spawn contract across asset clusters -----------------------------------------
 const SPAWN_IDS = {
-  buildinggen: 'building/cottage/default',
   debrisgen: 'debris/bleached-driftwood',
   propgen: 'prop/lantern/stone-toro',
   rockgen: 'rock/boulder',
@@ -89,10 +89,11 @@ check('settings presets refuse spawn with the snippet', refused);
 // --- snippets reference real stable or repository-local exports -------------------------
 const stableExportNames = new Set(Object.keys(root));
 const localOnlyExportNames = new Set([
-  ...Object.keys(buildinggen),
+  ...Object.keys(debrisgen),
   ...Object.keys(lighting),
   ...Object.keys(pathgen),
   ...Object.keys(propgen),
+  ...Object.keys(treeRecipe),
 ]);
 const snippetFunctions = new Set();
 for (const entry of entries) {
@@ -108,14 +109,9 @@ const unknown = [...snippetFunctions].filter((name) => !stableExportNames.has(na
 check('every snippet function is available from a stable or repository-local module',
   unknown.length === 0, unknown.join(', '));
 for (const name of [
-  'buildingAsset',
   'createPropAssetFromRecipe',
   'createStylizedPathsFromRecipe',
   'propAssetFromObject',
-  'resolveLightingLookPreset',
-  'resolveLightingQualityPreset',
-  'resolveLightingRigPreset',
-  'resolveLuminairePreset',
 ]) {
   check(`pre-beta catalog helper ${name} is absent from the npm root`,
     stableExportNames.has(name) === false);

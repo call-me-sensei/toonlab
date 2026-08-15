@@ -5,7 +5,6 @@
 
 import { createCatalogEntry } from './manifest.js';
 import { BUILT_IN_PROP_PRESETS } from '../propgen/propPresets.js';
-import { BUILT_IN_BUILDING_PRESETS } from '../buildinggen/buildingPresets.js';
 import { BUILT_IN_PATH_PRESETS } from '../pathgen/pathPresets.js';
 import { BUILT_IN_DEBRIS_PRESETS } from '../debrisgen/debrisPresets.js';
 import { getRockgenPresetOptions } from '../rockgen/rockgenPresets.js';
@@ -92,20 +91,6 @@ export function builtinCatalogEntries() {
       label: preset.label,
       recipe: preset.recipe,
       spawn: 'createPropAssetFromRecipe(entry.recipe)',
-      tags: preset.tags,
-      thumbnail: thumbFor(preset.id),
-    }));
-  }
-
-  for (const preset of BUILT_IN_BUILDING_PRESETS) {
-    entries.push(createCatalogEntry({
-      cluster: 'buildinggen',
-      description: preset.description,
-      id: preset.id,
-      kind: 'recipe',
-      label: preset.label,
-      recipe: preset.recipe,
-      spawn: 'buildingAsset(entry.recipe)',
       tags: preset.tags,
       thumbnail: thumbFor(preset.id),
     }));

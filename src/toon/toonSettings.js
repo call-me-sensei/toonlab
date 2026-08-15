@@ -77,6 +77,100 @@ export const TOON_PRESET_IDS = Object.freeze({
 
 const DEFAULT_TOON_PRESET_SETTINGS = Object.freeze({});
 
+/**
+ * The Call Me Sensei house look, authored against premium anime-game character
+ * rendering rather than left at the library baseline.
+ *
+ * The baseline is deliberately conservative: it has to look sane on any imported
+ * GLB/VRM, so its outlines are thin, its speculars are near-off and its shadows
+ * are close to neutral. That produces a character who is *cel shaded* but whose
+ * material families all read the same — skin, cloth, leather and metal separate
+ * only by albedo. This preset is the opposite trade: it assumes a hero character
+ * under art direction and spends contrast on telling those families apart.
+ *
+ * Every value below is a deliberate delta from `DEFAULT_*_SETTINGS`; anything not
+ * listed is intentionally inherited. The three axes that carry the separation:
+ *
+ * 1. **Outline weight by role.** Contour is the single strongest anime material
+ *    cue. Costume and metal carry a heavy near-neutral line, hair carries a
+ *    weighty warm-dark line (the baseline's 0.00055 is invisible past two metres),
+ *    skin carries a thin warm line, and the face carries none at all — a line
+ *    across a cel-shaded face reads as dirt, not drawing.
+ * 2. **Specular by role.** Cloth stays matte, hair takes a broad anisotropic
+ *    band, and metal takes a tight bright hit. Leather is reached per-material
+ *    through `specular.sourceMaskMode: 'source'` plus a `toonSpecularMaskMap`,
+ *    because a fifth family cannot be expressed through roles alone.
+ * 3. **Coloured shadow families.** Shadows shift blue-violet and gain saturation
+ *    instead of just going dark, and the terminator gains a warmer, more
+ *    saturated transition band — the value grouping §4 asks for.
+ */
+const CALL_ME_SENSEI_TOON_PRESET_SETTINGS = Object.freeze({
+  // Slightly earlier, slightly tighter terminator so the light/shadow split is a
+  // drawn shape with a clean edge rather than a soft gradient.
+  celShade: Object.freeze({
+    bodyCelMidPoint: 0.04,
+    bodyCelSoftness: 0.036,
+  }),
+  // Occlusion under collars, chins, cuffs and hems is what stops a toon character
+  // reading as a decal on the plate.
+  contactShadow: Object.freeze({
+    faceStrength: 0.46,
+    strength: 0.62,
+  }),
+  hairHighlight: Object.freeze({
+    intensity: 0.22,
+    shadowFloor: 0.32,
+    sideBandPower: 2.2,
+    strandPower: 8,
+  }),
+  outline: Object.freeze({
+    defaultLightingMix: 0.22,
+    defaultMaxBrightness: 0.3,
+    defaultMinBrightness: 0.035,
+    defaultTintColor: [0.22, 0.21, 0.28],
+    defaultWidth: 0.0024,
+    hairLightingMix: 0.1,
+    hairMaxBrightness: 0.42,
+    hairMinBrightness: 0.07,
+    hairTintColor: [0.3, 0.24, 0.27],
+    hairWidth: 0.0016,
+    metalLightingMix: 0.2,
+    metalMaxBrightness: 0.32,
+    metalTintColor: [0.2, 0.2, 0.26],
+    metalWidth: 0.0022,
+    skinTintColor: [0.55, 0.3, 0.3],
+    skinWidth: 0.0011,
+  }),
+  rimLight: Object.freeze({
+    defaultIntensity: 0.16,
+    defaultTintColor: [0.79, 0.88, 1],
+    hairIntensity: 0.3,
+    skinIntensity: 0.15,
+  }),
+  // Cloth stays matte (a low, broad, late-onset lobe), hair broadens, metal takes
+  // a bright tight hit. `sourceMaskMode: 'source'` is what lets a single costume
+  // role still contain a leather family: give that material a
+  // `userData.toonSpecularMaskMap` and it gets the highlight, its neighbours do not.
+  specular: Object.freeze({
+    defaultIntensity: 0.09,
+    defaultMidPoint: 0.74,
+    defaultPower: 48,
+    hairIntensity: 0.24,
+    hairPower: 44,
+    metalIntensity: 0.5,
+    sourceMaskMode: 'source',
+  }),
+  // Shadows move blue-violet and gain chroma rather than only losing value; the
+  // terminator keeps a warmer, more saturated band against them.
+  shadowColor: Object.freeze({
+    selfShadowAreaHueOffset: -0.022,
+    selfShadowAreaSaturationBoost: 0.34,
+    selfShadowAreaValueMul: 0.63,
+    transitionAreaHueOffset: 0.018,
+    transitionAreaSaturationBoost: 0.5,
+  }),
+});
+
 export const TOON_SETTING_DEFAULTS = Object.freeze({
   alpha: DEFAULT_ALPHA_SETTINGS,
   averageShadow: DEFAULT_AVERAGE_SHADOW_SETTINGS,
@@ -470,9 +564,9 @@ const BUILT_IN_TOON_PRESETS = Object.freeze({
     settings: DEFAULT_TOON_PRESET_SETTINGS,
   }),
   [TOON_PRESET_IDS.callMeSensei]: Object.freeze({
-    description: 'Team-maintained house style preset. It starts identical to Default and can evolve separately.',
+    description: 'Team-maintained house style. Role-weighted outlines, per-role specular and coloured shadow families so skin, hair, cloth, leather and metal read as distinct materials.',
     label: 'Call Me Sensei',
-    settings: { ...DEFAULT_TOON_PRESET_SETTINGS },
+    settings: CALL_ME_SENSEI_TOON_PRESET_SETTINGS,
   }),
   [TOON_PRESET_IDS.showcase]: Object.freeze({
     description: 'Every optional feature turned on with demo values — a one-click way to see the full feature set. Not a production look.',

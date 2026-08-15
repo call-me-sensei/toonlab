@@ -435,7 +435,11 @@ check('vegetation exposes the legacy tree set plus BranchTree and no experimenta
   }
   assert.deepEqual(
     vegetation.BRANCH_TREE_LEAF_SHAPES,
-    ['teardrop', 'round', 'oak', 'maple', 'gingko'],
+    ['teardrop', 'round', 'oak', 'maple', 'palmate', 'gingko', 'needle', 'needle-fascicle'],
+  );
+  assert.deepEqual(
+    vegetation.BRANCH_TREE_CANOPY_ARCHITECTURES,
+    ['cloud-cards', 'layered-sprays', 'needle-whorls'],
   );
   assert.equal(
     vegetation.TREE_SURFACE_PROFILE_DEFAULTS.call_me_sensei,

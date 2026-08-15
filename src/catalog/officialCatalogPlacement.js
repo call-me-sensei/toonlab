@@ -7,6 +7,7 @@ import {
   validateCollisionMetadata,
 } from '../collisionMetadata.js';
 import { applyRockShader } from '../rock-shader/rockShaderRuntime.js';
+import { withoutDegenerateDetailMaps } from '../rock-shader/rockTextureIntegrity.js';
 import {
   applyStyleBundle,
 } from '../styles/styleApplication.js';
@@ -38,28 +39,49 @@ function rotation3(value) {
   return [0, Number(value) || 0, 0];
 }
 
-function catalogRockTextures(root) {
-  const textures = {};
+/**
+ * Harvests usable detail maps off an acquired catalog asset.
+ *
+ * Published rock artifacts may carry a placeholder in the normal slot — the
+ * 0.4.19 cliff catalog ships a 4x4 map on every asset. Binding one is worse
+ * than binding nothing, because it displaces the shader's own deterministic
+ * fallback with a map that has no relief in it. Reject those here and let the
+ * fallback (or a caller-supplied map) stand.
+ *
+ * Caller-supplied textures always win over harvested ones: an application that
+ * has a real map for a slot knows more than the artifact does.
+ */
+function catalogRockTextures(root, overrides = {}) {
+  const harvested = {};
   root.traverse((object) => {
-    if (!object.isMesh || textures.rockNormal) return;
+    if (!object.isMesh || harvested.rockNormal) return;
     const source = (Array.isArray(object.material) ? object.material : [object.material])
       .find((material) => material?.normalMap);
-    if (source) textures.rockNormal = source.normalMap;
+    if (source) harvested.rockNormal = source.normalMap;
   });
-  return textures;
+  const usable = withoutDegenerateDetailMaps(harvested);
+  return {
+    rejected: usable.rejected,
+    textures: { ...usable.textures, ...overrides },
+  };
 }
 
-function styleAdapterFor(asset, root) {
+function styleAdapterFor(asset, root, { textures: overrides, variation }) {
   if (asset.domain !== 'natural.rock') return null;
-  const textures = catalogRockTextures(root);
+  const resolved = catalogRockTextures(root, overrides);
+  const report = { rejectedTextures: resolved.rejected };
   return Object.freeze({
     apply(subject, settings) {
-      return applyRockShader(subject, settings, {
+      const result = applyRockShader(subject, settings, {
         name: `ToonLab · ${asset.label}`,
-        textures,
+        textures: resolved.textures,
+        variation,
       });
+      report.rejectedTextures = [...resolved.rejected, ...(result.rejectedTextures ?? [])];
+      return result;
     },
     id: 'toonlab-official-catalog-rock',
+    report,
   });
 }
 
@@ -113,6 +135,8 @@ export async function loadOfficialCatalogAsset({
   scale = [1, 1, 1],
   styleBundle,
   targetId = null,
+  textures = {},
+  variation = 0,
 } = {}) {
   if (!assetRuntime?.acquireAsset) {
     throw new TypeError('loadOfficialCatalogAsset requires an official catalog asset runtime.');
@@ -136,6 +160,7 @@ export async function loadOfficialCatalogAsset({
   container.updateWorldMatrix(true, true);
 
   let metadata;
+  let adapter = null;
   let style = null;
   let lod = null;
   let collisionRegistration = null;
@@ -147,7 +172,7 @@ export async function loadOfficialCatalogAsset({
       collision: metadata,
       targetId: id,
     }));
-    const adapter = styleAdapterFor(asset, root);
+    adapter = styleAdapterFor(asset, root, { textures, variation });
     style = await applyStyleBundle(styleBundle, {
       targets: [createStyleTarget(id, asset.domain, root, { adapter })],
     });
@@ -209,6 +234,8 @@ export async function loadOfficialCatalogAsset({
     normalization,
     object: root,
     quality: qualityProfile,
+    /** Detail maps the artifact shipped that were too small to be usable. */
+    get rejectedTextures() { return adapter?.report?.rejectedTextures ?? []; },
     async release() {
       if (released) return false;
       released = true;

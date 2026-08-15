@@ -1,5 +1,6 @@
 // Source inference fallback: public names retained with permissive signatures.
 export const LEAF_SHAPE_PRESETS: any;
+export const NEEDLE_LEAF_SHAPES: any;
 export class StylizedTreeFoliage { constructor(...args: any[]); [key: string]: any; }
 export const TREE_FOLIAGE_ARCHITECTURES: any;
 export const TREE_FOLIAGE_BLOBS: any;

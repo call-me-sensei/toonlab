@@ -111,6 +111,9 @@ function insetWalls(walls, inset) {
 }
 
 const GLASS = [0.22, 0.31, 0.38];
+const glassOf = (palette) => (Array.isArray(palette.glass) && palette.glass.length === 3
+  ? palette.glass
+  : GLASS);
 
 function buildWallsAndFacades(builder, plan, detail) {
   const { settings, floors, footprint } = plan;
@@ -210,8 +213,15 @@ function buildWallsAndFacades(builder, plan, detail) {
           const { u, width, y0: wy0, height } = bay.window;
           const yCenter = floor.y0 + wy0 + height / 2;
           const [x, , z] = facePoint(u, yCenter);
-          builder.box('beam', palette.beam, 0.9, 0.06, height + 0.14, width + 0.14, [x, yCenter, z], [0, yaw, 0]);
-          builder.box('trim', GLASS, 1, 0.08, height, width, [x, yCenter, z], [0, yaw, 0]);
+          // Frame reads as a reveal: it is deeper than the glass and the glass
+          // is pushed inward behind it, so every window carries a modeled
+          // recess plus real glass thickness rather than a proud panel.
+          const frameDepth = 0.13;
+          const glassDepth = 0.05;
+          const glassSet = frameDepth / 2 - glassDepth / 2 - 0.005;
+          builder.box('beam', palette.beam, 0.9, frameDepth, height + 0.14, width + 0.14, [x, yCenter, z], [0, yaw, 0]);
+          builder.box('trim', glassOf(palette), 1, glassDepth, height, width,
+            [x - wall.nx * glassSet, yCenter, z - wall.nz * glassSet], [0, yaw, 0]);
           // sill
           const [sx, , sz] = facePoint(u, floor.y0 + wy0 - 0.05);
           builder.box('trim', palette.trim, 1, 0.12, 0.07, width + 0.2, [sx, floor.y0 + wy0 - 0.05, sz], [0, yaw, 0]);

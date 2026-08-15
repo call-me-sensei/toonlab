@@ -156,6 +156,78 @@ export function traceLeafShapePath(ctx, shape, length, width, outline = null) {
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     }
+  } else if (shape === 'palmate') {
+    // Acer palmatum. Seven deeply divided lobes, sinuses cutting almost to
+    // the petiole, each lobe lanceolate with a serrated margin.
+    //
+    // This is NOT a variant of 'maple' above: that outline is a five-point
+    // sugar-maple star with blunt lobes and shallow sinuses, which is a
+    // correct Acer saccharum and a wrong Acer palmatum. The Japanese maple's
+    // whole identity is that the crown reads as lace rather than as a mass of
+    // leaf blades, and at 85 mm the difference between a five-point star and
+    // a seven-lobe dissected leaf is the difference between the species.
+    // The fan is nearly a full circle: on a real A. palmatum the outer pair of
+    // lobes swings back past horizontal, almost touching the petiole, which is
+    // what gives the leaf its star read rather than a hand read. A narrow fan
+    // is the single most common way a stylized "maple" ends up looking like a
+    // palm frond instead.
+    const lobes = 7;
+    const spread = 4.9;                       // full fan, radians (~281 deg)
+    const sinus = 0.11;                       // sinus depth, as a radial fraction
+    const half = (spread / (lobes - 1)) * 0.34;
+    const steps = 10;                         // even → symmetric serration
+    let started = false;
+    const emit = (angle, radial) => {
+      const x = Math.sin(angle) * width * radial;
+      const y = -Math.cos(angle) * length * radial;
+      if (started) ctx.lineTo(x, y);
+      else { ctx.moveTo(x, y); started = true; }
+    };
+    for (let i = 0; i < lobes; i += 1) {
+      const axis = ((i / (lobes - 1)) * 2 - 1) * spread * 0.5;
+      for (let side = -1; side <= 1; side += 2) {
+        for (let k = 0; k <= steps; k += 1) {
+          // Left margin runs outward, right margin runs back in, so the
+          // outline stays a single continuous closed loop.
+          const step = side < 0 ? k : steps - k;
+          const t = step / steps;
+          // Lanceolate profile: pinched at the sinus, widest around 40% out,
+          // drawn to a point at the tip.
+          const body = Math.sin(Math.PI * Math.min(1, 0.08 + t * 0.9)) ** 0.62;
+          // Alternating teeth along the margin.
+          const tooth = step % 2 === 0 ? 1 : 0.74;
+          emit(axis + side * half * body * tooth, sinus + (0.5 - sinus) * t);
+        }
+      }
+    }
+  } else if (shape === 'needle-fascicle') {
+    // Pinus thunbergii. A black pine's foliage unit is a FASCICLE: two stiff
+    // needles bound at a common sheath, diverging into a narrow V. Drawing a
+    // pine from single 'needle' blades gives a scatter of loose hairs; the
+    // paired V is what makes a card read as pine rather than as fur, and it
+    // is also what carries the species' characteristic stiffness.
+    // Black pine needles are 6-12 cm long and about 1.5 mm across, held stiff
+    // and nearly parallel — the pair diverges by well under 20 deg. A wide V
+    // reads as a grass tussock, not as a conifer.
+    //
+    // The thickness is deliberately far above botanical scale. A card that is
+    // 0.5 m across renders about 40 px tall at the distance a garden pine is
+    // actually seen from, and a true-scale needle is then a quarter of a pixel:
+    // the mip chain averages it below the alpha cutoff and the whole card
+    // collapses into a soft lobed blob — which is exactly what the first
+    // version did, and it made the pine read as a broadleaf. Stylized conifers
+    // exaggerate needle width for the same reason hand-painted ones do.
+    const t = width * 0.23;
+    const reach = width * 0.17;
+    const sheathTop = length * 0.3;
+    ctx.moveTo(-t * 1.7, length * 0.5);
+    ctx.lineTo(-reach - t * 0.3, -length * 0.5);
+    ctx.lineTo(-reach + t * 0.3, -length * 0.48);
+    ctx.lineTo(-t * 0.3, sheathTop);
+    ctx.lineTo(t * 0.3, sheathTop);
+    ctx.lineTo(reach - t * 0.3, -length * 0.48);
+    ctx.lineTo(reach + t * 0.3, -length * 0.5);
+    ctx.lineTo(t * 1.7, length * 0.5);
   } else if (shape === 'gingko' || shape === 'fan') {
     // Fan: narrow stem base opening to a wide notched top edge.
     ctx.moveTo(0, length * 0.5);
@@ -173,8 +245,21 @@ export function traceLeafShapePath(ctx, shape, length, width, outline = null) {
 }
 
 export const LEAF_SHAPE_PRESETS = Object.freeze([
-  'teardrop', 'round', 'oak', 'maple', 'gingko', 'needle',
+  'teardrop', 'round', 'oak', 'maple', 'palmate', 'gingko', 'needle',
+  'needle-fascicle',
 ]);
+
+/**
+ * Shapes whose card is a needle spray rather than a broadleaf cluster.
+ *
+ * Needles are an order of magnitude longer than they are wide, and on a real
+ * shoot they radiate from the twig rather than facing every direction at
+ * once. Painting them with the broadleaf arrangement below gives a fuzzy
+ * felted disc; keying the arrangement off the shape keeps every existing
+ * broadleaf sprite byte-identical while letting a conifer card look like a
+ * conifer.
+ */
+export const NEEDLE_LEAF_SHAPES = Object.freeze(['needle', 'needle-fascicle']);
 
 export function createLeafSpriteTexture({
   size = 512,
@@ -201,6 +286,76 @@ export function createLeafSpriteTexture({
     ctx.fill();
     ctx.restore();
   };
+
+  const needleSpray = NEEDLE_LEAF_SHAPES.includes(shape);
+
+  if (needleSpray) {
+    // A conifer card is not a scatter of organs over a disc. Needles are borne
+    // on SHOOTS: each year's growth is a short candle, and the fascicles stand
+    // out from that candle along its own axis. Distributing them over a disc
+    // and pointing each one at the card centre — the broadleaf arrangement —
+    // gives a sea-urchin starburst, which is what the first version of this
+    // card looked like. Building a handful of shoots and hanging needles off
+    // each one is what turns the card back into a bough.
+    // Enough shoots, started at enough different radii, that their needle
+    // masses OVERLAP. Six evenly spaced candles left visible sky between them
+    // and the card read as an asterisk of brushes; a real bough is a
+    // continuous mass with structure inside it, not a ring of separate
+    // brooms.
+    const shootCount = 9;
+    const shoots = Array.from({ length: shootCount }, (_, index) => ({
+      axis: (index / shootCount) * Math.PI * 2 + (rng() - 0.5) * 0.9,
+      base: size * (-0.02 + rng() * 0.14),
+      reach: size * (0.2 + rng() * 0.2),
+      // Shoots nearer the rim carry the crisp, bright silhouette needles.
+      lift: rng(),
+    }));
+    // Fewer, bolder fascicles. Packing the card with hundreds of hairline
+    // needles reads as felt once mipped; a stylized bough wants a countable
+    // number of confident strokes.
+    const perShoot = Math.max(5, Math.round((leafCount * 0.5) / shootCount));
+    const needles = [];
+    for (const shoot of shoots) {
+      for (let i = 0; i < perShoot; i += 1) {
+        // Along the candle, packed toward its outer half the way a real
+        // year's growth is.
+        const along = Math.pow(rng(), 0.72);
+        const radius = shoot.base + along * shoot.reach;
+        // Fascicles stand out from the shoot at a shallow angle, alternating
+        // to either side, so the candle keeps a visible axis.
+        const side = i % 2 === 0 ? 1 : -1;
+        const flare = (0.24 + rng() * 0.42) * side;
+        const lateral = (rng() - 0.5) * size * 0.07;
+        needles.push({
+          x: center + Math.cos(shoot.axis) * radius - Math.sin(shoot.axis) * lateral,
+          y: center + Math.sin(shoot.axis) * radius + Math.cos(shoot.axis) * lateral,
+          orientation: shoot.axis - Math.PI / 2 + flare,
+          depth: radius,
+          edgeT: Math.min(radius / (size * 0.4), 1),
+          pick: rng(),
+          spin: rng(),
+          shade: rng(),
+          lift: shoot.lift,
+        });
+      }
+    }
+    needles.sort((a, b) => a.depth - b.depth);
+    for (const needle of needles) {
+      const length = size * (0.24 + needle.pick * 0.16);
+      const width = length * (0.4 + needle.spin * 0.16);
+      const luminance = THREE.MathUtils.lerp(
+        0.46 + needle.shade * 0.2,
+        0.74 + needle.shade * 0.26,
+        Math.min(1, needle.edgeT * 0.7 + needle.lift * 0.4),
+      );
+      drawLeaf(needle.x, needle.y, length, width, needle.orientation, luminance);
+    }
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.name = `ToonLabLeafSprite.${shape}`;
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.anisotropy = 4;
+    return texture;
+  }
 
   const leaves = [];
   for (let i = 0; i < leafCount; i += 1) {
@@ -231,6 +386,7 @@ export function createLeafSpriteTexture({
   });
 
   const texture = new THREE.CanvasTexture(canvas);
+  texture.name = `ToonLabLeafSprite.${shape}`;
   texture.colorSpace = THREE.NoColorSpace;
   texture.anisotropy = 4;
   return texture;

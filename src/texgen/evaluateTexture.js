@@ -10,7 +10,7 @@
 // color grading, glow, and all PBR derivation keep working on top. Decoding
 // stays the caller's job so this module remains DOM-free.
 
-import { hashCombine } from '../rockgen/noise/prng.js';
+import { hash3u, hashCombine } from '../rockgen/noise/prng.js';
 import { periodicFbm2 } from './noise2.js';
 import { compileTextureLayer } from './textureGenerators.js';
 import { createTextureSettings } from './textureSettings.js';
@@ -88,6 +88,15 @@ function compileRamp(color) {
 
 function overlayOp(a, b) {
   return a < 0.5 ? 2 * a * b : 1 - 2 * (1 - a) * (1 - b);
+}
+
+/**
+ * Independent [0, 1) draw from a pattern cell id. The legacy per-cell tint read
+ * two overlapping 16-bit slices of the same hash for hue and value, which tied a
+ * cell's hue to its brightness; a fresh salted hash per channel breaks that.
+ */
+function cellUnit(id, salt) {
+  return hash3u(salt, id | 0, (id >>> 16) | 0, 0) / 4294967296;
 }
 
 function blendHeight(mode, h, d) {
@@ -356,6 +365,12 @@ export async function evaluateTextureMaps(rawSettings, {
   const emissive = settings.emissive;
   const jitterSeed = hashCombine(seed, 0x11a77);
   const hueSeed = hashCombine(seed, 0x22b33);
+  // Per-cell tint variety (0 = legacy). Above 0 the cell's hue and value come
+  // from independent salted hashes and the painterly drift keeps running inside
+  // the cell, so N modules stop reading as N flat swatches (D19-057).
+  const cellVariety = Math.min(1, Math.max(0, color.jitterCellVariety ?? 0));
+  const cellValueSalt = hashCombine(seed, 0x33c1e);
+  const cellHueSalt = hashCombine(seed, 0x44d2f);
   const jitterScale = Math.max(2, Math.round(color.jitterScale));
   const cavityTint = toLinear(color.cavityTint);
   const sheenTint = toLinear(color.sheenTint);
@@ -443,7 +458,13 @@ export async function evaluateTextureMaps(rawSettings, {
         if (color.jitterValue > 0) {
           let jn;
           if (color.jitterCells && baseCell !== null) {
-            jn = ((baseCell >>> 8) & 0xffff) / 65536;
+            jn = cellVariety > 0
+              ? cellUnit(baseCell, cellValueSalt)
+              : ((baseCell >>> 8) & 0xffff) / 65536;
+            if (cellVariety > 0) {
+              const drift = periodicFbm2(jitterSeed, u * jitterScale, v * jitterScale, jitterScale, jitterScale, 2, 0.5) * 0.5 + 0.5;
+              jn = clamp01(jn + (drift - 0.5) * cellVariety * 0.6);
+            }
           } else {
             jn = periodicFbm2(jitterSeed, u * jitterScale, v * jitterScale, jitterScale, jitterScale, 2, 0.5) * 0.5 + 0.5;
           }
@@ -458,7 +479,13 @@ export async function evaluateTextureMaps(rawSettings, {
       if (color.jitterHue > 0) {
         let hn;
         if (color.jitterCells && baseCell !== null) {
-          hn = (baseCell & 0xffff) / 65536;
+          hn = cellVariety > 0
+            ? cellUnit(baseCell, cellHueSalt)
+            : (baseCell & 0xffff) / 65536;
+          if (cellVariety > 0) {
+            const drift = periodicFbm2(hueSeed, u * jitterScale, v * jitterScale, jitterScale, jitterScale, 2, 0.5) * 0.5 + 0.5;
+            hn = clamp01(hn + (drift - 0.5) * cellVariety * 0.6);
+          }
         } else {
           hn = periodicFbm2(hueSeed, u * jitterScale, v * jitterScale, jitterScale, jitterScale, 2, 0.5) * 0.5 + 0.5;
         }

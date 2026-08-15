@@ -50,7 +50,9 @@ export function WalkableSampleHud({
 }) {
   const [styleBundles, setStyleBundles] = useState(initialStyleBundles);
   const [styleBundleId, setStyleBundleId] = useState(() => (
-    new URLSearchParams(window.location.search).get('styleBundle') || 'call-me-sensei'
+    new URLSearchParams(window.location.search).get('styleBundle')
+      || window.__toonlabActiveStyleBundleId
+      || 'call-me-sensei'
   ));
   const [inspectorReport, setInspectorReport] = useState(null);
   const [inspectorBusy, setInspectorBusy] = useState(null);

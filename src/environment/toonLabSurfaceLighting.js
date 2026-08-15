@@ -118,6 +118,8 @@ export const TOONLAB_SURFACE_LIGHTING_CONTRACT = Object.freeze({
   directDiffuse: 'radiance * BRDFData.diffuse (no 1/PI)',
   indirectDiffuse: 'bakedGI * BRDFData.diffuse (no 1/PI)',
   directSpecular: 'TOONLAB DirectBRDFSpecular optimized GGX',
+  shadowFill:
+    'authored fraction of the sun retained where the package sun-shadow pass reports occlusion (0 = TOONLAB literal)',
   defaultInputAdapter: DEFAULT_INPUT_ADAPTER.id,
   inputNormalization:
     'direct radiance and cosine-convolved indirect irradiance are normalized independently',
@@ -228,6 +230,8 @@ export class ToonLabSurfaceLightingModel extends PhysicalLightingModel {
     indirectTint = [1, 1, 1],
     inputAdapter = DEFAULT_INPUT_ADAPTER.id,
     perceptualRoughnessNode = materialRoughness,
+    shadowFill = 0,
+    shadowFillTint = [1, 1, 1],
     specularF0Node = materialSpecularColor,
     workflow = 'metallic',
   } = {}) {
@@ -237,8 +241,10 @@ export class ToonLabSurfaceLightingModel extends PhysicalLightingModel {
     this.indirectTint = vec3(...indirectTint);
     this.inputAdapter = resolveToonLabSurfaceInputAdapter(inputAdapter);
     this.perceptualRoughnessNode = perceptualRoughnessNode;
-    this.specularF0Node = specularF0Node;
+    this.shadowFill = Math.min(Math.max(Number(shadowFill) || 0, 0), 1);
+    this.shadowFillTint = shadowFillTint;
     this.workflow = workflow === 'specular' ? 'specular' : 'metallic';
+    this.specularF0Node = specularF0Node;
   }
 
   direct({ lightDirection, lightColor, lightNode, reflectedLight }) {
@@ -248,10 +254,22 @@ export class ToonLabSurfaceLightingModel extends PhysicalLightingModel {
     // TOONLAB's no-PI BRDF convention.
     // Three can carry analytic light attenuation as RGBA for transmitted
     // coloured shadows. TOONLAB's Light.color is RGB, so consume RGB explicitly.
-    const sharedSunVisibility = lightNode?.light?.shadow?.toonLabLightingContract
+    // The package sun-shadow sample is a hard 0/1 mask. Applied raw it removes
+    // the ENTIRE direct term on an occluded fragment, and a Call Me Sensei rig
+    // has no ambient light behind it — only the SH sky probe, whose measured
+    // radiance is R:G:B ~ 1 : 2.2 : 5.3. A fully occluded ToonLab surface
+    // therefore renders as saturated navy with no value structure at all
+    // (D19-062). `shadowFill` keeps an authored, tintable fraction of the sun
+    // in shadow, which is the shadow-lift the environment node material has
+    // always had and this bridge did not. Default 0 — an existing caller
+    // resolves to exactly the previous expression.
+    const rawSunVisibility = lightNode?.light?.shadow?.toonLabLightingContract
       ? sampleEnvironmentSunShadow(positionWorld)
         .mul(sampleEnvironmentCloudShadow(positionWorld, 1))
       : float(1);
+    const sharedSunVisibility = this.shadowFill > 0
+      ? mix(float(this.shadowFill).mul(vec3(...this.shadowFillTint)), vec3(1), rawSunVisibility)
+      : rawSunVisibility;
     const toonLabLightColor = vec3(lightColor)
       .mul(this.inputAdapter.directNormalization)
       .mul(sharedSunVisibility);
@@ -341,12 +359,21 @@ export function installToonLabSurfaceLighting(material, options = {}) {
     options.indirectTint ?? prior?.indirectTint ?? [1, 1, 1],
     'indirectTint',
   );
+  const shadowFill = Math.min(Math.max(Number(
+    options.shadowFill ?? prior?.shadowFill ?? 0,
+  ) || 0, 0), 1);
+  const shadowFillTint = finiteColor(
+    options.shadowFillTint ?? prior?.shadowFillTint ?? [1, 1, 1],
+    'shadowFillTint',
+  );
   material.setupLightingModel = () => new ToonLabSurfaceLightingModel({
     diffuseAlphaNode,
     indirectStrength,
     indirectTint,
     inputAdapter,
     perceptualRoughnessNode: material.roughnessNode ?? materialRoughness,
+    shadowFill,
+    shadowFillTint,
     specularF0Node: material.specularColorNode ?? materialSpecularColor,
     workflow: resolvedWorkflow,
   });
@@ -357,6 +384,8 @@ export function installToonLabSurfaceLighting(material, options = {}) {
     indirectStrength,
     indirectTint: [...indirectTint],
     preserveSpecularAlpha: options.diffuseAlphaNode != null,
+    shadowFill,
+    shadowFillTint: [...shadowFillTint],
     workflow: resolvedWorkflow,
   };
   material.needsUpdate = true;

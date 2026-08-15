@@ -40,6 +40,7 @@ import {
   rewriteAmbientcgDownloadUrl,
   rewritePolyPizzaDownloadUrl,
 } from '@call-me-sensei/toonlab/assetlib';
+import { applyRockShader } from '@call-me-sensei/toonlab/rock-shader';
 import {
   classifyUrbanPropSurface,
   createUrbanAnimePropNodeMaterial,
@@ -67,6 +68,15 @@ const BACKDROPS = {
   outdoor: { background: 0x141c26, floor: 0x55804b, sky: [0xbdd7f5, 0x3d5a3a] },
   studio: { background: 0x22262c, floor: 0x8d9298, sky: [0xcfd6de, 0x565c63] },
 };
+
+const LOOKDEV_LIGHTING = Object.freeze({
+  imported: Object.freeze({ sunColor: 0xfff2dd, sunIntensity: 2.2, sunZ: -1 }),
+  // The reviewed Call Me Sensei rock material is authored against the
+  // package's white intensity-8 daylight key. Using the generic warm 2.2 key
+  // makes the dedicated material read muddy even when its colors/layers are
+  // otherwise correct.
+  rock: Object.freeze({ sunColor: 0xffffff, sunIntensity: 8, sunZ: 1 }),
+});
 
 export function createAssetEngine({ mount }) {
   const renderer = createLabRenderer({ antialias: true });
@@ -113,6 +123,7 @@ export function createAssetEngine({ mount }) {
   // side and ground shadow correctly. Native shadowMap stays enabled above
   // for those classic receivers; this pass feeds only the TSL side.
   const sunShadowPass = createEnvironmentSunShadowPass({ renderer, scene });
+  let subjectLightingProfile = 'imported';
 
   function setBackdrop(name) {
     const backdrop = BACKDROPS[name] ?? BACKDROPS.studio;
@@ -120,6 +131,13 @@ export function createAssetEngine({ mount }) {
     ground.material.color.set(backdrop.floor);
     lights.sky.color.set(backdrop.sky[0]);
     lights.sky.groundColor.set(backdrop.sky[1]);
+  }
+
+  function setSubjectLighting(profile = 'imported') {
+    const lighting = LOOKDEV_LIGHTING[profile] ?? LOOKDEV_LIGHTING.imported;
+    subjectLightingProfile = profile in LOOKDEV_LIGHTING ? profile : 'imported';
+    lights.sun.color.set(lighting.sunColor);
+    lights.sun.intensity = lighting.sunIntensity;
   }
 
   // pristine load results, keyed by source/id/resolution — style switches
@@ -137,6 +155,7 @@ export function createAssetEngine({ mount }) {
   let viewMode = '3d'; // '3d' orbit | '2d' straight-on, rotation locked
   let lastKind = null;
   let lastMaterialFamily = GALLERY_MATERIAL_FAMILY.environment;
+  let lastRockMaterialConfig = null;
   let lastStylePreset = 'default';
   let viewWidth = 0;
   let viewHeight = 0;
@@ -174,7 +193,12 @@ export function createAssetEngine({ mount }) {
     // blocky or missing shadows on anything much smaller/larger than 10 m
     const sun = lights.sun;
     sun.target.position.copy(center);
-    sun.position.set(center.x - reach * 1.5, center.y + reach * 2.2, center.z - reach * 1.0);
+    const lighting = LOOKDEV_LIGHTING[subjectLightingProfile] ?? LOOKDEV_LIGHTING.imported;
+    sun.position.set(
+      center.x - reach * 1.5,
+      center.y + reach * 2.2,
+      center.z + reach * lighting.sunZ,
+    );
     const span = reach * 1.8;
     sun.shadow.camera.left = -span;
     sun.shadow.camera.right = span;
@@ -213,9 +237,27 @@ export function createAssetEngine({ mount }) {
 
   async function stylize(object, stylePreset, {
     materialFamily = GALLERY_MATERIAL_FAMILY.environment,
+    rockMaterialConfig = null,
     scanStylize = true,
   } = {}) {
-    if (materialFamily === GALLERY_MATERIAL_FAMILY.urban) {
+    if (rockMaterialConfig?.schema === 'toonlab.pro-rock-material') {
+      const variationMatch = String(rockMaterialConfig.variationId ?? '').match(/_(\d+)$/);
+      const variation = variationMatch ? Number.parseInt(variationMatch[1], 10) : 0;
+      const settings = {
+        preset: rockMaterialConfig.shader?.preset ?? 'call_me_sensei',
+        ...(rockMaterialConfig.shader?.settings ?? {}),
+      };
+      const report = applyRockShader(object, settings, {
+        name: `ToonLab · ${rockMaterialConfig.label ?? 'Official rock'}`,
+        variation,
+      });
+      object.userData.toonLabRockMaterialConfig = {
+        applied: report.applied,
+        schema: rockMaterialConfig.schema,
+        variationId: rockMaterialConfig.variationId ?? null,
+        version: rockMaterialConfig.version ?? null,
+      };
+    } else if (materialFamily === GALLERY_MATERIAL_FAMILY.urban) {
       applyUrbanObjectShader(object);
     } else {
       const preset = resolveEnvironmentPreset(stylePreset);
@@ -420,6 +462,7 @@ export function createAssetEngine({ mount }) {
         mesh.material = material.clone();
         await stylize(mesh, lastStylePreset, {
           materialFamily: lastMaterialFamily,
+          rockMaterialConfig: lastRockMaterialConfig,
         });
       }
       sunShadowPass.invalidate(); // cutout silhouettes may have changed
@@ -437,6 +480,7 @@ export function createAssetEngine({ mount }) {
   async function show(ref, {
     materialFamily = null,
     resolution = '1k',
+    rockMaterialConfig = null,
     scanStylize = true,
     stylePreset = 'default',
     repeat = 3,
@@ -461,6 +505,10 @@ export function createAssetEngine({ mount }) {
       if (ref.kind === 'model') {
         lastKind = 'model';
         lastMaterialFamily = materialFamily ?? resolveGalleryMaterialFamily(ref);
+        lastRockMaterialConfig = rockMaterialConfig;
+        setSubjectLighting(
+          rockMaterialConfig?.schema === 'toonlab.pro-rock-material' ? 'rock' : 'imported',
+        );
         lastStylePreset = stylePreset;
         const cacheKey = `${ref.source}/${ref.id}@${resolution}`;
         if (!modelCache.has(cacheKey)) {
@@ -503,6 +551,7 @@ export function createAssetEngine({ mount }) {
         originalDisplay.position.y -= box.min.y;
         await stylize(styledDisplay, stylePreset, {
           materialFamily: lastMaterialFamily,
+          rockMaterialConfig,
           scanStylize,
         });
         if (myToken !== token) return { ok: false, stale: true };
@@ -514,6 +563,7 @@ export function createAssetEngine({ mount }) {
       }
 
       if (ref.kind === 'texture') {
+        setSubjectLighting('imported');
         lastKind = 'texture';
         lastMaterialFamily = GALLERY_MATERIAL_FAMILY.environment;
         lastStylePreset = stylePreset;

@@ -71,8 +71,16 @@ assert.match(repository, /filter\(\(\[storeKey\]\) => !storeKey\.startsWith\('__
 assert.match(cleanupMigration, /\? '__current__'/);
 assert.match(libraryPage, /\/library\/\?id=/);
 assert.match(libraryHtml, /Nothing saved yet/);
-assert.match(libraryHtml, /comma-separated, up to 10/);
+assert.match(libraryHtml, /Comma-separated, up to 10/);
 assert.match(libraryPage, /detailForm\.elements\.tags/);
+assert.match(libraryHtml, /id="libraryType"/);
+assert.match(libraryHtml, /id="libraryTag"/);
+assert.match(libraryHtml, /id="libraryPager"/);
+assert.match(libraryPage, /const PAGE_SIZE = 36/);
+assert.match(libraryPage, /manufactured-surface-profile/);
+assert.match(libraryPage, /\/asset-lab\/\?url=/);
+assert.match(libraryPage, /className = 'lib-preview-frame'/);
+assert.match(libraryPage, /const \{ _local, \.\.\.document \}/);
 assert.match(stylesPage, /STYLE_BUNDLE_SLOTS/);
 assert.match(stylesPage, /The Styles editor metadata is out of sync/);
 assert.match(stylesPage, /Your saved documents/);

@@ -220,6 +220,18 @@ opaque objects under `.toonlab/objects`; Postgres stores their metadata and
 generation history. Saved generated assets appear in `/library/` with preview,
 Open, asset-download, JSON-export, and delete actions.
 
+Every meaningful Library save also creates an immutable local revision. Open a
+creation in `/library/` to browse or download earlier documents, give important
+versions a unique name, add version-only tags and notes, pin milestones, or
+restore an earlier snapshot. Identical saves are deduplicated, and restore
+always creates a new head revision instead of rewriting history. This revision
+number is Library history; a document's own `version` field remains its portable
+schema version. Style-bundle revisions also record the exact revisions of saved
+documents referenced by their slots. Local runtimes can request the locked,
+self-contained bundle with
+`fetchStyleBundle('/api/toonlab/library/<bundle-id>/resolved')`; a missing lock
+fails explicitly instead of substituting a newer dependency.
+
 ### Updating an existing installation
 
 Use the same update sequence for every ToonLab release, whether it contains
@@ -496,6 +508,10 @@ Saved-object tags are ASCII lowercase slugs (`a-z`, `0-9`, and single hyphen
 separators; maximum 10 tags and 32 characters each) and are
 stored independently from the portable document so they remain searchable
 after reload and edits.
+
+Revision history is unlimited in the local workspace. Creation tags above are
+separate from version tags: creation tags remain discovery metadata, while
+version tags describe a particular immutable snapshot.
 
 Start by loading one style bundle, explicitly labeling the scene targets, and
 preflighting the complete routing plan. Strict mode is atomic: if any target

@@ -838,6 +838,7 @@ async function loadPackagedLocomotionClipsForTarget(targetMesh, rig, {
   retargetMode = 'world',
   rootMotion = false,
   sourceUrl = TOONLAB_MANNEQUIN_ASSET_URL,
+  trackNameStyle = 'skeleton',
 } = {}) {
   const sourceAsset = await loadModelAsset(sourceUrl);
   let sourceMesh = null;
@@ -942,6 +943,7 @@ async function loadPackagedLocomotionClipsForTarget(targetMesh, rig, {
           mode: retargetMode,
           rootMotion,
           sourceRig,
+          trackNameStyle,
         },
       );
       const clip = spec.filter(retargeted);

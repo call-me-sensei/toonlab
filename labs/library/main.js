@@ -21,11 +21,19 @@ const detailStatus = document.getElementById('detailStatus');
 const editDetails = document.getElementById('editDetails');
 const editModal = document.getElementById('editModal');
 const closeEdit = document.getElementById('closeEdit');
+const revisionList = document.getElementById('revisionList');
+const revisionStatus = document.getElementById('revisionStatus');
+const revisionModal = document.getElementById('revisionModal');
+const revisionForm = document.getElementById('revisionForm');
+const closeRevision = document.getElementById('closeRevision');
 let entries = [];
 let activeEntry = null;
+let revisions = [];
+let revisionTotal = 0;
 let currentPage = 1;
 
 const PAGE_SIZE = 36;
+const REVISION_PAGE_SIZE = 25;
 
 const MODEL_KINDS = new Set([
   'generated-model',
@@ -223,8 +231,183 @@ function setTags(entry) {
 
 function setEditModal(open) {
   editModal.hidden = !open;
-  document.body.classList.toggle('lib-modal-open', open);
+  document.body.classList.toggle('lib-modal-open', open || !revisionModal.hidden);
   if (open) detailForm.elements.label.focus();
+}
+
+function setRevisionModal(revision = null) {
+  revisionModal.hidden = !revision;
+  document.body.classList.toggle('lib-modal-open', Boolean(revision) || !editModal.hidden);
+  if (!revision) return;
+  revisionForm.elements.revisionId.value = revision.id;
+  revisionForm.elements.name.value = revision.name ?? '';
+  revisionForm.elements.tags.value = (revision.versionTags ?? []).join(', ');
+  revisionForm.elements.note.value = revision.note ?? '';
+  revisionForm.elements.pinned.checked = revision.pinned === true;
+  document.getElementById('revisionModalTitle').textContent = `Version ${revision.number}`;
+  revisionForm.elements.name.focus();
+}
+
+async function downloadRevision(revision) {
+  revisionStatus.textContent = `Preparing version ${revision.number}…`;
+  const response = await fetch(
+    `/api/toonlab/library/${encodeURIComponent(activeEntry._local.creationId)}/revisions/${encodeURIComponent(revision.id)}`,
+  );
+  if (!response.ok) {
+    revisionStatus.textContent = 'Version download failed.';
+    return;
+  }
+  const snapshot = (await response.json()).revision;
+  const blob = new Blob([`${JSON.stringify(snapshot.document, null, 2)}\n`], { type: 'application/json' });
+  const href = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = href;
+  anchor.download = `${String(activeEntry?.label ?? 'creation').replace(/[^a-z0-9._-]+/gi, '-')}-v${revision.number}.toonlab.json`;
+  anchor.hidden = true;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 0);
+  revisionStatus.textContent = `${revisionTotal} ${revisionTotal === 1 ? 'version' : 'versions'}`;
+}
+
+function renderRevisions() {
+  revisionList.replaceChildren(...revisions.map((revision) => {
+    const item = document.createElement('article');
+    item.className = `lib-revision${revision.isCurrent ? ' lib-revision--current' : ''}`;
+    const copy = document.createElement('div');
+    copy.className = 'lib-revision-copy';
+    const heading = document.createElement('div');
+    heading.className = 'lib-revision-title';
+    const title = document.createElement('strong');
+    title.textContent = revision.name || `Version ${revision.number}`;
+    const badges = document.createElement('span');
+    badges.className = 'lib-revision-badges';
+    badges.textContent = [
+      `v${revision.number}`,
+      revision.isCurrent ? 'Current' : null,
+      revision.pinned ? 'Pinned' : null,
+      revision.restoredFromRevisionId ? 'Restored' : null,
+    ].filter(Boolean).join(' · ');
+    heading.append(title, badges);
+    const meta = document.createElement('p');
+    const created = new Date(revision.createdAt);
+    meta.textContent = `${Number.isNaN(created.getTime()) ? 'Unknown date' : created.toLocaleString()} · ${revision.saveSource}`;
+    const tagRow = document.createElement('div');
+    tagRow.className = 'lib-revision-tags';
+    for (const tag of revision.versionTags ?? []) {
+      const badge = document.createElement('span');
+      badge.className = 'gal-badge';
+      badge.textContent = `#${tag}`;
+      tagRow.append(badge);
+    }
+    if (revision.note) {
+      const note = document.createElement('p');
+      note.className = 'lib-revision-note';
+      note.textContent = revision.note;
+      copy.append(heading, meta, tagRow, note);
+    } else {
+      copy.append(heading, meta, tagRow);
+    }
+    const actions = document.createElement('div');
+    actions.className = 'lib-revision-actions';
+    const edit = document.createElement('button');
+    edit.className = 'tl-btn';
+    edit.type = 'button';
+    edit.textContent = 'Name & tag';
+    edit.addEventListener('click', () => setRevisionModal(revision));
+    const download = document.createElement('button');
+    download.className = 'tl-btn';
+    download.type = 'button';
+    download.textContent = 'Download';
+    download.addEventListener('click', () => downloadRevision(revision).catch((error) => {
+      revisionStatus.textContent = error.message;
+    }));
+    actions.append(edit, download);
+    if (!revision.isCurrent) {
+      const restore = document.createElement('button');
+      restore.className = 'tl-btn';
+      restore.type = 'button';
+      restore.textContent = 'Restore';
+      restore.addEventListener('click', () => restoreRevision(revision));
+      actions.append(restore);
+    }
+    item.append(copy, actions);
+    return item;
+  }));
+  if (revisions.length < revisionTotal) {
+    const more = document.createElement('button');
+    more.className = 'tl-btn';
+    more.type = 'button';
+    more.textContent = `Load more versions (${revisionTotal - revisions.length} remaining)`;
+    more.addEventListener('click', () => loadRevisions({ reset: false }).catch((error) => {
+      revisionStatus.textContent = error.message;
+    }));
+    revisionList.append(more);
+  }
+}
+
+async function loadRevisions({ reset = true } = {}) {
+  if (!activeEntry?._local?.creationId) return;
+  revisionStatus.textContent = 'Loading history…';
+  const offset = reset ? 0 : revisions.length;
+  const response = await fetch(
+    `/api/toonlab/library/${encodeURIComponent(activeEntry._local.creationId)}/revisions?limit=${REVISION_PAGE_SIZE}&offset=${offset}`,
+  );
+  if (!response.ok) {
+    revisionStatus.textContent = 'Version history unavailable.';
+    return;
+  }
+  const payload = await response.json();
+  const page = payload.revisions ?? [];
+  revisions = reset ? page : [...revisions, ...page];
+  revisionTotal = Number(payload.total ?? revisions.length);
+  renderRevisions();
+  revisionStatus.textContent = `Showing ${revisions.length} of ${revisionTotal} ${revisionTotal === 1 ? 'version' : 'versions'}`;
+}
+
+async function restoreRevision(revision) {
+  if (!confirm(`Restore version ${revision.number}? Your current version will remain in history.`)) return;
+  revisionStatus.textContent = 'Restoring…';
+  const response = await fetch(
+    `/api/toonlab/library/${encodeURIComponent(activeEntry._local.creationId)}/revisions/${encodeURIComponent(revision.id)}/restore`,
+    { method: 'POST' },
+  );
+  if (!response.ok) {
+    revisionStatus.textContent = (await response.json()).error ?? 'Restore failed.';
+    return;
+  }
+  activeEntry = (await response.json()).entry;
+  entries = entries.map((entry) => entry.id === activeEntry.id ? activeEntry : entry);
+  renderDetail(activeEntry);
+  await loadRevisions();
+  revisionStatus.textContent = `Restored version ${revision.number} as a new version.`;
+}
+
+async function saveRevisionDetails(event) {
+  event.preventDefault();
+  const revisionId = revisionForm.elements.revisionId.value;
+  revisionStatus.textContent = 'Saving version details…';
+  const response = await fetch(
+    `/api/toonlab/library/${encodeURIComponent(activeEntry._local.creationId)}/revisions/${encodeURIComponent(revisionId)}`,
+    {
+      body: JSON.stringify({
+        name: revisionForm.elements.name.value,
+        note: revisionForm.elements.note.value,
+        pinned: revisionForm.elements.pinned.checked,
+        tags: normalizeCreationTags(revisionForm.elements.tags.value.split(',')),
+      }),
+      headers: { 'content-type': 'application/json' },
+      method: 'PATCH',
+    },
+  );
+  if (!response.ok) {
+    revisionStatus.textContent = (await response.json()).error ?? 'Save failed.';
+    return;
+  }
+  setRevisionModal(null);
+  await loadRevisions();
+  revisionStatus.textContent = 'Version details saved.';
 }
 
 function renderDetail(entry) {
@@ -420,6 +603,9 @@ function showDetail(entry) {
   indexSection.hidden = true;
   detailSection.hidden = false;
   renderDetail(entry);
+  loadRevisions().catch((error) => {
+    revisionStatus.textContent = error.message;
+  });
 }
 
 async function saveDetail(event) {
@@ -445,6 +631,7 @@ async function saveDetail(event) {
   activeEntry = payload.entry ?? next;
   entries = entries.map((entry) => entry.id === next.id ? activeEntry : entry);
   renderDetail(activeEntry);
+  await loadRevisions();
   setEditModal(false);
   detailStatus.textContent = 'Saved';
 }
@@ -505,14 +692,24 @@ nextPage.addEventListener('click', () => {
   renderIndex();
 });
 detailForm.addEventListener('submit', saveDetail);
+revisionForm.addEventListener('submit', saveRevisionDetails);
 document.getElementById('deleteEntry').addEventListener('click', deleteDetail);
+document.getElementById('nameCurrentVersion').addEventListener('click', () => {
+  const current = revisions.find((revision) => revision.isCurrent);
+  if (current) setRevisionModal(current);
+});
 editDetails.addEventListener('click', () => setEditModal(true));
 closeEdit.addEventListener('click', () => setEditModal(false));
+closeRevision.addEventListener('click', () => setRevisionModal(null));
 editModal.addEventListener('mousedown', (event) => {
   if (event.target === editModal) setEditModal(false);
 });
+revisionModal.addEventListener('mousedown', (event) => {
+  if (event.target === revisionModal) setRevisionModal(null);
+});
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && !editModal.hidden) setEditModal(false);
+  if (event.key === 'Escape' && !revisionModal.hidden) setRevisionModal(null);
 });
 load().catch((error) => {
   status.textContent = error.message;

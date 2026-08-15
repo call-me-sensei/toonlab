@@ -243,6 +243,11 @@ export async function createCharacterRuntime({
           retargetMode: animationOptions.retargetMode,
           rootMotion: animationOptions.rootMotion,
           sourceUrl: animationOptions.fallbackSourceUrl,
+          // This runtime owns one mixer rooted at the imported model scene,
+          // so packaged clips must bind named bone nodes just like native
+          // glTF clips. The lower-level loader keeps its skeleton-rooted
+          // default for callers that mix directly on a SkinnedMesh.
+          trackNameStyle: 'node',
         });
         throwIfAborted(signal);
         for (const role of missingRoles) {

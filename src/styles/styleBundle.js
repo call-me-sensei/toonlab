@@ -665,7 +665,7 @@ export async function fetchStyleBundle(ref, {
   if (firstParty) {
     return { document: firstParty, settings: resolveStyleBundleSettings(firstParty) };
   }
-  const url = /^https?:\/\//.test(ref)
+  const url = /^(?:https?:\/\/|\/)/.test(ref)
     ? ref
     : `${baseUrl.replace(/\/+$/, '')}/api/v1/bundles/${encodeURIComponent(ref)}`;
   const response = await fetchImpl(url, { headers: { accept: 'application/json' } });

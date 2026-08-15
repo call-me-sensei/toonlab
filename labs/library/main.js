@@ -9,6 +9,9 @@ const indexSection = document.getElementById('libraryIndex');
 const detailSection = document.getElementById('libraryDetail');
 const detailForm = document.getElementById('detailForm');
 const detailStatus = document.getElementById('detailStatus');
+const editDetails = document.getElementById('editDetails');
+const editModal = document.getElementById('editModal');
+const closeEdit = document.getElementById('closeEdit');
 let entries = [];
 let activeEntry = null;
 
@@ -108,6 +111,62 @@ function downloadDocument(entry) {
   URL.revokeObjectURL(href);
 }
 
+function formatUpdatedAt(entry) {
+  const value = entry?._local?.updatedAt ?? entry?.updatedAt;
+  const date = new Date(value ?? '');
+  return Number.isNaN(date.getTime())
+    ? 'Unknown'
+    : new Intl.DateTimeFormat('en-US', { year: 'numeric', month: 'short', day: 'numeric' }).format(date);
+}
+
+function setTags(entry) {
+  const tags = document.getElementById('detailTags');
+  tags.replaceChildren(...(Array.isArray(entry.tags) ? entry.tags : []).map((tag) => {
+    const badge = document.createElement('span');
+    badge.className = 'gal-badge';
+    badge.textContent = `#${tag}`;
+    return badge;
+  }));
+}
+
+function setEditModal(open) {
+  editModal.hidden = !open;
+  document.body.classList.toggle('lib-modal-open', open);
+  if (open) detailForm.elements.label.focus();
+}
+
+function renderDetail(entry) {
+  const info = infoFor(entry);
+  const preview = resultPreview(entry);
+  const previewElement = document.getElementById('detailPreview');
+  previewElement.classList.toggle('lib-preview--empty', !preview);
+  previewElement.textContent = preview ? '' : info.icon;
+  previewElement.style.backgroundImage = preview ? `url("${String(preview).replaceAll('"', '%22')}")` : '';
+  previewElement.setAttribute('aria-label', `${entry.label ?? entry.name ?? entry.id} preview`);
+  document.getElementById('detailType').textContent = info.label;
+  document.getElementById('detailTitle').textContent = entry.label ?? entry.name ?? entry.id;
+  document.getElementById('detailDescription').textContent = entry.description || 'A ToonLab creation saved in this local workspace.';
+  document.getElementById('detailUpdated').textContent = formatUpdatedAt(entry);
+  setTags(entry);
+  detailForm.elements.label.value = entry.label ?? entry.name ?? entry.id;
+  detailForm.elements.description.value = entry.description ?? '';
+  detailForm.elements.tags.value = Array.isArray(entry.tags) ? entry.tags.join(', ') : '';
+  document.getElementById('detailJson').textContent = JSON.stringify(rawDocument(entry), null, 2);
+  const actions = document.getElementById('detailActions');
+  const openHref = entry.type === 'style-bundle'
+    ? `/styles/?bundle=${encodeURIComponent(entry.id)}`
+    : assetHref(entry) ?? info.href;
+  const buttons = [];
+  if (openHref) buttons.push(actionLink(entry.type === 'style-bundle' ? 'Edit bundle' : 'Open', openHref, true));
+  const download = document.createElement('button');
+  download.className = 'tl-btn';
+  download.type = 'button';
+  download.textContent = 'Download JSON';
+  download.addEventListener('click', () => downloadDocument(entry));
+  buttons.push(download);
+  actions.replaceChildren(...buttons);
+}
+
 function card(entry) {
   const link = document.createElement('a');
   link.className = 'gal-card lib-card-link';
@@ -165,30 +224,7 @@ function showDetail(entry) {
   activeEntry = entry;
   indexSection.hidden = true;
   detailSection.hidden = false;
-  const info = infoFor(entry);
-  const preview = resultPreview(entry);
-  const previewElement = document.getElementById('detailPreview');
-  previewElement.textContent = preview ? '' : info.icon;
-  previewElement.style.backgroundImage = preview ? `url("${String(preview).replaceAll('"', '%22')}")` : '';
-  document.getElementById('detailType').textContent = info.label;
-  document.getElementById('detailTitle').textContent = entry.label ?? entry.name ?? entry.id;
-  detailForm.elements.label.value = entry.label ?? entry.name ?? entry.id;
-  detailForm.elements.description.value = entry.description ?? '';
-  detailForm.elements.tags.value = Array.isArray(entry.tags) ? entry.tags.join(', ') : '';
-  document.getElementById('detailJson').textContent = JSON.stringify(rawDocument(entry), null, 2);
-  const actions = document.getElementById('detailActions');
-  const openHref = entry.type === 'style-bundle'
-    ? `/styles/?bundle=${encodeURIComponent(entry.id)}`
-    : assetHref(entry) ?? info.href;
-  const buttons = [];
-  if (openHref) buttons.push(actionLink(entry.type === 'style-bundle' ? 'Edit bundle' : 'Open', openHref, true));
-  const download = document.createElement('button');
-  download.className = 'tl-btn';
-  download.type = 'button';
-  download.textContent = 'Download JSON';
-  download.addEventListener('click', () => downloadDocument(entry));
-  buttons.push(download);
-  actions.replaceChildren(...buttons);
+  renderDetail(entry);
 }
 
 async function saveDetail(event) {
@@ -213,7 +249,8 @@ async function saveDetail(event) {
   const payload = await response.json();
   activeEntry = payload.entry ?? next;
   entries = entries.map((entry) => entry.id === next.id ? activeEntry : entry);
-  document.getElementById('detailTitle').textContent = activeEntry.label;
+  renderDetail(activeEntry);
+  setEditModal(false);
   detailStatus.textContent = 'Saved';
 }
 
@@ -244,6 +281,14 @@ async function load() {
 search.addEventListener('input', renderIndex);
 detailForm.addEventListener('submit', saveDetail);
 document.getElementById('deleteEntry').addEventListener('click', deleteDetail);
+editDetails.addEventListener('click', () => setEditModal(true));
+closeEdit.addEventListener('click', () => setEditModal(false));
+editModal.addEventListener('mousedown', (event) => {
+  if (event.target === editModal) setEditModal(false);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !editModal.hidden) setEditModal(false);
+});
 load().catch((error) => {
   status.textContent = error.message;
   empty.hidden = false;

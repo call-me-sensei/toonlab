@@ -335,24 +335,5 @@ renderer.setAnimationLoop(() => {
   renderer.render(scene, camera);
 });
 
-window.__treeDebug = () => {
-  const out = [];
-  scene.traverse((object) => {
-    if (!object.isMesh) return;
-    const m = object.material;
-    out.push({
-      name: object.name || object.type,
-      material: m?.type,
-      matName: m?.name,
-      map: m?.map?.name ?? null,
-      base: m?.uniforms?.uBaseColor?.value?.getHexString?.() ?? null,
-      shadowFloor: m?.uniforms?.uShadowFloor?.value ?? null,
-      sceneShadow: m?.uniforms?.uSceneShadowStrength?.value ?? null,
-      bands: m?.uniforms?.uBandCount?.value ?? null,
-      uniforms: m?.uniforms ? Object.keys(m.uniforms).slice(0, 40) : null,
-    });
-  });
-  return out;
-};
 document.body.dataset.treeReport = JSON.stringify(report);
 document.body.dataset.modelReady = 'true';

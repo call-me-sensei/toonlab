@@ -164,6 +164,18 @@ export const SHOTS = Object.freeze({
     position: [11.2, 3.0, -1.6],
     target: [-9.4, 0.6, -8.6],
   }),
+  // The enclosing pine mass, close — the read that closes every sightline.
+  pines: Object.freeze({
+    fov: 40,
+    position: [1.2, 2.2, -6.4],
+    target: [-3.0, 3.4, -17.0],
+  }),
+  // The raked gravel sea and its stone islands, at walking height.
+  gravel: Object.freeze({
+    fov: 40,
+    position: [-3.2, 1.65, 7.4],
+    target: [-12.0, 0.5, 0.6],
+  }),
   // The whole garden, for composition review only.
   wide: Object.freeze({
     fov: 44,
@@ -453,6 +465,7 @@ export async function createStillwaterGarden({
   // a moss carpet into a waist-high wheat field in pass 1.
   const GRASS_ROLES = Object.freeze([
     Object.freeze({
+      adopt: 1,
       count: grassCount,
       // A moss carpet, not a lawn: 7–17 cm blades, narrow, packed into a tight
       // rosette so the colony reads as one velvet surface rather than as
@@ -479,6 +492,12 @@ export async function createStillwaterGarden({
       wind: 0.025,
     }),
     Object.freeze({
+      // Ground-colour adoption is a MOSS-scale idea. At 1 it pulls every blade
+      // toward the surface underneath, and the surface underneath the clump
+      // pockets is pale raked gravel — which is what turned the ornamental
+      // planting into a wheat field in pass 1. Moss keeps it (it sits on moss);
+      // the two taller roles take a fraction.
+      adopt: 0.3,
       count: 1_100,
       // Ornamental clumps — hakonechloa scale, arching.
       geometry: Object.freeze({
@@ -511,7 +530,7 @@ export async function createStillwaterGarden({
     const field = await surface.createGrassField({
       ...role.geometry,
       count: role.count,
-      groundAdoptStrength: 1,
+      groundAdoptStrength: role.adopt,
       mask: role.mask,
       max: grassArea.max,
       min: grassArea.min,
@@ -556,7 +575,7 @@ export async function createStillwaterGarden({
     bladeWidthRange: [0.028, 0.05],
     bladesPerClump: 22,
     clumpRadius: 0.36,
-    groundAdoptStrength: 0.7,
+    groundAdoptStrength: 0.25,
     placements: pondEdgePlacements,
     preset: 'call_me_sensei_clump',
     pushRadius: 0.9,
@@ -673,13 +692,13 @@ export async function createStillwaterGarden({
   // pond mirrors whatever is up there straight back into frame.
   sky.clouds.applyParams({
     shape: {
-      altitude: 2_050,
-      baseScale: 12_800,
-      baseStrength: 0.92,
-      coverage: 0.34,
-      density: 0.041,
-      thickness: 2_100,
-      weatherScale: 46_000,
+      altitude: 1_450,
+      baseScale: 11_200,
+      baseStrength: 0.98,
+      coverage: 0.5,
+      density: 0.05,
+      thickness: 1_900,
+      weatherScale: 38_000,
     },
     wind: { evolutionSpeed: 1.3, heading: 118, skew: 620, speed: 5.2 },
   });

@@ -607,7 +607,7 @@ const CLUMP_POCKETS = Object.freeze([
   Object.freeze({ r: 3.0, x: -14.4, z: -2.6 }),
   Object.freeze({ r: 2.8, x: 3.2, z: -10.4 }),
   Object.freeze({ r: 3.2, x: 12.8, z: 1.6 }),
-  Object.freeze({ r: 2.4, x: -2.2, z: 9.6 }),
+  Object.freeze({ r: 2.4, x: 3.6, z: 10.4 }),
   Object.freeze({ r: 2.2, x: -13.2, z: 8.4 }),
 ]);
 

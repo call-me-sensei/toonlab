@@ -10,7 +10,7 @@
 //   plus a frame-darkness check, so a capture that IS the overlay (or a black
 //   canvas) is reported rather than filed.
 
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, statSync } from 'node:fs';
 import { chromium } from 'playwright';
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:5199';
@@ -71,27 +71,14 @@ for (const shot of SHOTS) {
   const path = `${OUT}/${PREFIX}${shot}.png`;
   await page.screenshot({ path });
 
-  // A frame that is nearly uniform is either the overlay, a black canvas, or a
-  // camera pointed at nothing. Cheap to check, and it has caught all three.
-  const stats = await page.evaluate(() => {
-    const canvas = document.querySelector('#stage canvas');
-    if (!canvas) return null;
-    const probe = document.createElement('canvas');
-    probe.width = 64; probe.height = 36;
-    const context = probe.getContext('2d');
-    context.drawImage(canvas, 0, 0, 64, 36);
-    const { data } = context.getImageData(0, 0, 64, 36);
-    let sum = 0; let min = 255; let max = 0;
-    for (let index = 0; index < data.length; index += 4) {
-      const luma = 0.2126 * data[index] + 0.7152 * data[index + 1] + 0.0722 * data[index + 2];
-      sum += luma; min = Math.min(min, luma); max = Math.max(max, luma);
-    }
-    return { max, mean: sum / (data.length / 4), min };
-  });
-  if (stats) {
-    const flat = stats.max - stats.min < 24 || stats.mean < 8;
-    console.log(`${shot}: luma ${stats.min.toFixed(0)}..${stats.max.toFixed(0)} mean ${stats.mean.toFixed(0)}${flat ? '  <-- SUSPECT, frame is nearly uniform' : ''}`);
-  }
+  // A frame that is nearly uniform compresses to almost nothing. Reading the
+  // WebGPU canvas back through a 2D context does NOT work (there is no
+  // preserved drawing buffer, so it reports pure black on a perfectly good
+  // frame and cries wolf on every capture); the PNG's own size is the honest
+  // signal, and it catches the overlay, a black canvas and a camera pointed at
+  // nothing alike.
+  const bytes = statSync(path).size;
+  console.log(`${shot}: ${(bytes / 1024).toFixed(0)} KB${bytes < 40_000 ? '  <-- SUSPECT, frame is nearly uniform' : ''}`);
 }
 
 if (messages.length > 0) console.log(`--- console ---\n${messages.slice(0, 40).join('\n')}`);

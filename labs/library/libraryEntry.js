@@ -142,6 +142,142 @@ export function libraryWaterDocument(entry) {
       };
 }
 
+function creationType(entry) {
+  const document = rawLibraryDocument(entry);
+  const aliases = {
+    'rockLab-project': 'rock-project',
+    treeRecipe: 'tree-recipe',
+    'texture-lab-preset': 'texture-recipe',
+  };
+  const known = new Set(Object.keys(TYPE_INFO));
+  for (const candidate of [entry?.type, document?.schema, document?.type, entry?.kind]) {
+    const normalized = String(candidate ?? '').replace(/^toonlab\//, '');
+    const canonical = aliases[normalized] ?? normalized;
+    if (known.has(canonical)) return canonical;
+  }
+  return null;
+}
+
+function documentId(entry, document) {
+  return String(document?.id ?? entry?._local?.docKey ?? entry?.id ?? '').trim();
+}
+
+function setParam(url, key, value) {
+  const target = new URL(url, window.location.origin);
+  target.searchParams.set(key, value);
+  return `${target.pathname}${target.search}`;
+}
+
+/**
+ * Resolve every saved creation type to its real renderer. Recipe types that
+ * support portable deep links receive the complete document; the remaining
+ * labs read the exact staged document by id from their native local store.
+ */
+export function libraryLivePreview(entry) {
+  const document = rawLibraryDocument(entry);
+  const type = creationType(entry);
+  const id = documentId(entry, document);
+  const encodedDocument = JSON.stringify(document);
+  const vegetationScope = String(document?.type ?? '');
+  const direct = (kind, url, supportsCompare = false) => ({ kind, labUrl: url, mode: 'lab', supportsCompare });
+
+  switch (type) {
+    case 'toon-preset': return direct('toon shader', setParam('/shader-lab/', 'toonPreset', id));
+    case 'tree-recipe': return direct(
+      document?.type === 'flower' ? 'flower' : 'tree',
+      setParam(document?.type === 'flower' ? '/flower-lab/' : '/tree-lab/', 'recipe', encodedDocument),
+    );
+    case 'rock-project': return direct('rock', setParam('/rock-lab/', 'rockProject', id));
+    case 'debris-project': return direct('debris', setParam('/debris-lab/', 'debrisRecipe', encodedDocument));
+    case 'grass-preset': return direct('grass', setParam('/grass-lab/', 'grassPreset', id));
+    case 'water-preset': return direct('water', setParam('/water-lab/', 'waterDoc', encodedDocument));
+    case 'sky-preset': return direct('sky', setParam('/sky-lab/', 'skyStyle', id));
+    case 'weather-preset': return direct('weather', setParam('/weather-lab/', 'weatherCondition', id));
+    case 'world-preset': return direct('world', setParam('/playground/', 'worldPreset', id));
+    case 'prop-asset': return { kind: 'model', mode: 'model', supportsCompare: true };
+    case 'environment-preset': return direct('environment', setParam('/environment-lab/', 'envStyle', id));
+    case 'manufactured-surface-profile': return direct('manufactured material', setParam('/manufactured-material-lab/', 'manufacturedStyle', id), true);
+    case 'vegetation-shader-preset': {
+      if (vegetationScope === 'toonlab/tree-shader-preset') {
+        return direct('tree shader', setParam('/tree-shader-lab/', 'treeShader', id));
+      }
+      if (vegetationScope === 'toonlab/grass-shader-preset') {
+        return direct('grass shader', setParam('/grass-shader-lab/', 'grassShader', id));
+      }
+      if (vegetationScope === 'toonlab/flower-shader-preset') {
+        return direct('flower shader', setParam('/flower-shader-lab/', 'flowerShader', id));
+      }
+      return direct('vegetation shader', setParam('/vegetation-shader-lab/', 'vegetationShader', id));
+    }
+    case 'tree-shader-preset': return direct('tree shader', setParam('/tree-shader-lab/', 'treeShader', id));
+    case 'grass-shader-preset': return direct('grass shader', setParam('/grass-shader-lab/', 'grassShader', id));
+    case 'flower-shader-preset': return direct('flower shader', setParam('/flower-shader-lab/', 'flowerShader', id));
+    case 'rock-shader-preset': return direct('rock shader', setParam('/rock-shader-lab/', 'rockShader', id));
+    case 'ground-shader-preset': return direct('ground shader', setParam('/ground-shader-lab/', 'groundShader', id));
+    case 'sky-params': return direct('sky and cloud', setParam('/sky-cloud-lab/', 'skyStyle', id));
+    case 'cloud-shader-preset': return direct('cloud shader', setParam('/cloud-shader-lab/', 'skyStyle', id));
+    case 'texture-recipe': return direct('texture', setParam('/texture-lab/', 'textureRecipe', encodedDocument), true);
+    case 'style-bundle': return direct('style bundle', setParam('/shader-lab/', 'styleBundle', id));
+    case 'generated-image': return { kind: 'image', mode: 'image', supportsCompare: false };
+    default: return null;
+  }
+}
+
+function readArray(key) {
+  try {
+    const value = JSON.parse(window.localStorage.getItem(key) ?? '[]');
+    return Array.isArray(value) ? value : [];
+  } catch {
+    return [];
+  }
+}
+
+function upsertArray(key, id, value, identify = (entry) => entry?.id) {
+  const entries = readArray(key);
+  const index = entries.findIndex((entry) => String(identify(entry) ?? '') === id);
+  if (index >= 0) entries[index] = value;
+  else entries.push(value);
+  window.localStorage.setItem(key, JSON.stringify(entries));
+}
+
+/** Stage the server-backed Library document into the exact OSS lab store. */
+export function stageLibraryLivePreview(entry) {
+  const document = rawLibraryDocument(entry);
+  const type = creationType(entry);
+  const id = documentId(entry, document);
+  if (!type || !id) return;
+  try {
+    if (type === 'toon-preset') upsertArray('toonlab.toonPresets.v1', id, document);
+    else if (type === 'rock-project') {
+      upsertArray('toonlab.rockGeneration.library.v1', id, {
+        document: JSON.stringify(document), id, name: document.name ?? entry.label ?? id,
+        updatedAt: new Date().toISOString(),
+      });
+    } else if (type === 'grass-preset') upsertArray('toonlab.grassPresets.v1', id, document);
+    else if (type === 'sky-preset') upsertArray('toonlab.skyShaderLab.presets.v2', id, document);
+    else if (type === 'weather-preset') upsertArray('toonlab.weatherPresets.v1', id, document);
+    else if (type === 'world-preset') upsertArray('toonlab.worldPresets.v1', id, document);
+    else if (type === 'environment-preset') upsertArray('toonlab.environmentPresets.v1', id, document);
+    else if (type === 'manufactured-surface-profile') upsertArray('toonlab.manufacturedSurface.library.v1', id, document);
+    else if (['vegetation-shader-preset', 'tree-shader-preset', 'grass-shader-preset', 'flower-shader-preset'].includes(type)) {
+      const scope = String(document?.type ?? '').includes('tree-') ? 'tree'
+        : String(document?.type ?? '').includes('grass-') ? 'grass'
+          : String(document?.type ?? '').includes('flower-') ? 'flower' : null;
+      upsertArray(scope ? `toonlab.vegetationShaderProfiles.${scope}.v1` : 'toonlab.vegetationShaderProfiles.v1', id, document);
+    } else if (type === 'rock-shader-preset') {
+      upsertArray('toonlab.rockShaderLibrary.v1', id, {
+        document: JSON.stringify(document), id, name: document.label ?? entry.label ?? id,
+        updatedAt: new Date().toISOString(),
+      });
+    } else if (type === 'ground-shader-preset') upsertArray('toonlab.groundShaderLibrary.v1', id, document);
+    else if (type === 'sky-params' || type === 'cloud-shader-preset') {
+      upsertArray('toonlab.skyCloudLab.styles.v1', id, { document, workspace: 'integration' }, (record) => record?.document?.id);
+    }
+  } catch (error) {
+    console.warn('[library-preview] Could not stage the saved document for its lab.', error);
+  }
+}
+
 export function libraryFormat(entry) {
   if (isLibraryModel(entry)) return '3D model';
   if (entry?.type === 'generated-image') return 'Image';

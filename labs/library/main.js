@@ -9,6 +9,7 @@ const empty = document.getElementById('libraryEmpty');
 const emptyTitle = document.getElementById('libraryEmptyTitle');
 const emptyHint = document.getElementById('libraryEmptyHint');
 const search = document.getElementById('librarySearch');
+const filtersForm = document.getElementById('libraryFilters');
 const typeFilter = document.getElementById('libraryType');
 const tagFilter = document.getElementById('libraryTag');
 const clearFilters = document.getElementById('clearFilters');
@@ -147,6 +148,11 @@ async function load() {
 }
 
 search.addEventListener('input', () => { currentPage = 1; renderIndex(); });
+filtersForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  currentPage = 1;
+  renderIndex();
+});
 typeFilter.addEventListener('change', () => { currentPage = 1; renderIndex(); });
 tagFilter.addEventListener('change', () => { currentPage = 1; renderIndex(); });
 clearFilters.addEventListener('click', () => {

@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import {
   createPlantFromRecipe,
   recipeFromSettings,
+  resolveVegetationShaderPreset,
   settingsFromRecipe,
 } from '../../../src/vegetation/experimental.js';
 import { createLabRenderer, whenRendererReady } from '../../shared/rendererFactory.js';
@@ -123,6 +124,28 @@ function runtimeRecipeForThumbnail(preset) {
   };
 }
 
+function isMonochromeGalleryPreset(preset) {
+  return preset?.options?.galleryMonochrome?.version >= 2
+    || /^local_gallery_tree_\d+$/.test(String(preset?.id ?? ''));
+}
+
+function applyThumbnailStyle(plant, preset) {
+  if (!isMonochromeGalleryPreset(preset)) return;
+  const styleId = typeof preset.options?.vegetationShader === 'string'
+    ? preset.options.vegetationShader
+    : 'default';
+  plant.setVegetationShader?.(resolveVegetationShaderPreset(styleId, {
+    foliage: {
+      // The candidate recipe owns the hue family. Thumbnails must use the
+      // same zero-hue-variation treatment as the live editor instead of the
+      // default seeded ±36° card shifts that made one tree look multicolored.
+      hueShift: 0,
+      hueVariation: 0,
+      styleColorStrength: 0,
+    },
+  }));
+}
+
 // Slices one batch's atlas readback into per-preset data URLs. Node-backend
 // RTs are written top-down (docs/tsl-conventions.md gotcha 6;
 // src/shaders-tsl/chunks/pass-depth-color.js shadowClipAdjustWebGPU/GL and
@@ -191,6 +214,7 @@ async function renderThumbnailsNode(missing, { onProgress } = {}) {
       let plant = null;
       try {
         plant = createPlantFromRecipe(runtimeRecipeForThumbnail(entry.preset));
+        applyThumbnailStyle(plant, entry.preset);
         plant.setSun({
           direction: [0.45, 0.75, 0.5], color: [1.0, 0.96, 0.86], sky: [0.72, 0.87, 1.0],
         });

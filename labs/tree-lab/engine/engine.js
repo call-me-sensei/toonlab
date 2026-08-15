@@ -245,9 +245,23 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
   }
 
   function applyLiveStyle() {
-    const { styleId } = store.getState();
-    plant?.setVegetationShader?.(resolveVegetationShaderPreset(styleId));
-    document.body.dataset.vegetationStyle = styleId;
+    const state = store.getState();
+    const galleryMonochrome = /^local_gallery_tree_\d+$/.test(String(state.presetId ?? ''));
+    const overrides = galleryMonochrome
+      ? {
+        foliage: {
+          // Gallery candidates are authored as one hue family. Keep the
+          // renderer's per-card variation at zero so lighting changes value,
+          // not hue, and never turns green into yellow/orange/red.
+          hueShift: 0,
+          hueVariation: 0,
+          styleColorStrength: 0,
+        },
+      }
+      : {};
+    plant?.setVegetationShader?.(resolveVegetationShaderPreset(state.styleId, overrides));
+    document.body.dataset.vegetationStyle = state.styleId;
+    document.body.dataset.galleryMonochrome = String(galleryMonochrome);
   }
 
   function disposePlantRoot(root) {

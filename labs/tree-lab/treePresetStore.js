@@ -12,16 +12,37 @@ import {
 export { BUILT_IN_TREE_PRESETS };
 
 const LOCAL_TREE_PRESETS_STORAGE_KEY = 'toonlab.treePresets.v1';
+const GALLERY_COLOR_VERSION = 2;
 
-// The batch generator deliberately stays inside a restrained, botanical
-// palette. Each candidate carries one authored canopy hue; the renderer may
-// still derive lit/shadow tones from that hue, but no per-card colour lists or
-// pinned multi-colour palettes are written into the recipe.
-const GALLERY_LEAF_COLORS = Object.freeze([
-  '#2f6542', '#356f47', '#3f7d4f', '#438451', '#4d8f47',
-  '#58964e', '#63a558', '#6fae59', '#7cb35a', '#8fbf4d',
-  '#7b9861', '#6d9464', '#4f8b67', '#3e7a58', '#58808c',
-  '#6f925d', '#829b62', '#9a9659', '#b09b58', '#c18a45',
+// The batch generator deliberately stays inside four restrained, botanical
+// hue families. A candidate owns one base color plus same-hue light/shadow
+// tones; renderer hue variation is disabled for this marked gallery set, so
+// a green candidate cannot turn yellow, orange, or red from card to card.
+const GALLERY_COLOR_FAMILIES = Object.freeze([
+  Object.freeze({
+    id: 'green',
+    colors: Object.freeze([
+      '#2f6b3d', '#3e7d45', '#508f4d', '#62a253', '#76ad59', '#89b65a',
+    ]),
+  }),
+  Object.freeze({
+    id: 'yellow',
+    colors: Object.freeze([
+      '#b39a2c', '#c2a536', '#d1b443', '#dec050', '#e6ca63', '#d8b737',
+    ]),
+  }),
+  Object.freeze({
+    id: 'orange',
+    colors: Object.freeze([
+      '#b95f27', '#c96d2b', '#d77a32', '#e28739', '#ec984b', '#cb622d',
+    ]),
+  }),
+  Object.freeze({
+    id: 'red',
+    colors: Object.freeze([
+      '#9e3734', '#ad3f38', '#bb4940', '#c95547', '#d46350', '#b13b3a',
+    ]),
+  }),
 ]);
 
 const GALLERY_LEAF_SHAPES = Object.freeze(['teardrop', 'round', 'maple', 'gingko']);
@@ -44,6 +65,15 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
+function scaleHexColor(hex, scale) {
+  const value = String(hex ?? '').replace(/^#/, '');
+  if (!/^[0-9a-f]{6}$/i.test(value)) return hex;
+  const channels = [0, 2, 4].map((offset) => (
+    Math.round(Math.min(255, Math.max(0, parseInt(value.slice(offset, offset + 2), 16) * scale)))
+  ));
+  return `#${channels.map((channel) => channel.toString(16).padStart(2, '0')).join('')}`;
+}
+
 function varyNumber(value, amount, step, index, min, max) {
   const base = Number.isFinite(Number(value)) ? Number(value) : 0;
   const offset = ((index % 5) - 2) * amount;
@@ -57,6 +87,22 @@ function galleryLeafShapeFor(templateId, index) {
   if (/pine/i.test(templateId)) return 'needle';
   if (/aspen/i.test(templateId)) return index % 2 ? 'round' : 'teardrop';
   return GALLERY_LEAF_SHAPES[index % GALLERY_LEAF_SHAPES.length];
+}
+
+function galleryColorFor(index) {
+  // Four-candidate blocks make the family rotation visible in the library
+  // without sacrificing deterministic per-candidate color variation.
+  const family = GALLERY_COLOR_FAMILIES[Math.floor(index / 4) % GALLERY_COLOR_FAMILIES.length];
+  const color = family.colors[Math.floor(index / (GALLERY_COLOR_FAMILIES.length * 4)) % family.colors.length];
+  return {
+    color,
+    family,
+    palette: {
+      crown: scaleHexColor(color, 1.12),
+      lit: color,
+      shadow: scaleHexColor(color, 0.62),
+    },
+  };
 }
 
 function galleryBarkTextureFor(templateId, index) {
@@ -76,25 +122,55 @@ function galleryNameFor(index) {
 }
 
 function galleryNameForId(id) {
+  const index = galleryIndexForId(id);
+  if (index === null) return null;
+  return index >= 0 && index < 100 ? galleryNameFor(index) : null;
+}
+
+function galleryIndexForId(id) {
   const match = /^local_gallery_tree_(\d+)$/.exec(String(id ?? ''));
   if (!match) return null;
   const index = Number(match[1]) - 1;
-  return index >= 0 && index < 100 ? galleryNameFor(index) : null;
+  if (!Number.isInteger(index) || index < 0 || index >= 100) return null;
+  return index;
+}
+
+function normalizeGalleryCandidate(document) {
+  const index = galleryIndexForId(document.id);
+  if (index === null) return { changed: false, document };
+  const marker = document.options?.galleryMonochrome;
+  if (marker?.version >= GALLERY_COLOR_VERSION) return { changed: false, document };
+
+  const { color, family, palette } = galleryColorFor(index);
+  return {
+    changed: true,
+    document: {
+      ...document,
+      options: {
+        ...(document.options ?? {}),
+        canopyColor: color,
+        canopyPalette: palette,
+        galleryMonochrome: { family: family.id, version: GALLERY_COLOR_VERSION },
+        vegetationShader: document.options?.vegetationShader ?? 'call_me_sensei',
+      },
+    },
+  };
 }
 
 function curatedOptionsFor(template, index) {
   const source = cloneJSON(template.options ?? {});
   const templateId = String(template.id ?? 'tree');
-  const color = GALLERY_LEAF_COLORS[index % GALLERY_LEAF_COLORS.length];
+  const { color, family, palette } = galleryColorFor(index);
   const scale = GALLERY_SIZE_VARIANTS[index % GALLERY_SIZE_VARIANTS.length];
 
   source.seed = 1001 + index * 37;
   source.size = clamp((Number(source.size) || 1.7) * scale, 1.15, 3.8);
   source.canopyColor = color;
-  // Built-ins such as Forest Mix and Autumn Blend intentionally demonstrate
-  // multi-colour foliage. They are useful examples, but must not leak into
-  // this monochrome gallery-ready batch.
-  delete source.canopyPalette;
+  // Keep all three renderer tones inside the same hue family. This prevents
+  // the default crown rotation from turning a warm tree into a different
+  // color family while preserving readable toon-lighting bands.
+  source.canopyPalette = palette;
+  source.galleryMonochrome = { family: family.id, version: GALLERY_COLOR_VERSION };
   source.leafDensity = clamp((Number(source.leafDensity) || 0.9)
     + ((index % 4) - 1.5) * 0.025, 0.78, 1);
   source.vegetationShader = 'call_me_sensei';
@@ -253,18 +329,21 @@ export function loadLocalTreePresets() {
       console.warn('Ignoring invalid local tree preset:', result.errors.join(' '));
       continue;
     }
-    const migratedName = galleryNameForId(result.value.id);
-    if (migratedName && result.value.label !== migratedName) {
+    const normalized = normalizeGalleryCandidate(result.value);
+    if (normalized.changed) changed = true;
+    const value = normalized.document;
+    const migratedName = galleryNameForId(value.id);
+    if (migratedName && value.label !== migratedName) {
       changed = true;
       validDocuments.push({
-        ...result.value,
+        ...value,
         label: migratedName,
-        description: result.value.description?.startsWith('Curated monochrome')
+        description: value.description?.startsWith('Curated monochrome')
           ? `Curated monochrome ${migratedName.toLowerCase()} with restrained shape, branch, and bark variation.`
-          : result.value.description,
+          : value.description,
       });
     } else {
-      validDocuments.push(result.value);
+      validDocuments.push(value);
     }
   }
   if (changed || validDocuments.length !== raw.length) {

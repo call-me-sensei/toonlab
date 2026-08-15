@@ -21,15 +21,27 @@
           <div class="lib-tools">
             <span id="libraryStatus" class="gal-section-note mono"></span>
             <input id="librarySearch" class="tl-input gal-search" type="search" placeholder="Search your library…" />
+            <select id="libraryType" class="tl-input lib-filter" aria-label="Filter by creation type">
+              <option value="">All types</option>
+            </select>
+            <select id="libraryTag" class="tl-input lib-filter" aria-label="Filter by tag">
+              <option value="">All tags</option>
+            </select>
+            <button id="clearFilters" class="tl-btn" type="button" hidden>Clear</button>
           </div>
         </div>
         <p class="home-sub">Named lab creations, generated assets, and style bundles saved in your local Postgres database.</p>
         <div id="libraryGrid" class="gal-grid lib-grid"></div>
         <div id="libraryEmpty" class="tl-empty" hidden>
           <span class="lib-empty-icon" aria-hidden="true">🌸</span>
-          <strong>Nothing saved yet</strong>
-          <span>Make something in a <a href="/">lab</a>, then save it with a name.</span>
+          <strong id="libraryEmptyTitle">Nothing saved yet</strong>
+          <span id="libraryEmptyHint">Make something in a lab, then save it with a name.</span>
         </div>
+        <nav id="libraryPager" class="lib-pager" aria-label="Library pages" hidden>
+          <button id="libraryPrev" class="tl-btn" type="button">Previous</button>
+          <span id="libraryPagerStatus" class="lib-pager-status mono"></span>
+          <button id="libraryNext" class="tl-btn" type="button">Next</button>
+        </nav>
       </section>
 
       <section id="libraryDetail" class="lib-detail" hidden>
@@ -41,7 +53,7 @@
               <span id="detailType" class="gal-badge"></span>
               <span class="gal-badge">Local creation</span>
             </div>
-            <p class="lib-eyebrow">ToonLab library</p>
+            <p class="lib-eyebrow">Library creation</p>
             <h1 id="detailTitle"></h1>
             <p id="detailDescription" class="lib-description"></p>
             <div id="detailTags" class="lib-tags" aria-label="Tags"></div>
@@ -53,7 +65,7 @@
               </div>
               <div>
                 <dt>Format</dt>
-                <dd>ToonLab recipe</dd>
+                <dd id="detailFormat">ToonLab recipe</dd>
               </div>
               <div>
                 <dt>Scope</dt>
@@ -66,7 +78,7 @@
         <div class="lib-toolbar">
           <div>
             <strong>Asset details</strong>
-            <span>Keep the preview front and center; metadata is one click away.</span>
+            <span>The preview stays front and center; metadata is one click away.</span>
           </div>
           <div class="lib-toolbar-actions">
             <button id="editDetails" class="tl-btn" type="button">Edit details</button>
@@ -98,12 +110,12 @@
                 <textarea class="tl-input" name="description" rows="4" maxlength="2000"></textarea>
               </label>
               <label class="lib-field">
-                <span>Tags <small>comma-separated, up to 10</small></span>
+                <span>Tags <small>Comma-separated, up to 10. Tags make this creation searchable.</small></span>
                 <input class="tl-input" name="tags" maxlength="329" placeholder="forest, hero-prop, village" />
               </label>
               <div class="lib-form-actions">
-                <button class="tl-btn tl-btn--primary" type="submit">Save changes</button>
                 <button id="deleteEntry" class="tl-btn lib-danger" type="button">Delete</button>
+                <button class="tl-btn tl-btn--primary" type="submit">Save changes</button>
               </div>
             </form>
           </div>

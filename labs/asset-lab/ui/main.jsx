@@ -38,6 +38,14 @@ import { App } from './App.jsx';
 
 if (!window.__assetLabBooted) {
   window.__assetLabBooted = true;
+  const reportBootError = (message) => {
+    const error = String(message ?? 'Asset preview failed').slice(0, 160);
+    document.body.dataset.modelReady = 'error';
+    document.body.dataset.modelError = error;
+    if (window.parent !== window) {
+      window.parent.postMessage({ type: 'toonlab:asset-preview-state', state: 'error', error }, window.location.origin);
+    }
+  };
   const urlParams = new URLSearchParams(window.location.search);
   const boot = {
     asset: urlParams.get('asset'),
@@ -51,6 +59,7 @@ if (!window.__assetLabBooted) {
       : null,
     query: urlParams.get('q') ?? '',
     res: urlParams.get('res') ?? '1k',
+    scanStylize: urlParams.get('scanStylize') !== '0',
     source: ['ambientcg', 'polypizza', 'kaykit', 'opensource3d'].includes(urlParams.get('source'))
       ? urlParams.get('source')
       : 'polyhaven',
@@ -83,6 +92,7 @@ if (!window.__assetLabBooted) {
         const result = await engine.show(ref, {
           materialFamily: boot.materialFamily,
           resolution: boot.res,
+          scanStylize: boot.scanStylize,
           stylePreset: boot.style,
         });
         if (!result.ok && !result.stale) console.error('Asset Browser direct-url load failed:', result.error);
@@ -108,13 +118,14 @@ if (!window.__assetLabBooted) {
       const ref = refs.find((candidate) => candidate.id === boot.asset)
         ?? refs.find((candidate) => candidate.id.toLowerCase() === boot.asset.toLowerCase());
       if (!ref) {
-        document.body.dataset.modelReady = 'error';
+        reportBootError(`Unknown asset "${boot.asset}".`);
         console.error(`Asset Browser: unknown asset "${boot.asset}".`);
         return;
       }
       const result = await engine.show(ref, {
         materialFamily: boot.materialFamily,
         resolution: boot.res,
+        scanStylize: boot.scanStylize,
         stylePreset: boot.style,
       });
       if (!result.ok && !result.stale) console.error('Asset Browser auto-load failed:', result.error);
@@ -122,7 +133,7 @@ if (!window.__assetLabBooted) {
     })
     .catch((error) => {
       console.error('Asset Browser failed to start:', error);
-      document.body.dataset.modelReady = 'error';
+      reportBootError(error?.message ?? String(error));
     });
 
   // Embed hook: stage the loaded texture's diffuse for the Texture Lab

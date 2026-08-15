@@ -23,6 +23,19 @@ import {
   WATER_ENVIRONMENT_PRESET_NAMES,
 } from './stage.js';
 
+function initialStyleBundles() {
+  const injected = Array.isArray(window.__toonlabStyleBundleOptions)
+    ? window.__toonlabStyleBundleOptions
+    : [];
+  const options = new Map([
+    ['call-me-sensei', { id: 'call-me-sensei', label: 'Call Me Sensei' }],
+  ]);
+  for (const entry of injected) {
+    if (entry?.id) options.set(entry.id, { id: entry.id, label: entry.label || entry.id });
+  }
+  return [...options.values()];
+}
+
 export function formatWaterValue(value, digits = 2) {
   return Number(value).toFixed(digits);
 }
@@ -35,10 +48,7 @@ export function WalkableSampleHud({
   onEnvPresetChange,
   onStyleBundleChange,
 }) {
-  const [styleBundles, setStyleBundles] = useState(() => [{
-    id: 'call-me-sensei',
-    label: 'Call Me Sensei',
-  }]);
+  const [styleBundles, setStyleBundles] = useState(initialStyleBundles);
   const [styleBundleId, setStyleBundleId] = useState(() => (
     new URLSearchParams(window.location.search).get('styleBundle') || 'call-me-sensei'
   ));
@@ -77,7 +87,11 @@ export function WalkableSampleHud({
           .filter((entry) => entry?.type === 'style-bundle' || entry?.schema === 'toonlab/style-bundle')
           .filter((entry) => entry.id && entry.id !== 'call-me-sensei')
           .map((entry) => ({ id: entry.id, label: entry.label || entry.id }));
-        setStyleBundles([{ id: 'call-me-sensei', label: 'Call Me Sensei' }, ...available]);
+        setStyleBundles((current) => {
+          const merged = new Map(current.map((entry) => [entry.id, entry]));
+          for (const entry of available) merged.set(entry.id, entry);
+          return [...merged.values()];
+        });
       })
       .catch(() => {
         // Anonymous/standalone OSS sessions retain the protected system style.
@@ -528,4 +542,3 @@ export function WaterHud({ cameraMode = 'follow', debugMode, envPreset, onCamera
     </div>
   );
 }
-

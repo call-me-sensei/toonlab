@@ -162,6 +162,7 @@ async function boot() {
 }
 
 function humanBytes(value) {
+  if (value == null) return 'External delivery';
   const bytes = Number(value) || 0;
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 ** 2) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -175,6 +176,78 @@ function browserCompatibleSkyFile(file) {
     || /\.(png|jpe?g|webp|hdr|exr)$/i.test(path);
 }
 
+function browserCompatibleModelFile(file) {
+  const path = String(file?.relative_path ?? '').toLowerCase();
+  const contentType = String(file?.content_type ?? '').toLowerCase();
+  return /\.(glb|gltf)$/i.test(path)
+    || contentType === 'model/gltf-binary'
+    || contentType === 'model/gltf+json';
+}
+
+function contentTypeForUrl(url) {
+  let path = '';
+  try {
+    path = new URL(url).pathname.toLowerCase();
+  } catch {
+    path = String(url ?? '').toLowerCase();
+  }
+  if (path.endsWith('.glb')) return 'model/gltf-binary';
+  if (path.endsWith('.gltf')) return 'model/gltf+json';
+  if (path.endsWith('.png')) return 'image/png';
+  if (/\.jpe?g$/.test(path)) return 'image/jpeg';
+  if (path.endsWith('.webp')) return 'image/webp';
+  if (path.endsWith('.hdr')) return 'image/vnd.radiance';
+  if (path.endsWith('.exr')) return 'image/x-exr';
+  if (path.endsWith('.zip')) return 'application/zip';
+  return 'application/octet-stream';
+}
+
+function externalMetadataFiles(asset) {
+  if (asset.redistribution_scope !== 'external-only') return [];
+  const output = [];
+  const add = (relativePath, value, kind) => {
+    const url = typeof value === 'string' ? value : value?.url;
+    if (typeof url !== 'string' || !url.startsWith('https://')) return;
+    output.push({
+      asset_id: asset.id,
+      byte_size: Number(value?.sizeBytes ?? 0) || null,
+      compatibility: {},
+      content_type: contentTypeForUrl(url),
+      download_url: url,
+      kind,
+      relative_path: relativePath,
+    });
+  };
+  if (asset.download_url) {
+    let fileName = 'original-download';
+    try {
+      fileName = decodeURIComponent(new URL(asset.download_url).pathname.split('/').filter(Boolean).pop()) || fileName;
+    } catch { /* The seed verifier already rejects invalid public URLs. */ }
+    add(fileName, asset.download_url, 'primary');
+  }
+  for (const [slot, file] of Object.entries(asset.metadata?.textureFiles ?? {})) {
+    let extension = '';
+    try { extension = new URL(file?.url).pathname.match(/\.[a-z0-9]+$/i)?.[0] ?? ''; } catch { /* no file */ }
+    add(`${slot}${extension}`, file, 'texture');
+  }
+  for (const [relativePath, file] of Object.entries(asset.metadata?.modelResources ?? {})) {
+    add(relativePath, file, 'dependency');
+  }
+  return [...new Map(output.map((file) => [file.download_url, file])).values()];
+}
+
+function officialModelUrl(asset) {
+  if (asset.kind !== 'model' || asset.availability_status !== 'active') return null;
+  if (asset.download_url && browserCompatibleModelFile({
+    content_type: asset.content_type,
+    relative_path: asset.download_url,
+  })) {
+    return asset.download_url;
+  }
+  return (asset.files ?? []).find((file) =>
+    file.download_url && browserCompatibleModelFile(file))?.download_url ?? null;
+}
+
 async function bootOfficial() {
   const response = await fetch(`/api/toonlab/catalog/${encodeURIComponent(assetId)}`);
   if (!response.ok) {
@@ -182,14 +255,29 @@ async function bootOfficial() {
     return;
   }
   const { asset } = await response.json();
+  const packFiles = [...(asset.files ?? []), ...externalMetadataFiles(asset)];
   sourcePage = asset.source_url || '/gallery/?src=official';
   document.title = `${asset.name} — ToonLab`;
-  els.crumbSource.textContent = sourceLabel;
+  els.crumbSource.textContent = asset.source || sourceLabel;
   els.name.textContent = asset.name;
-  if (asset.thumbnail_url) {
-    els.stage.style.backgroundImage = `url("${asset.thumbnail_url.replace(/"/g, '%22')}")`;
+  const modelUrl = officialModelUrl(asset);
+  if (modelUrl) {
+    setupStage('model', {
+      download: { url: modelUrl },
+      thumbnailUrl: asset.thumbnail_url,
+    }, {
+      materialFamily: resolveGalleryMaterialFamily({
+        ...asset,
+        materialFamily: asset.source === 'toonlab-rock' ? 'environment' : undefined,
+      }),
+      scanStylize: false,
+    });
+  } else {
+    if (asset.thumbnail_url) {
+      els.stage.style.backgroundImage = `url("${asset.thumbnail_url.replace(/"/g, '%22')}")`;
+    }
+    els.stage.classList.add('asset-stage--pack');
   }
-  els.stage.classList.add('asset-stage--pack');
   const sourceLink = el('a', null, `${asset.source || 'Upstream source'} ↗`);
   sourceLink.href = sourcePage;
   sourceLink.target = '_blank';
@@ -204,7 +292,7 @@ async function bootOfficial() {
     stat('Type', asset.kind),
     stat('Release', asset.release),
     stat('Original archive', humanBytes(asset.byte_size)),
-    stat('Formats', [...new Set((asset.files ?? []).map((file) => file.relative_path.split('.').pop()?.toUpperCase()).filter(Boolean))].join(' · ') || asset.content_type),
+    stat('Formats', [...new Set(packFiles.map((file) => file.relative_path.split('.').pop()?.toUpperCase()).filter(Boolean))].join(' · ') || asset.content_type || 'External'),
     stat('Availability', asset.availability_status),
   );
   if (asset.attribution_required) {
@@ -218,9 +306,16 @@ async function bootOfficial() {
   }
 
   if (asset.availability_status === 'active' && asset.download_url) {
-    els.download.textContent = 'Download original ZIP ↓';
+    els.download.textContent = asset.redistribution_scope === 'external-only'
+      ? 'Open original download ↗'
+      : 'Download original ↓';
     els.download.href = asset.download_url;
-    els.download.download = '';
+    if (asset.redistribution_scope === 'external-only') {
+      els.download.target = '_blank';
+      els.download.rel = 'noreferrer';
+    } else {
+      els.download.download = '';
+    }
     els.download.hidden = false;
   } else {
     const warning = el('p', 'asset-pack-warning',
@@ -228,7 +323,7 @@ async function bootOfficial() {
     els.actions.appendChild(warning);
   }
 
-  const compatibleFiles = (asset.files ?? []).filter(browserCompatibleSkyFile);
+  const compatibleFiles = packFiles.filter(browserCompatibleSkyFile);
   if (asset.kind === 'skybox' && compatibleFiles.length > 0 && asset.availability_status === 'active') {
     const openLab = el('a', 'pill', 'Open Sky Shader Lab');
     openLab.href = '/sky-lab/?tab=preview';
@@ -237,14 +332,14 @@ async function bootOfficial() {
 
   const pack = el('section', 'asset-pack-files');
   const heading = el('div', 'asset-pack-files__heading');
-  heading.append(el('strong', null, 'Files in this pack'), el('span', null, `${asset.files?.length ?? 0} files`));
+  heading.append(el('strong', null, 'Files in this pack'), el('span', null, `${packFiles.length} files`));
   const search = el('input', 'asset-pack-files__search');
   search.type = 'search';
   search.placeholder = 'Search paths and formats…';
   const list = el('div', 'asset-pack-files__list');
   const renderFiles = () => {
     const query = search.value.trim().toLowerCase();
-    const files = (asset.files ?? []).filter((file) =>
+    const files = packFiles.filter((file) =>
       `${file.relative_path} ${file.content_type}`.toLowerCase().includes(query));
     list.replaceChildren(...files.map((file) => {
       const row = el('div', 'asset-pack-file');
@@ -473,6 +568,7 @@ function setupStage(kind, directRef = null, {
     kind,
     source: assetSource,
   }),
+  scanStylize = true,
 } = {}) {
   const labUrl = directRef
     ? `/asset-lab/?url=${encodeURIComponent(directRef.download.url)}&asset=${encodeURIComponent(assetId)}&kind=model&style=call_me_sensei`
@@ -483,7 +579,8 @@ function setupStage(kind, directRef = null, {
 
   const frame = document.createElement('iframe');
   frame.src = `${labUrl}&hud=0&embed=1&compare=1&split=0.2`
-    + `&materialFamily=${encodeURIComponent(materialFamily)}`;
+    + `&materialFamily=${encodeURIComponent(materialFamily)}`
+    + `&scanStylize=${scanStylize ? '1' : '0'}`;
   frame.title = `${assetId} — source vs Call Me Sensei style, live`;
   frame.allow = 'fullscreen';
   els.stage.appendChild(frame);

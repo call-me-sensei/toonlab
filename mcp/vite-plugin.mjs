@@ -15,6 +15,7 @@ import {
   getCreationRevision,
   getGenerationJob,
   listCatalogAssets,
+  listCatalogFacets,
   listGenerationJobs,
   listCreationRevisions,
   listLibraryEntries,
@@ -416,11 +417,18 @@ export function toonlabWorkspacePlugin({ rootDirectory = process.cwd(), workspac
         if (request.method !== 'GET') return methodNotAllowed(response, ['GET']);
         return sendJson(response, 200, await listCatalogAssets({
           kind: url.searchParams.get('kind') ?? '',
+          license: url.searchParams.get('license') ?? '',
           limit: url.searchParams.get('limit') ?? 60,
           offset: url.searchParams.get('offset') ?? 0,
           q: url.searchParams.get('q') ?? '',
+          size: url.searchParams.get('size') ?? '',
           source: url.searchParams.get('source') ?? '',
         }));
+      }
+
+      if (url.pathname === '/api/toonlab/catalog-facets') {
+        if (request.method !== 'GET') return methodNotAllowed(response, ['GET']);
+        return sendJson(response, 200, await listCatalogFacets());
       }
 
       if (url.pathname.startsWith('/api/toonlab/catalog/')) {

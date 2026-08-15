@@ -1,141 +1,23 @@
-// Gallery metadata comes from the local Postgres catalog. Seed rows point to
-// immutable official R2 releases, so browsing is fast and repeatable without
-// a third-party metadata API. Downloads still go directly to the public CDN.
+// Gallery metadata comes from the local Postgres catalog. Versioned seed rows
+// freeze the reviewed identity, license, attribution, and delivery URL without
+// requiring a third-party metadata API at browse time.
 
 import '../shared/siteHeader.js';
-import { downloadPolyhavenAsset } from '../shared/polyhavenDownload.js';
 import {
-  fetchSmithsonianIndex,
-  isSmithsonianGalleryReady,
-} from '../../src/assetlib/smithsonian.js';
-import { fetchPlateauBuildingIndex } from '../../src/assetlib/plateau.js';
-import { listPlateauLandmarks } from '../../src/assetlib/plateauLandmarks.js';
-import { hydratePlateauThumbnail } from '../../src/assetlib/plateauViewer.js';
+  OPEN_GALLERY_SOURCE_LABELS,
+  TOONLAB_GALLERY_SOURCE_LABELS,
+} from './catalogContract.js';
 
 const PAGE_SIZE = 36;
 
-const PH_ENDPOINT = Object.freeze({ texture: 'textures', model: 'models', hdri: 'hdris' });
-
-const SOURCES = Object.freeze({
-  polyhaven: {
-    label: 'Poly Haven',
-    kinds: Object.keys(PH_ENDPOINT),
-    cache: new Map(),
-    list(kind) {
-      // One fetch per kind per session; the full per-kind index is small
-      // (~1–2k entries) so search/sort/pagination happen client-side.
-      if (!this.cache.has(kind)) {
-        const load = (async () => {
-          const res = await fetch(`/api/polyhaven/assets?type=${PH_ENDPOINT[kind]}`);
-          if (!res.ok) throw new Error(`polyhaven/${kind} → HTTP ${res.status}`);
-          const data = await res.json();
-          return Object.entries(data).map(([id, a]) => ({
-            id: `polyhaven:${id}`,
-            sourceId: id,
-            kind,
-            label: a.name ?? id,
-            badge: 'Poly Haven · CC0',
-            href: `/asset/?id=${encodeURIComponent(id)}&kind=${kind}`,
-            sourceHref: `https://polyhaven.com/a/${id}`,
-            thumbUrl: `${(a.thumbnail_url ?? `https://cdn.polyhaven.com/asset_img/thumbs/${id}.png`).split('?')[0]}?width=640&height=480`,
-            popularity: a.download_count ?? 0,
-            haystack: [a.name ?? '', id, ...(a.tags ?? []), ...(a.categories ?? [])].join(' ').toLowerCase(),
-          }));
-        })();
-        // Failed loads must not poison the cache — allow a retry.
-        load.catch(() => this.cache.delete(kind));
-        this.cache.set(kind, load);
-      }
-      return this.cache.get(kind);
-    },
-  },
-  smithsonian: {
-    label: 'Smithsonian 3D Open Access',
-    kinds: ['model'],
-    cache: null,
-    list() {
-      if (!this.cache) {
-        this.cache = fetchSmithsonianIndex().then((refs) => refs
-          .filter(isSmithsonianGalleryReady)
-          .map((ref) => ({
-            id: `smithsonian:${ref.id}`,
-            sourceId: ref.id,
-            kind: ref.kind,
-            label: ref.name,
-            badge: 'Smithsonian · CC0',
-            href: `/asset/?src=smithsonian&id=${encodeURIComponent(ref.id)}&kind=model`,
-            sourceHref: ref.pageUrl,
-            downloadHref: ref.download.url,
-            downloadName: `${ref.name.replace(/[^a-z0-9._-]+/gi, '-').replace(/^-+|-+$/g, '') || ref.id}.glb`,
-            thumbUrl: ref.thumbnailUrl,
-            popularity: 0,
-            haystack: [ref.name, ref.id, ...ref.tags, ...ref.categories].join(' ').toLowerCase(),
-          })));
-        this.cache.catch(() => { this.cache = null; });
-      }
-      return this.cache;
-    },
-  },
-  plateau: {
-    label: 'Project PLATEAU',
-    kinds: ['model'],
-    cache: null,
-    list() {
-      if (!this.cache) {
-        this.cache = fetchPlateauBuildingIndex()
-          .catch((error) => {
-            console.warn('PLATEAU city catalog unavailable; bundled landmarks remain searchable.', error);
-            return [];
-          })
-          .then((cityRefs) => [
-            ...listPlateauLandmarks().map((ref) => ({
-              actionLabel: 'Download GLB ↓',
-              badge: `PLATEAU · ${ref.attribution.license}`,
-              directOpen: false,
-              downloadHref: ref.download.url,
-              downloadName: `${ref.metadata.nameJa ? `${ref.metadata.nameJa}-` : ''}${ref.id}.glb`,
-              haystack: [
-                ref.name,
-                ref.id,
-                ref.metadata.address,
-                ...ref.tags,
-                ...ref.categories,
-              ].join(' ').toLowerCase(),
-              href: `/asset/?src=plateau&id=${encodeURIComponent(ref.id)}&kind=model`,
-              id: `plateau:${ref.id}`,
-              kind: ref.kind,
-              label: ref.name,
-              popularity: 1_000_000,
-              source: 'plateau-landmark',
-              sourceHref: ref.pageUrl,
-              sourceId: ref.id,
-              thumbUrl: ref.thumbnailUrl,
-            })),
-            ...cityRefs.map((ref) => ({
-              actionLabel: 'Source tiles ↗',
-              badge: `PLATEAU · ${ref.attribution.license}`,
-              directOpen: true,
-              downloadHref: ref.download.url,
-              haystack: [ref.name, ref.id, ...ref.tags, ...ref.categories].join(' ').toLowerCase(),
-              href: `/asset/?src=plateau&id=${encodeURIComponent(ref.id)}&kind=model`,
-              id: `plateau:${ref.id}`,
-              kind: ref.kind,
-              label: ref.name,
-              lod: ref.metadata.lod,
-              popularity: 0,
-              source: 'plateau',
-              sourceHref: ref.pageUrl,
-              sourceId: ref.id,
-              textured: ref.metadata.textured,
-              thumbUrl: null,
-            })),
-          ]);
-        this.cache.catch(() => { this.cache = null; });
-      }
-      return this.cache;
-    },
-  },
+const SOURCE_LABELS = Object.freeze({
+  ...OPEN_GALLERY_SOURCE_LABELS,
+  ...TOONLAB_GALLERY_SOURCE_LABELS,
 });
+
+function sourceLabel(source) {
+  return SOURCE_LABELS[source] ?? source;
+}
 
 const els = {
   grid: document.getElementById('galGrid'),
@@ -150,16 +32,21 @@ const els = {
   form: document.getElementById('galFilters'),
   search: document.getElementById('galSearch'),
   source: document.getElementById('galSource'),
+  license: document.getElementById('galLicense'),
   type: document.getElementById('galType'),
+  size: document.getElementById('galSize'),
 };
 
-const state = { q: '', src: '', type: '', page: 1 };
+const state = { q: '', src: '', license: '', type: '', size: '', page: 1 };
 
 function readUrl() {
   const params = new URLSearchParams(window.location.search);
   state.q = params.get('q') ?? '';
-  state.src = params.get('src') === 'official' ? 'official' : '';
-  state.type = ['texture', 'model', 'hdri', 'skybox'].includes(params.get('type')) ? params.get('type') : '';
+  state.src = params.get('src') ?? '';
+  state.license = params.get('license') ?? '';
+  state.type = ['texture', 'model', 'hdri', 'vfx'].includes(params.get('type')) ? params.get('type') : '';
+  state.size = ['small', 'medium', 'large'].includes(params.get('size')) ? params.get('size') : '';
+  if (state.src !== 'toonlab-rock') state.size = '';
   state.page = Math.max(1, Number(params.get('page')) || 1);
 }
 
@@ -168,7 +55,9 @@ function urlFor(overrides = {}) {
   const params = new URLSearchParams();
   if (merged.q) params.set('q', merged.q);
   if (merged.src) params.set('src', merged.src);
+  if (merged.license) params.set('license', merged.license);
   if (merged.type) params.set('type', merged.type);
+  if (merged.size) params.set('size', merged.size);
   if (merged.page > 1) params.set('page', String(merged.page));
   const qs = params.toString();
   return `${window.location.pathname}${qs ? `?${qs}` : ''}`;
@@ -177,7 +66,46 @@ function urlFor(overrides = {}) {
 function syncControls() {
   els.search.value = state.q;
   els.source.value = state.src;
+  els.license.value = state.license;
   els.type.value = state.type;
+  els.size.value = state.size;
+  els.size.hidden = state.src !== 'toonlab-rock';
+}
+
+async function loadFacets() {
+  const response = await fetch('/api/toonlab/catalog-facets');
+  if (!response.ok) throw new Error(`local catalog facets → HTTP ${response.status}`);
+  const facets = await response.json();
+  const sourceGroups = new Map();
+  for (const entry of facets.sources ?? []) {
+    const values = sourceGroups.get(entry.source) ?? { count: 0, licenses: new Set() };
+    values.count += Number(entry.count) || 0;
+    values.licenses.add(entry.license);
+    sourceGroups.set(entry.source, values);
+  }
+  const sourceOptions = [...sourceGroups.entries()]
+    .sort((a, b) => sourceLabel(a[0]).localeCompare(sourceLabel(b[0])))
+    .map(([source, values]) => {
+      const option = document.createElement('option');
+      option.value = source;
+      option.textContent = `${sourceLabel(source)} (${[...values.licenses].join(' / ')})`;
+      return option;
+    });
+  els.source.replaceChildren(els.source.options[0], ...sourceOptions);
+
+  const licenseOptions = (facets.licenses ?? []).map((entry) => {
+    const option = document.createElement('option');
+    option.value = entry.license;
+    option.textContent = `${entry.license} (${Number(entry.count).toLocaleString()})`;
+    return option;
+  });
+  els.license.replaceChildren(els.license.options[0], ...licenseOptions);
+  const validLicenses = new Set((facets.licenses ?? []).map((entry) => entry.license));
+  if (state.src && !sourceGroups.has(state.src)) state.src = '';
+  if (state.license && !validLicenses.has(state.license)) state.license = '';
+  if (state.src !== 'toonlab-rock') state.size = '';
+  history.replaceState(null, '', urlFor());
+  syncControls();
 }
 
 async function collect() {
@@ -187,12 +115,15 @@ async function collect() {
   });
   if (state.q.trim()) params.set('q', state.q.trim());
   if (state.type) params.set('kind', state.type);
+  if (state.src) params.set('source', state.src);
+  if (state.license) params.set('license', state.license);
+  if (state.size) params.set('size', state.size);
   const response = await fetch(`/api/toonlab/catalog?${params}`);
   if (!response.ok) throw new Error(`local catalog → HTTP ${response.status}`);
   const result = await response.json();
   const items = (result.items ?? []).map((asset) => ({
     actionLabel: 'Download ↓',
-    badge: `${asset.source} · ${asset.license}`,
+    badge: `${sourceLabel(asset.source)} · ${asset.license}`,
     directOpen: false,
     downloadHref: asset.download_url,
     downloadName: `${asset.name.replace(/[^a-z0-9._-]+/gi, '-') || asset.id}`,
@@ -202,7 +133,8 @@ async function collect() {
     kind: asset.kind,
     label: asset.name,
     popularity: 0,
-    source: 'official',
+    externalDelivery: asset.redistribution_scope === 'external-only',
+    source: asset.source,
     sourceHref: asset.source_url || asset.download_url,
     sourceId: asset.source_id || asset.id,
     thumbUrl: asset.thumbnail_url,
@@ -227,20 +159,7 @@ function card(item) {
   if (item.thumbUrl) media.style.backgroundImage = `url("${item.thumbUrl.replace(/"/g, '%22')}")`;
   else {
     media.classList.add('gal-card-media--empty');
-    if (item.source === 'plateau') {
-      media.classList.add('gal-card-media--plateau');
-      const brand = document.createElement('strong');
-      brand.textContent = 'PLATEAU';
-      const detail = document.createElement('span');
-      detail.textContent = `3D TILES · LOD${item.lod}${item.textured ? ' · TEXTURED' : ''}`;
-      media.append(brand, detail);
-      hydratePlateauThumbnail(media, {
-        id: item.sourceId,
-        tilesetUrl: item.downloadHref,
-      });
-    } else {
-      media.textContent = '🧱';
-    }
+    media.textContent = item.kind === 'model' ? '🧊' : '🧱';
   }
 
   const overlay = document.createElement('div');
@@ -267,11 +186,11 @@ function card(item) {
     e.preventDefault();
     e.stopPropagation();
     if (busy) return;
-    if (item.directOpen && item.downloadHref) {
-      window.open(item.downloadHref, '_blank', 'noopener');
-      return;
-    }
     if (item.downloadHref) {
+      if (item.externalDelivery) {
+        window.open(item.downloadHref, '_blank', 'noopener');
+        return;
+      }
       busy = true;
       download.textContent = 'Downloading…';
       try {
@@ -294,21 +213,7 @@ function card(item) {
       busy = false;
       return;
     }
-    busy = true;
-    try {
-      await downloadPolyhavenAsset({
-        id: item.sourceId,
-        kind: item.kind,
-        onProgress: (done, total, phase) => {
-          download.textContent = phase === 'pack' ? 'Packing…' : `${done}/${total}…`;
-        },
-      });
-    } catch (error) {
-      console.error('Direct download failed:', error);
-      window.open(item.sourceHref, '_blank', 'noopener'); // fallback: source page
-    }
-    download.textContent = actionLabel;
-    busy = false;
+    window.open(item.sourceHref, '_blank', 'noopener');
   };
   download.addEventListener('click', startDownload);
   download.addEventListener('keydown', (e) => {
@@ -385,7 +290,10 @@ async function render() {
 function apply({ resetPage = true } = {}) {
   state.q = els.search.value;
   state.src = els.source.value;
+  state.license = els.license.value;
   state.type = els.type.value;
+  state.size = state.src === 'toonlab-rock' ? els.size.value : '';
+  syncControls();
   if (resetPage) state.page = 1;
   history.pushState(null, '', urlFor());
   render();
@@ -404,7 +312,9 @@ els.form.addEventListener('submit', (e) => {
   apply();
 });
 els.source.addEventListener('change', () => apply());
+els.license.addEventListener('change', () => apply());
 els.type.addEventListener('change', () => apply());
+els.size.addEventListener('change', () => apply());
 
 for (const [el, delta] of [[els.prev, -1], [els.next, 1]]) {
   el.addEventListener('click', (e) => {
@@ -427,4 +337,6 @@ window.addEventListener('popstate', () => {
 // Deep links still work: /gallery/?type=texture (Texture Lab button), ?q=, ?src=.
 readUrl();
 syncControls();
-render();
+Promise.all([loadFacets(), render()]).catch((error) => {
+  console.error('Gallery initialization failed:', error);
+});

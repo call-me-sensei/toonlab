@@ -213,6 +213,7 @@ export function createAssetEngine({ mount }) {
 
   async function stylize(object, stylePreset, {
     materialFamily = GALLERY_MATERIAL_FAMILY.environment,
+    scanStylize = true,
   } = {}) {
     if (materialFamily === GALLERY_MATERIAL_FAMILY.urban) {
       applyUrbanObjectShader(object);
@@ -227,7 +228,7 @@ export function createAssetEngine({ mount }) {
         // heuristic only recognizes photoscan/Fab naming, so force the
         // painterly simplify pass (photo grain → gradients, detail-map
         // compression) — without it imports read as posterized photos.
-        scanStylize: true,
+        scanStylize,
       });
     }
     // The sun-shadow pass flips FrontSide casters to BackSide (three's acne
@@ -436,13 +437,26 @@ export function createAssetEngine({ mount }) {
   async function show(ref, {
     materialFamily = null,
     resolution = '1k',
+    scanStylize = true,
     stylePreset = 'default',
     repeat = 3,
   } = {}) {
+    const reportModelState = (state, error = '') => {
+      document.body.dataset.modelReady = state;
+      if (error) document.body.dataset.modelError = error.slice(0, 160);
+      else delete document.body.dataset.modelError;
+      if (window.parent !== window) {
+        window.parent.postMessage({
+          type: 'toonlab:asset-preview-state',
+          state,
+          error: error ? error.slice(0, 160) : '',
+        }, window.location.origin);
+      }
+    };
     const myToken = ++token;
     // Downloads can take a while — flag the flight so hosts (e.g. the pro
     // asset page) can show a loader for every show, not just the first boot.
-    document.body.dataset.modelReady = 'loading';
+    reportModelState('loading');
     try {
       if (ref.kind === 'model') {
         lastKind = 'model';
@@ -456,18 +470,27 @@ export function createAssetEngine({ mount }) {
               // the recipe keeps the origin url
               return {
                 download: ref.download,
-                pristine: await loadImportedModel({ url: rewritePolyPizzaDownloadUrl(ref.download.url) }),
+                pristine: await loadImportedModel({
+                  renderer,
+                  url: rewritePolyPizzaDownloadUrl(ref.download.url),
+                }),
               };
             }
             if (ref.download?.url) {
               // sources whose refs carry the download directly (KayKit /
               // Open Source 3D raw GitHub urls send CORS `*`; manual imports
               // pass object-urls) — no proxy, no files-doc round trip
-              return { download: ref.download, pristine: await loadImportedModel(ref.download) };
+              return {
+                download: ref.download,
+                pristine: await loadImportedModel({ ...ref.download, renderer }),
+              };
             }
             const files = await fetchPolyhavenFiles(ref.id);
             const download = resolvePolyhavenModelDownload(files, { resolution });
-            return { download, pristine: await loadImportedModel(download) };
+            return {
+              download,
+              pristine: await loadImportedModel({ ...download, renderer }),
+            };
           })());
           modelCache.get(cacheKey).catch(() => modelCache.delete(cacheKey));
         }
@@ -480,10 +503,11 @@ export function createAssetEngine({ mount }) {
         originalDisplay.position.y -= box.min.y;
         await stylize(styledDisplay, stylePreset, {
           materialFamily: lastMaterialFamily,
+          scanStylize,
         });
         if (myToken !== token) return { ok: false, stale: true };
         mountSubject(originalDisplay, styledDisplay);
-        document.body.dataset.modelReady = 'true';
+        reportModelState('true');
         document.body.dataset.assetShown = `${ref.source}/${ref.id}@${stylePreset}`;
         document.body.dataset.assetMaterialFamily = lastMaterialFamily;
         return { download, ok: true };
@@ -500,7 +524,7 @@ export function createAssetEngine({ mount }) {
         await stylize(styledDisplay, stylePreset);
         if (myToken !== token) return { ok: false, stale: true };
         mountSubject(originalDisplay, styledDisplay);
-        document.body.dataset.modelReady = 'true';
+        reportModelState('true');
         document.body.dataset.assetShown = `${ref.source}/${ref.id}@${stylePreset}`;
         document.body.dataset.assetMaterialFamily = lastMaterialFamily;
         return { download, ok: true, textureSet };
@@ -508,8 +532,9 @@ export function createAssetEngine({ mount }) {
 
       return { error: `Unsupported asset kind "${ref.kind}".`, ok: false };
     } catch (error) {
-      if (myToken === token) document.body.dataset.modelReady = 'error';
-      return { error: error?.message ?? String(error), ok: false };
+      const message = error?.message ?? String(error);
+      if (myToken === token) reportModelState('error', message);
+      return { error: message, ok: false };
     }
   }
 

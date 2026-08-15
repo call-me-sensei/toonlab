@@ -383,9 +383,14 @@ export function createTreeEngine({ mount = document.body, store, urlParams }) {
   }
 
   // Initial camera framing; user orbiting is preserved across rebuilds.
+  // Legacy recipes can still produce crowns much larger than their nominal
+  // `size`, so fit the actual plant bounds for every generated plant rather
+  // than only for species-profile recipes. This keeps random procedural trees
+  // fully visible and gives the gallery the same honest first frame as the
+  // species catalog.
   function frameCamera() {
     const { settings } = store.getState();
-    if (plant && settings.plant.speciesProfileId) {
+    if (plant) {
       plant.updateWorldMatrix(true, true);
       const bounds = new THREE.Box3().setFromObject(plant);
       const center = bounds.getCenter(new THREE.Vector3());

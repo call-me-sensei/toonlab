@@ -17,6 +17,17 @@
   flex-wrap: wrap;
 }
 
+.lib-filter {
+  width: auto;
+  min-width: 150px;
+}
+
+#clearFilters[hidden],
+.lib-pager[hidden],
+.lib-tags[hidden] {
+  display: none;
+}
+
 .lib-grid {
   margin-top: 20px;
 }
@@ -83,6 +94,7 @@
   content: "";
   position: absolute;
   inset: 0;
+  z-index: 1;
   background:
     linear-gradient(115deg, rgb(8 10 16 / 0.58), transparent 44%),
     linear-gradient(to top, rgb(8 10 16 / 0.74), transparent 30%);
@@ -100,16 +112,44 @@
   content: "";
   position: absolute;
   inset: 11%;
+  z-index: 1;
   border: 1px solid rgb(242 240 233 / 0.16);
   clip-path: polygon(0 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0 100%);
 }
 
-.lib-preview--empty {
-  color: var(--tl-ink-1);
+.lib-preview-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #0b0e13;
 }
 
-.lib-preview[role="img"] {
-  color: var(--tl-ink-1);
+.lib-preview-glyph {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: clamp(110px, 15vw, 180px);
+  aspect-ratio: 1;
+  border: 1px solid rgb(242 240 233 / 0.3);
+  border-radius: 999px;
+  background: rgb(8 10 16 / 0.3);
+  box-shadow: 0 20px 50px rgb(0 0 0 / 0.32);
+  font-size: clamp(48px, 7vw, 84px);
+}
+
+.lib-preview-label {
+  position: absolute;
+  left: 24px;
+  bottom: 20px;
+  z-index: 2;
+  color: rgb(242 240 233 / 0.62);
+  font-family: var(--tl-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
 }
 
 .lib-hero-copy {
@@ -258,7 +298,7 @@
 }
 
 .lib-form-actions {
-  justify-content: flex-end;
+  justify-content: space-between;
   margin-top: 4px;
 }
 
@@ -299,6 +339,24 @@
   font-size: 12px;
 }
 
+.lib-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.lib-pager .tl-btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.lib-pager-status {
+  color: var(--tl-ink-2);
+  font-size: 12px;
+}
+
 .lib-modal {
   position: fixed;
   inset: 0;
@@ -323,6 +381,13 @@ body.lib-modal-open {
   border-radius: var(--tl-radius-l, 8px);
   background: var(--tl-bg-1);
   box-shadow: 0 12px 40px rgb(0 0 0 / 0.55);
+}
+
+.lib-modal-panel .lib-card {
+  margin-top: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
 }
 
 .lib-modal-header {
@@ -379,13 +444,19 @@ body.lib-modal-open {
 
 @media (max-width: 620px) {
   .lib-tools,
-  .lib-tools .gal-search {
+  .lib-tools .gal-search,
+  .lib-filter,
+  #clearFilters {
     width: 100%;
   }
 
   .lib-preview {
     min-height: 300px;
     width: 100%;
+  }
+
+  .lib-hero {
+    margin-top: 10px;
   }
 
   .lib-hero-copy {
@@ -423,5 +494,13 @@ body.lib-modal-open {
   .lib-modal-panel {
     max-height: calc(100vh - 20px);
     padding: 20px 16px;
+  }
+
+  .lib-pager {
+    justify-content: space-between;
+  }
+
+  .lib-pager .tl-btn {
+    padding-inline: 14px;
   }
 }
